@@ -1,62 +1,42 @@
-# Шаг 1: Используем базовый образ Ubuntu 22.04 с CUDA 12.1
-FROM nvidia/cuda:12.1.1-devel-ubuntu22.04
+# --- ШАГ 1: БАЗОВЫЙ ОБРАЗ (ВАШ ШАБЛОН, БЕЗ ИЗМЕНЕНИЙ) ---
+# Используем официальный образ NVIDIA CUDA 12.8 с cuDNN на Ubuntu 22.04
+FROM nvidia/cuda:12.8.0-cudnn-devel-ubuntu22.04
 
-# Шаг 2: Устанавливаем системные зависимости
+# Устанавливаем неинтерактивный режим для apt и базовые зависимости
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    wget \
-    curl \
-    git \
-    ca-certificates \
-    gnupg \
-    unzip \
-    jq \
+    software-properties-common build-essential wget curl git ca-certificates && \
+    add-apt-repository ppa:deadsnakes/ppa && apt-get update && \
+    apt-get install -y --no-install-recommends python3.11 python3.11-dev python3.11-distutils && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Устанавливаем pip для Python 3.11
+RUN wget https://bootstrap.pypa.io/get-pip.py && python3.11 get-pip.py && rm get-pip.py
+
+
+# --- ШАГ 2: СИСТЕМНЫЕ ЗАВИСИМОСТИ ДЛЯ ВАШЕГО ПРОЕКТА ---
+# Устанавливаем все, что нужно для meet_bot (Xvfb, PulseAudio, Chrome) и обработки аудио (ffmpeg)
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     pulseaudio \
     xvfb \
     libsndfile1 \
     sox \
-    software-properties-common \
-    zlib1g-dev \
-    libncurses5-dev \
-    libgdbm-dev \
-    libnss3-dev \
-    libssl-dev \
-    libreadline-dev \
-    libffi-dev \
-    libsqlite3-dev \
-    libbz2-dev \
-    liblzma-dev \
+    gnupg \
+    unzip \
+    jq \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Шаг 3: Компилируем и устанавливаем Python 3.11.13 из исходников
-WORKDIR /tmp
-RUN wget https://www.python.org/ftp/python/3.11.13/Python-3.11.13.tgz \
-    && tar -xzf Python-3.11.13.tgz \
-    && cd Python-3.11.13 \
-    && ./configure --enable-optimizations --enable-shared --with-lto \
-    && make -j$(nproc) \
-    && make altinstall \
-    && ldconfig \
-    && cd / && rm -rf /tmp/Python-3.11.13*
 
-# Создаем символические ссылки для python3 и pip3
-RUN ln -sf /usr/local/bin/python3.11 /usr/local/bin/python3 \
-    && ln -sf /usr/local/bin/python3.11 /usr/local/bin/python \
-    && ln -sf /usr/local/bin/pip3.11 /usr/local/bin/pip3 \
-    && ln -sf /usr/local/bin/pip3.11 /usr/local/bin/pip
-
-# Обновляем PATH
-ENV PATH="/usr/local/bin:$PATH"
-
-# Шаг 4: Устанавливаем Google Chrome
+# --- ШАГ 3: УСТАНОВКА GOOGLE CHROME И CHROMEDRIVER ---
+# Взял эту логику из вашего старого Dockerfile, она рабочая и надежная
+# Устанавливаем Chrome
 RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome-keyring.gpg \
     && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome-keyring.gpg] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list \
     && apt-get update && apt-get install -y --no-install-recommends google-chrome-stable \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Шаг 5: Устанавливаем ChromeDriver
+# Устанавливаем ChromeDriver, автоматически подбирая нужную версию
 RUN CHROME_VERSION=$(google-chrome --version | cut -d " " -f3 | cut -d "." -f1-3) && \
     DRIVER_URL=$(wget -qO- "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json" | jq -r ".versions[] | select(.version | startswith(\"$CHROME_VERSION\")) | .downloads.chromedriver[] | select(.platform==\"linux64\") | .url" | tail -n 1) && \
     wget -q --continue -P /tmp/ $DRIVER_URL && \
@@ -65,51 +45,57 @@ RUN CHROME_VERSION=$(google-chrome --version | cut -d " " -f3 | cut -d "." -f1-3
     ln -sf /usr/local/bin/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver && \
     rm /tmp/chromedriver-linux64.zip
 
-# Шаг 6: Переходим в рабочую директорию и обновляем pip
-WORKDIR /app
-RUN python3 -m pip install --upgrade pip setuptools wheel
 
-# Шаг 7: Копируем requirements.txt для установки зависимостей
+# --- ШАГ 4: УСТАНОВКА PYTORCH (ВАШ ШАБЛОН, БЕЗ ИЗМЕНЕНИЙ) ---
+ENV TORCH_VERSION=2.7.0
+ENV CUDA_VERSION=12.8
+RUN python3.11 -m pip install --no-cache-dir torch==${TORCH_VERSION}+cu128 torchvision==0.18.0+cu128 torchaudio==2.7.0+cu128 \
+    -f https://download.pytorch.org/whl/torch_stable.html && \
+    python3.11 -m pip install --no-cache-dir transformers==4.34.0
+
+
+# --- ШАГ 5: УСТАНОВКА PYTHON-ЗАВИСИМОСТЕЙ ПРОЕКТА ---
+# Устанавливаем Python3.11 как основной
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+
+# Создаем рабочую директорию
+WORKDIR /workspace
+
+# Копируем наш новый, чистый requirements.txt
 COPY requirements.txt .
 
-# Шаг 8: Устанавливаем зависимости поэтапно для избежания конфликтов
-# Сначала устанавливаем критически важные зависимости
-RUN pip3 install --no-cache-dir \
-    numpy==1.26.4 \
-    Cython \
-    packaging
+# Устанавливаем все зависимости одной командой. Это чисто и предсказуемо.
+RUN python3 -m pip install --no-cache-dir -r requirements.txt
 
-# Устанавливаем PyTorch отдельно (так как у вас специфическая версия torchvision)
-RUN pip3 install --no-cache-dir \
-    torch==2.7.1 \
-    torchaudio==2.7.1
 
-# Устанавливаем torchvision отдельно (версия с CUDA 12.4)
-RUN pip3 install --no-cache-dir torchvision==0.21.0+cu124 --index-url https://download.pytorch.org/whl/cu124
+# --- ШАГ 6: КОПИРОВАНИЕ КОДА ПРОЕКТА ---
+# Копируем весь код проекта ПОСЛЕ установки зависимостей для лучшего кэширования
+COPY . /workspace/
 
-# Устанавливаем остальные зависимости из requirements.txt
-# Исключаем уже установленные пакеты, чтобы избежать конфликтов
-RUN grep -v "^torch" requirements.txt | \
-    grep -v "^numpy" | \
-    grep -v "^Cython" | \
-    grep -v "^packaging" | \
-    grep -v "^#" | \
-    grep -v "^$" > requirements_filtered.txt && \
-    pip3 install --no-cache-dir -r requirements_filtered.txt && \
-    rm requirements_filtered.txt
 
-# Шаг 9: Копируем остальной код приложения
-COPY . .
+# --- ШАГ 7: НАСТРОЙКА КЭША ДЛЯ МОДЕЛЕЙ ---
+# Это гарантирует, что модели будут скачиваться и кэшироваться внутри рабочей директории
+ENV HOME=/workspace
+ENV TORCH_HOME=/workspace/.cache/torch
+ENV NEMO_CACHE_DIR=/workspace/.cache/nemo
+ENV PYTHONPATH=/workspace
 
-# Шаг 10: Настройка переменных окружения для кэша моделей
-ENV HOME=/app
-ENV TORCH_HOME=/app/.cache/torch
-ENV NEMO_CACHE_DIR=/app/.cache/nemo
-ENV PYTHONPATH=/app
 
-# Шаг 11: Предзагружаем модели
+# --- ШАГ 8: ПРЕДЗАГРУЗКА МОДЕЛЕЙ ---
+# "Запекаем" модели прямо в образ, чтобы не скачивать их при каждом запуске контейнера
+# Это может занять много времени при первой сборке, но сильно ускорит последующие запуски.
 RUN python3 download_models.py
 
-# Шаг 12: Настройка сети и запуск
+
+# --- ШАГ 9: ЗАПУСК КОНТЕЙНЕРА ---
+# Открываем порт, который использует ваш server.py
 EXPOSE 8001
-CMD ["python3", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001"]
+
+# Команда по умолчанию, чтобы контейнер просто работал (как вы и просили в шаблоне).
+# Это идеально для разработки: вы запускаете контейнер и подключаетесь к нему через 'docker exec'.
+# CMD ["sleep", "infinity"]
+
+# АЛЬТЕРНАТИВНАЯ КОМАНДА ДЛЯ ПРОДАКШЕНА:
+# Если вы хотите, чтобы сервер FastAPI запускался сразу при старте контейнера,
+# закомментируйте CMD выше и раскомментируйте эту:
+CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001"]

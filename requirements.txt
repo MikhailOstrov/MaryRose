@@ -1,18 +1,21 @@
+# Основные фреймворки
 fastapi
 uvicorn[standard]
 python-multipart
 websockets
+runpod
 
-nemo_toolkit[asr]
-torch>=2.0.0
-torchaudio
+# ML и аудио
+# torch, torchaudio, torchvision УСТАНОВЛЕНЫ В БАЗОВОМ ОБРАЗЕ, НЕ ДОБАВЛЯТЬ!
+nemo_toolkit[all]>=1.22.0
 silero
 webrtcvad
-
 pydub
 soundfile
-numpy==1.26.4
+librosa
+numpy==1.26.4 # Хорошая практика - закрепить версию
 
+# Прочее
 selenium
 scikit-learn
 requests

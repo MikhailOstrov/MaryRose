@@ -1,22 +1,39 @@
-# Основные фреймворки
-fastapi
-uvicorn[standard]
-python-multipart
-websockets
-runpod
+# Основные фреймворки (совместимые версии для Python 3.11.13)
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+websockets==12.0
+pydantic==2.5.2
+runpod==1.5.1
 
-# ML и аудио
-# torch, torchaudio, torchvision УСТАНОВЛЕНЫ В БАЗОВОМ ОБРАЗЕ, НЕ ДОБАВЛЯТЬ!
-nemo_toolkit[all]>=1.22.0
-silero
-webrtcvad
-pydub
-soundfile
-librosa
-numpy==1.26.4 # Хорошая практика - закрепить версию
+# ML и аудио (совместимые версии)
+# PyTorch с CUDA 12.1 поддержкой
+torch==2.7.1
+torchaudio==2.7.1
+torchvision==0.21.0+cu124
 
-# Прочее
-selenium
-scikit-learn
-requests
-python-dotenv # Для загрузки .env файла
+# NeMo toolkit и связанные зависимости
+nemo_toolkit==2.3.2
+omegaconf==2.3.0
+hydra-core==1.3.2
+
+# Аудио обработка
+silero==0.4.1
+webrtcvad==2.0.10
+pydub==0.25.1
+soundfile==0.12.1
+librosa==0.11.0
+numpy==1.26.4
+  # Совместимая версия для NeMo и PyTorch
+
+# Машинное обучение
+scikit-learn==1.6.1
+
+# Браузер автоматизация
+selenium==4.15.2
+
+# Утилиты
+requests==2.31.0
+python-dotenv==1.0.0
+Cython
+packaging

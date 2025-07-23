@@ -1,0 +1,64 @@
+# Используем современную версию спецификации
+version: '3.8'
+
+services:
+  # Сервис вашего FastAPI приложения, назовем его 'app' для ясности
+  app:
+    # Указываем Docker собирать образ из текущей директории, используя ваш новый Dockerfile
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # Пробрасываем порт 8000 из контейнера на ваш компьютер
+    ports:
+      - "8000:8000"
+    # Это критически важный раздел для вашего проекта!
+    volumes:
+      # Сохраняем кэш с ML-моделями NeMo и PyTorch между перезапусками.
+      # Это избавит от необходимости скачивать их каждый раз.
+      - ./.cache:/app/.cache
+      # Сохраняем аудиофайлы, которые записывает бот
+      - ./audio_files:/app/audio_files
+      # Сохраняем голосовые слепки пользователей
+      - ./user_data:/app/user_data
+      # Сохраняем сессию Google, чтобы не логиниться каждый раз
+      - ./chrome_profile:/app/chrome_profile
+    # Увеличиваем размер общей памяти. Крайне важно для стабильной работы Chrome/Selenium.
+    shm_size: '2gb'
+    # Запускать наш 'app' только после того, как сервис 'ollama' будет готов
+    depends_on:
+      - ollama
+    # Передаем переменные окружения в контейнер
+    environment:
+      # САМОЕ ВАЖНОЕ: Указываем приложению, что Ollama находится по адресу 'http://ollama:11434',
+      # а не 'localhost'. 'ollama' - это имя другого сервиса в этой же сети.
+      - OLLAMA_BASE_URL=http://ollama:11434
+    # Раздел для поддержки GPU (если у вас есть видеокарта NVIDIA)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+  # Сервис для Ollama
+  ollama:
+    image: ollama/ollama
+    # Пробрасываем порт для удобства, чтобы можно было обращаться к Ollama и с хост-машины
+    ports:
+      - "11434:11434"
+    # Сохраняем скачанные LLM-модели в именованном томе
+    volumes:
+      - ollama_data:/root/.ollama
+    # Также даем доступ к GPU для Ollama
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+# Определяем именованный том для хранения моделей Ollama
+volumes:
+  ollama_data:

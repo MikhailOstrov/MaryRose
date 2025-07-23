@@ -45,7 +45,7 @@ RUN CHROME_VERSION=$(google-chrome --version | cut -d " " -f3 | cut -d "." -f1-3
 WORKDIR /app
 COPY requirements.txt .
 RUN echo "runpod" >> requirements.txt
-RUN pip install -r requirements.txt
+RUN pip install  -r requirements.txt
 
 # Шаг 6: Предзагрузка и кэширование ML-моделей ("запекание" в образ)
 # Это самый долгий, но самый важный шаг для быстрого старта воркеров на RunPod.

@@ -12,7 +12,7 @@ def load_speaker_model():
     global speaker_model
     if speaker_model is None:
         print(f"Loading Speaker Recognition model ({SPEAKER_MODEL_NAME})...")
-        speaker_model = nemo_asr.models.SpeakerRecognitionModel.from_pretrained(model_name=SPEAKER_MODEL_NAME).to(device).eval()
+        speaker_model = nemo_asr.models.EncDecSpeakerLabelModel.from_pretrained(model_name=SPEAKER_MODEL_NAME).to(device).eval()
         print("Speaker Recognition model loaded.")
 
 def create_voiceprint(user_id: str, audio_files: list) -> bool:

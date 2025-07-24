@@ -60,7 +60,7 @@ RUN python3.11 -m pip install --no-cache-dir \
 
 # --- ШАГ 5: УСТАНОВКА ОСТАЛЬНЫХ PYTHON-ЗАВИСИМОСТЕЙ ---
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
-WORKDIR /workspace
+WORKDIR /app
 
 # Копируем файл с остальными зависимостями
 COPY requirements.txt .
@@ -70,12 +70,12 @@ RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
 
 
 # --- ШАГИ 6-9: КОД, НАСТРОЙКА И ЗАПУСК (БЕЗ ИЗМЕНЕНИЙ) ---
-COPY . /workspace/
+COPY . /app/
 
-ENV HOME=/workspace
-ENV TORCH_HOME=/workspace/.cache/torch
-ENV NEMO_CACHE_DIR=/workspace/.cache/nemo
-ENV PYTHONPATH=/workspace
+ENV HOME=/app
+ENV TORCH_HOME=/app/.cache/torch
+ENV NEMO_CACHE_DIR=/app/.cache/nemo
+ENV PYTHONPATH=/app
 
 RUN python3 download_models.py
 

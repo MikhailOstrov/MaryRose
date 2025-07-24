@@ -34,7 +34,7 @@ load_models()
 # --- Безопасность: API ключ из переменных окружения ---
 # Вы можете задать этот ключ в docker-compose.yml или через -e флаг в docker run
 # Например: docker run -e INTERNAL_API_KEY="your-secret-key" ...
-API_KEY = config.INTERNAL_API_KEY # Предполагается, что вы добавите это в config.py
+API_KEY = 'key' # Предполагается, что вы добавите это в config.py
 API_KEY_NAME = "X-Internal-Api-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
@@ -87,7 +87,7 @@ async def process_file_offline(file: UploadFile = File(...)):
         rttm_path = await asyncio.to_thread(diarization_handler.run_diarization, str(wav_path), str(config.UPLOADS_DIR))
         dialogue = await asyncio.to_thread(diarization_handler.process_rttm_and_transcribe, rttm_path, str(wav_path))
         summary = await asyncio.to_thread(ollama_handler.get_summary_response, dialogue)
-        
+
         logger.info(f"Successfully processed file: {file.filename}")
         return {"status": "success", "full_transcript": dialogue, "summary": summary}
     except Exception as e:

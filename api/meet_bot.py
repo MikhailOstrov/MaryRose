@@ -1,4 +1,3 @@
-# api/meet_bot.py
 import time
 import subprocess
 import threading

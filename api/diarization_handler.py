@@ -1,4 +1,3 @@
-# api/diarization_handler.py
 import nemo.collections.asr as nemo_asr
 from omegaconf import OmegaConf
 import wget

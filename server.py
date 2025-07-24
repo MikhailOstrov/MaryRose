@@ -6,7 +6,7 @@ import logging
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, Request
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
-
+#change
 # Импортируем всю бизнес-логику и конфигурацию
 import config
 from api import bot_manager, diarization_handler, ollama_handler, utils, stt_handler, tts_handler, speaker_handler

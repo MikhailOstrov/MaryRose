@@ -1,5 +1,5 @@
 # api/bot_manager.py
-from meet_bot import MeetBot
+from api.meet_bot import MeetBot
 
 active_bots = {}
 

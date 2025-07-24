@@ -67,3 +67,17 @@ COPY requirements.txt .
 
 # Устанавливаем всё из requirements.txt
 RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
+
+
+# --- ШАГИ 6-9: КОД, НАСТРОЙКА И ЗАПУСК (БЕЗ ИЗМЕНЕНИЙ) ---
+COPY . /workspace/
+
+ENV HOME=/workspace
+ENV TORCH_HOME=/workspace/.cache/torch
+ENV NEMO_CACHE_DIR=/workspace/.cache/nemo
+ENV PYTHONPATH=/workspace
+
+RUN python3 download_models.py
+
+EXPOSE 8001
+CMD ["sleep", "infinity"]

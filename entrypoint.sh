@@ -1,48 +1,44 @@
 #!/bin/bash
 set -e
 
-echo "=== Настройка окружения (ТОЧНАЯ КОПИЯ join_meet) ==="
+echo "=== [Entrypoint] Настройка окружения (версия из join_meet) ==="
 
-# --- 1. Переменные окружения и Display ---
+# --- 1. Настройка Display и Chrome ---
 export DISPLAY=:99
-# Эти переменные могут быть критичны для стабильности Chrome в Docker
-export CHROME_DEVEL_SANDBOX=/usr/lib/chromium-browser/chrome-sandbox
-export CHROME_FLAGS="--memory-pressure-off --max_old_space_size=4096"
-
-echo "[Entrypoint] Создание профиля Chrome с правильными правами..."
-mkdir -p /app/chrome_profile
-chmod 755 /app/chrome_profile
-
-echo "[Entrypoint] Очистка кэша Chrome..."
+# Очищаем кэш и сессии Chrome от предыдущих запусков
+echo "[Entrypoint] Очистка старых сессий Chrome..."
 rm -rf /app/chrome_profile/Default/Service* 2>/dev/null || true
 rm -rf /app/chrome_profile/Default/Session* 2>/dev/null || true
 
 # --- 2. Запуск служб ---
 echo "[Entrypoint] Запуск Xvfb..."
+# Удаляем lock-файл на всякий случай
 rm -f /tmp/.X99-lock
 Xvfb :99 -screen 0 1280x720x16 &
 sleep 3
 
-if xdpyinfo -display :99 >/dev/null 2>&1; then
-    echo "✅ [Entrypoint] Xvfb готов!"
-else
-    echo "❌ [Entrypoint] Xvfb не запустился."
+echo "[Entrypoint] Проверка Xvfb..."
+if ! xdpyinfo -display :99 >/dev/null 2>&1; then
+    echo "❌ [Entrypoint] CRITICAL: Xvfb не запустился. Прерывание."
     exit 1
 fi
+echo "✅ [Entrypoint] Xvfb готов!"
+
 
 echo "[Entrypoint] Запуск PulseAudio..."
-# Используем метод запуска из join_meet
-export PULSE_RUNTIME_PATH=/tmp/pulse-runtime
-mkdir -p $PULSE_RUNTIME_PATH
 pulseaudio --start --exit-idle-time=-1 --daemonize
 sleep 3
 
-echo "[Entrypoint] Настройка аудио..."
+echo "[Entrypoint] Настройка виртуального аудио..."
 if pactl info >/dev/null 2>&1; then
-    echo "✅ [Entrypoint] PulseAudio работает!"
+    echo "✅ [Entrypoint] PulseAudio работает. Создание устройств..."
+    # Создаем виртуальную "раковину" (колонки) для вывода звука из Chrome
     pactl load-module module-null-sink sink_name=meet_sink sink_properties=device.description="Virtual_Sink_for_Meet"
+    # Устанавливаем эту раковину как устройство вывода по умолчанию
     pactl set-default-sink meet_sink
+    # Создаем виртуальный "микрофон", который слушает "раковину".
     pactl load-module module-virtual-source source_name=meet_mic master=meet_sink.monitor
+    # Устанавливаем этот микрофон как устройство ввода по умолчанию
     pactl set-default-source meet_mic
 
     echo "--- [Entrypoint] Диагностика аудио ---"
@@ -52,10 +48,10 @@ if pactl info >/dev/null 2>&1; then
     pactl list sources short
     echo "----------------------------------------"
 else
-    echo "⚠️ [Entrypoint] PulseAudio не отвечает. Аудио не будет работать."
+    echo "⚠️ [Entrypoint] PulseAudio не отвечает. Захват звука не будет работать."
 fi
 
-# --- 3. Финальные проверки и запуск ---
+# --- 3. Проверки и запуск приложения ---
 echo "=== [Entrypoint] Проверка системы ==="
 echo "DISPLAY=$DISPLAY"
 echo "Chrome version: $(google-chrome --version 2>/dev/null || echo 'Chrome не найден')"

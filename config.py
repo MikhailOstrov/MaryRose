@@ -52,7 +52,17 @@ OLLAMA_SUMMARY_PROMPT = """
 ---
 """
 
+# --- Параметры бота для Google Meet ---
+MEET_INPUT_DEVICE_NAME = "pulse"  # Имя виртуального микрофона, создаваемого в entrypoint.sh
+MEET_GUEST_NAME = "Mary"
+MEET_AUDIO_CHUNKS_DIR = AUDIO_FILES_DIR / "meet_chunks" # Куда сохранять чанки
+
+# --- Параметры VAD (Voice Activity Detection) ---
+MEET_VAD_AGGRESSIVENESS = 3           # от 0 (наименее агрессивный) до 3 (наиболее агрессивный)
+MEET_FRAME_DURATION_MS = 30         # длительность фрейма в миллисекундах (10, 20 или 30)
+MEET_PAUSE_THRESHOLD_S = 0.8        # сколько секунд тишины считать концом фразы
+
 def ensure_dirs_exist():
     """Создает все необходимые директории."""
-    for path in [UPLOADS_DIR, STREAMS_DIR, TTS_OUTPUT_DIR, USER_DATA_DIR, MEETINGS_DIR, CHROME_PROFILE_DIR]:
+    for path in [UPLOADS_DIR, STREAMS_DIR, TTS_OUTPUT_DIR, USER_DATA_DIR, MEETINGS_DIR, CHROME_PROFILE_DIR, MEET_AUDIO_CHUNKS_DIR]:
         path.mkdir(parents=True, exist_ok=True)

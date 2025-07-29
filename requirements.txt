@@ -26,6 +26,13 @@ scikit-learn==1.6.1
 
 # Браузер автоматизация
 selenium==4.15.2
+undetected-chromedriver==3.5.0
+
+# Аудио (дополнительно для meet_listener)
+sounddevice==0.4.6
+scipy==1.11.3
+Pillow==10.1.0
+pyaudio==0.2.14
 
 # Утилиты
 requests==2.31.0

@@ -78,11 +78,21 @@ def run_bot_thread(meeting_id: str, meet_url: str):
     Функция-обертка для запуска бота в отдельном потоке.
     Обеспечивает удаление бота из словаря после завершения работы.
     """
+    bot = None  # Инициализируем переменную bot
     try:
         logger.info(f"Запуск бота в потоке для встречи {meeting_id}")
         bot = MeetListenerBot(meeting_url=meet_url, meeting_id=meeting_id)
         active_bots[meeting_id] = bot
-        bot.start() # Этот метод блокирующий, пока бот не остановится
+        bot.start()
+
+        # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ---
+        # Метод start() неблокирующий. Он запускает _run в фоновом потоке.
+        # Мы должны дождаться здесь, пока бот не завершит свою работу сам
+        # (например, по команде stop() или из-за ошибки).
+        # Событие is_running как раз для этого и предназначено.
+        if bot.is_running:
+            bot.is_running.wait() # Блокируемся, пока флаг is_running не будет снят
+
     except Exception as e:
         logger.error(f"Ошибка при запуске/работе бота для {meeting_id}: {e}", exc_info=True)
     finally:

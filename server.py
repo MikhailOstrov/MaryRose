@@ -89,8 +89,8 @@ def run_bot_thread(meeting_id: str, meet_url: str):
         os.environ['OUTPUT_AUDIO_DIR'] = str(session_output_dir)
 
         logger.info(f"Запуск бота в потоке для встречи {meeting_id}")
-        # ИСПРАВЛЕННЫЙ ВЫЗОВ: без meeting_id, как в оригинале meet_listener.
-        bot = MeetListenerBot(meeting_url=meet_url)
+        # ИСПРАВЛЕННЫЙ ВЫЗОВ: возвращаем meeting_id, так как текущая версия meet_listener его требует.
+        bot = MeetListenerBot(meeting_url=meet_url, meeting_id=meeting_id)
         active_bots[meeting_id] = bot
         bot.start() # Этот метод блокирующий, пока бот не остановится
     except Exception as e:

@@ -62,7 +62,7 @@ MEET_INPUT_DEVICE_NAME = "pulse"
 # Имя, под которым бот будет входить на встречу
 MEET_GUEST_NAME = "Mary"
 MEET_AUDIO_CHUNKS_DIR = AUDIO_FILES_DIR / "meet_chunks" # Куда сохранять чанки
-
+#some change
 # --- Параметры VAD (Voice Activity Detection) ---
 MEET_VAD_AGGRESSIVENESS = 1         # от 0 (наименее агрессивный) до 3 (наиболее агрессивный). Возвращено значение из рабочего прототипа.
 MEET_FRAME_DURATION_MS = 30         # длительность фрейма в миллисекундах (10, 20 или 30)

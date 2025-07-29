@@ -14,7 +14,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     jq \
     unzip \
     dos2unix \
-    # Зависимости для Chrome, Xvfb и PulseAudio (взято из join_meet)
+    # Добавляем недостающие пакеты из join_meet для полной совместимости
+    gnupg \
+    x11-utils \
+    procps \
+    # Зависимости для Chrome, Xvfb и PulseAudio (полный список)
     xvfb \
     pulseaudio \
     dbus-x11 \
@@ -25,6 +29,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxss1 \
     libgbm1 \
     libasound2 \
+    # Дополнительные библиотеки для стабильности Chrome
+    libxrandr2 \
+    libpangocairo-1.0-0 \
+    libatk1.0-0 \
+    libcairo-gobject2 \
+    libxcomposite1 \
+    libxcursor1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxinerama1 \
+    libappindicator3-1 \
+    libxshmfence1 \
+    libglu1-mesa \
     # Аудио-библиотеки для Python
     libsndfile1 \
     portaudio19-dev \

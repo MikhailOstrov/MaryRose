@@ -41,12 +41,11 @@ sleep 3
 echo "Setting up audio (if PulseAudio responds)..."
 if pactl info >/dev/null 2>&1; then
     echo "✅ PulseAudio is working!"
-    # Создаем виртуальную "раковину" (колонки) для вывода звука из Chrome
-    pactl load-module module-null-sink sink_name=meet_sink sink_properties=device.description="Virtual_Sink_for_Meet"
+    # ПРИНУДИТЕЛЬНО создаем sink с форматом, который нужен Python-коду (16000Hz, 1 канал, s16le)
+    pactl load-module module-null-sink sink_name=meet_sink format=s16le channels=1 rate=16000 sink_properties=device.description="Virtual_Sink_for_Meet"
     # Устанавливаем эту раковину как устройство вывода по умолчанию
     pactl set-default-sink meet_sink
-    # Создаем виртуальный "микрофон" (источник), который является монитором раковины.
-    # Это ключевой шаг: мы будем слушать все, что попадает в "колонки"
+    # Создаем "микрофон", который слушает монитор раковины и наследует ее формат.
     pactl load-module module-virtual-source source_name=meet_mic master=meet_sink.monitor
     # Устанавливаем этот микрофон как устройство ввода по умолчанию
     pactl set-default-source meet_mic

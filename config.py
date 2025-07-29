@@ -53,12 +53,12 @@ OLLAMA_SUMMARY_PROMPT = """
 """
 
 # --- Параметры бота для Google Meet ---
-MEET_INPUT_DEVICE_NAME = "pulse"  # Имя виртуального микрофона, создаваемого в entrypoint.sh
+MEET_INPUT_DEVICE_NAME = "pulse"  # Имя виртуального микрофона, создаваемого в entrypoint.sh. ДОЛЖНО СОВПАДАТЬ!
 MEET_GUEST_NAME = "Mary"
 MEET_AUDIO_CHUNKS_DIR = AUDIO_FILES_DIR / "meet_chunks" # Куда сохранять чанки
 
 # --- Параметры VAD (Voice Activity Detection) ---
-MEET_VAD_AGGRESSIVENESS = 3           # от 0 (наименее агрессивный) до 3 (наиболее агрессивный)
+MEET_VAD_AGGRESSIVENESS = 1           # от 0 (наименее агрессивный) до 3 (наиболее агрессивный). СНИЖЕНО ДЛЯ ЛУЧШЕЙ ЧУВСТВИТЕЛЬНОСТИ.
 MEET_FRAME_DURATION_MS = 30         # длительность фрейма в миллисекундах (10, 20 или 30)
 MEET_PAUSE_THRESHOLD_S = 0.8        # сколько секунд тишины считать концом фразы
 

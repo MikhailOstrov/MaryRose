@@ -234,6 +234,11 @@ class MeetListenerBot:
     def _find_device_id(self):
         logger.info(f"[{self.meeting_id}] Поиск аудиоустройства с именем '{config.MEET_INPUT_DEVICE_NAME}'...")
         try:
+            # DEBUG: Распечатываем все доступные устройства, чтобы увидеть их реальные имена
+            logger.info("===== СПИСОК ДОСТУПНЫХ АУДИОУСТРОЙСТВ =====")
+            logger.info(sd.query_devices())
+            logger.info("============================================")
+
             devices = sd.query_devices()
             for i, device in enumerate(devices):
                 if config.MEET_INPUT_DEVICE_NAME in device['name'] and device['max_input_channels'] > 0:

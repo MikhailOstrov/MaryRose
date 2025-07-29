@@ -75,27 +75,41 @@ class MeetListenerBot:
     def _initialize_driver(self):
         logger.info(f"[{self.meeting_id}] Запуск undetected_chromedriver...")
         try:
-            options = uc.ChromeOptions()
-            options.add_argument('--no-sandbox')
-            options.add_argument('--disable-dev-shm-usage')
-            options.add_argument(f'--user-data-dir={config.CHROME_PROFILE_DIR}')
-            options.add_argument('--window-size=1280,720')
-            options.add_argument("--autoplay-policy=no-user-gesture-required")
+            logger.info(f"[{self.meeting_id}] Попытка с автоматическими настройками и профилем...")
+            opt = uc.ChromeOptions()
+            opt.add_argument('--no-sandbox')
+            opt.add_argument('--disable-dev-shm-usage')
+            opt.add_argument(f'--user-data-dir={config.CHROME_PROFILE_DIR}')
             
-            # Отключаем запросы на уведомления и микрофон в самом Chrome
-            options.add_experimental_option("prefs", {
-                "profile.default_content_setting_values.media_stream_mic": 2, # 1=Allow, 2=Block
-                "profile.default_content_setting_values.notifications": 2
-            })
-
-            # ПРАВИЛЬНЫЙ ВЫЗОВ: Убираем параметр `headless`, чтобы избежать ошибки `AttributeError`
-            # в последней версии undetected-chromedriver.
-            # Библиотека сама разберется с режимом на основе опций.
-            self.driver = uc.Chrome(options=options, use_subprocess=True)
-            logger.info(f"[{self.meeting_id}] Chrome запущен успешно.")
+            self.driver = uc.Chrome(
+                options=opt,
+                use_subprocess=True,
+                version_main=138 # Закрепляем версию для стабильности
+            )
+            logger.info(f"[{self.meeting_id}] Chrome запущен с автоматическими настройками!")
+            
         except Exception as e:
-            logger.critical(f"[{self.meeting_id}] Полный провал запуска Chrome: {e}", exc_info=True)
-            raise
+            logger.error(f"[{self.meeting_id}] Автоматический запуск не сработал: {e}")
+            logger.info(f"[{self.meeting_id}] Пробуем с базовыми ChromeOptions...")
+            try:
+                opt = uc.ChromeOptions()
+                opt.add_argument('--no-sandbox')
+                opt.add_argument('--disable-dev-shm-usage')
+                opt.add_argument('--disable-gpu')
+                opt.add_argument(f'--user-data-dir={config.CHROME_PROFILE_DIR}')
+                opt.add_argument('--window-size=1280,720')
+                
+                opt.add_experimental_option("prefs", {
+                    "profile.default_content_setting_values.media_stream_mic": 1,
+                    "profile.default_content_setting_values.notifications": 2
+                })
+                
+                self.driver = uc.Chrome(options=opt, version_main=138)
+                logger.info(f"[{self.meeting_id}] Chrome запущен с базовыми настройками!")
+                
+            except Exception as e2:
+                logger.critical(f"[{self.meeting_id}] Полный провал запуска Chrome: {e2}", exc_info=True)
+                raise
 
     def _save_screenshot(self, name: str):
         """Сохраняет скриншот для отладки."""
@@ -108,34 +122,94 @@ class MeetListenerBot:
 
     def join_meet_as_guest(self):
         try:
-            logger.info(f"[{self.meeting_id}] Подключаюсь к встрече: {self.meeting_url}")
+            logger.info(f"[{self.meeting_id}] Подключаюсь к встрече как гость: {self.meeting_url}")
             self.driver.get(self.meeting_url)
-            self._save_screenshot("01_page_loaded")
-
-            # Ввод имени
-            name_input_xpath = '//input[@placeholder="Your name" or @aria-label="Your name"]'
-            name_input = WebDriverWait(self.driver, 20).until(EC.element_to_be_clickable((By.XPATH, name_input_xpath)))
+            time.sleep(8)
+            self._save_screenshot("01_meet_page")
+            
+            logger.info(f"[{self.meeting_id}] Ищу поле для ввода имени...")
+            name_input_xpath = '//input[@placeholder="Your name" or @aria-label="Your name" or contains(@placeholder, "name")]'
+            name_input = WebDriverWait(self.driver, 30).until(
+                EC.element_to_be_clickable((By.XPATH, name_input_xpath))
+            )
+            
+            logger.info(f"[{self.meeting_id}] Ввожу имя: {config.MEET_GUEST_NAME}")
             name_input.clear()
             name_input.send_keys(config.MEET_GUEST_NAME)
+            time.sleep(2)
             self._save_screenshot("02_name_entered")
 
-            # Кнопка "Попросить войти"
-            join_button_xpath = '//button[.//span[contains(text(), "Ask to join")]]'
-            join_button = WebDriverWait(self.driver, 10).until(EC.element_to_be_clickable((By.XPATH, join_button_xpath)))
-            join_button.click()
-            self._save_screenshot("03_ask_to_join_clicked")
-
-            logger.info(f"[{self.meeting_id}] Запрос на присоединение отправлен. Ожидаю одобрения...")
+            # Обработка диалогового окна о разрешении микрофона
+            try:
+                logger.info(f"[{self.meeting_id}] Проверяю наличие диалога о разрешении микрофона...")
+                continue_without_mic_xpath = '//button[.//span[contains(text(), "Continue without microphone")]]'
+                continue_button = WebDriverWait(self.driver, 5).until(
+                    EC.element_to_be_clickable((By.XPATH, continue_without_mic_xpath))
+                )
+                logger.info(f"[{self.meeting_id}] Нажимаю 'Продолжить без микрофона'...")
+                continue_button.click()
+                time.sleep(2)
+                self._save_screenshot("02a_mic_dialog_closed")
+            except Exception:
+                logger.info(f"[{self.meeting_id}] Диалог о разрешении микрофона не найден, продолжаю.")
             
-            # Ожидание индикатора успешного входа
-            success_indicator_xpath = '//button[@data-tooltip*="microphone"]'
-            WebDriverWait(self.driver, 120).until(EC.presence_of_element_located((By.XPATH, success_indicator_xpath)))
-            self._save_screenshot("04_joined_successfully")
-            logger.info(f"[{self.meeting_id}] Успешно присоединился к встрече!")
+            # Нажатие кнопки "Попросить войти"
+            join_button_xpath = '//button[.//span[contains(text(), "Ask to join") or contains(text(), "Попросить войти")]]'
+            logger.info(f"[{self.meeting_id}] Ищу кнопку 'Ask to join'...")
+            join_button = WebDriverWait(self.driver, 30).until(
+                EC.element_to_be_clickable((By.XPATH, join_button_xpath))
+            )
+            join_button.click()
+            self._save_screenshot("03_after_ask_join")
+            
+            logger.info(f"[{self.meeting_id}] Запрос на присоединение отправлен. Ожидаю одобрения хоста...")
+            
+            # Умное ожидание одобрения
+            max_wait_time = 120
+            check_interval = 2
+            elapsed_time = 0
+            
+            success_indicators = [
+                '//button[@data-tooltip*="microphone" or @aria-label*="microphone"]',
+                '//button[@data-tooltip*="camera" or @aria-label*="camera"]',
+                '//button[@data-tooltip*="end call" or @aria-label*="end call"]',
+                '//div[contains(@class, "participant")]'
+            ]
+            
+            while elapsed_time < max_wait_time:
+                logger.info(f"[{self.meeting_id}] Проверяю статус присоединения... ({elapsed_time}с/{max_wait_time}с)")
+                
+                # Проверка на успех
+                for i, xpath in enumerate(success_indicators):
+                    try:
+                        if self.driver.find_element(By.XPATH, xpath).is_displayed():
+                            self._save_screenshot("04_joined_successfully")
+                            logger.info(f"[{self.meeting_id}] Успешно присоединился к встрече! (индикатор #{i+1})")
+                            return
+                    except:
+                        continue
+                
+                # Проверка на отказ
+                error_xpath = '//*[contains(text(), "denied") or contains(text(), "rejected")]'
+                try:
+                    error_element = self.driver.find_element(By.XPATH, error_xpath)
+                    if error_element.is_displayed():
+                        logger.error(f"[{self.meeting_id}] Обнаружено сообщение об отказе: {error_element.text}")
+                        self._save_screenshot("98_join_denied")
+                        raise Exception(f"Присоединение отклонено: {error_element.text}")
+                except:
+                    pass
+
+                time.sleep(check_interval)
+                elapsed_time += check_interval
+            
+            logger.warning(f"[{self.meeting_id}] Превышено время ожидания одобрения ({max_wait_time}с).")
+            self._save_screenshot("99_join_timeout")
+            raise Exception("Превышено время ожидания одобрения хостом.")
 
         except Exception as e:
-            logger.error(f"[{self.meeting_id}] Ошибка при присоединении как гость: {e}", exc_info=True)
-            self._save_screenshot("99_join_error")
+            logger.error(f"[{self.meeting_id}] Критическая ошибка при присоединении как гость: {e}", exc_info=True)
+            self._save_screenshot("99_join_fatal_error")
             raise
 
     def _find_device_id(self):

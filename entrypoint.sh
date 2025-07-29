@@ -43,7 +43,7 @@ else
 
     # Создаем виртуальное устройство ввода (source), которое "слушает" вывод из meet_sink.
     # Это и есть наш "микрофон" для записи.
-    pactl load-module module-virtual-source source_name=meet_mic master=meet_sink.monitor
+    pactl load-module module-virtual-source source_name=meet_mic master=meet_sink.monitor format=s16le rate=16000 channels=1
 
     # Устанавливаем его как источник по умолчанию.
     pactl set-default-source meet_mic

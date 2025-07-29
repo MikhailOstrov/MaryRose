@@ -246,6 +246,8 @@ class MeetListenerBot:
 
     def _audio_capture_callback(self, indata, frames, time, status):
         if status: logger.warning(f"[{self.meeting_id}] Статус аудиоустройства: {status}")
+        # DEBUG: Логируем сам факт вызова коллбэка, чтобы убедиться, что звук захватывается
+        logger.info(f"[{self.meeting_id}] Audio callback called, frames: {frames}")
         if self.is_running.is_set(): self.audio_queue.put(bytes(indata))
 
     def _process_audio_stream(self):
@@ -256,7 +258,16 @@ class MeetListenerBot:
         while self.is_running.is_set():
             try:
                 audio_frame = self.audio_queue.get(timeout=1)
+                
+                # DEBUG: Проверяем, что во фрейме есть хоть какой-то сигнал
+                audio_np = np.frombuffer(audio_frame, dtype=np.int16)
+                max_abs_val = np.abs(audio_np).max() if audio_np.size > 0 else 0
+
                 is_speech = self.vad.is_speech(audio_frame, config.STREAM_SAMPLE_RATE)
+                
+                # DEBUG: Логируем решение VAD и максимальный уровень сигнала во фрейме
+                logger.info(f"[{self.meeting_id}] VAD processing frame. is_speech: {is_speech}, max_signal: {max_abs_val}")
+                
                 if is_speech:
                     speech_buffer.append(audio_frame)
                     silent_frames_count = 0

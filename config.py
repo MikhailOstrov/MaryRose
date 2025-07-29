@@ -53,7 +53,7 @@ OLLAMA_SUMMARY_PROMPT = """
 """
 
 # --- Параметры бота для Google Meet ---
-MEET_INPUT_DEVICE_NAME = "pulse"  # Имя виртуального микрофона, создаваемого в entrypoint.sh. ДОЛЖНО СОВПАДАТЬ!
+MEET_INPUT_DEVICE_NAME = "meet_mic"  # Имя виртуального микрофона, создаваемого в entrypoint.sh. ДОЛЖНО СОВПАДАТЬ!
 MEET_GUEST_NAME = "Mary"
 MEET_AUDIO_CHUNKS_DIR = AUDIO_FILES_DIR / "meet_chunks" # Куда сохранять чанки
 

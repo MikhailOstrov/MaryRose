@@ -88,7 +88,7 @@ class MeetListenerBot:
                 "profile.default_content_setting_values.notifications": 2
             })
 
-            self.driver = uc.Chrome(options=options, use_subprocess=True)
+            self.driver = uc.Chrome(options=options, use_subprocess=True, headless=False)
             logger.info(f"[{self.meeting_id}] Chrome запущен успешно.")
         except Exception as e:
             logger.critical(f"[{self.meeting_id}] Полный провал запуска Chrome: {e}", exc_info=True)

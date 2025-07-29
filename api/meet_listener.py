@@ -164,18 +164,37 @@ class MeetListenerBot:
             
             logger.info(f"[{self.meeting_id}] Запрос на присоединение отправлен. Ожидаю одобрения хоста...")
             
-            # Умное ожидание одобрения
+            # Умное ожидание одобрения (ПОЛНАЯ ВЕРСИЯ ИЗ ОРИГИНАЛА)
             max_wait_time = 120
             check_interval = 2
             elapsed_time = 0
             
             success_indicators = [
-                '//button[@data-tooltip*="microphone" or @aria-label*="microphone"]',
-                '//button[@data-tooltip*="camera" or @aria-label*="camera"]',
-                '//button[@data-tooltip*="end call" or @aria-label*="end call"]',
-                '//div[contains(@class, "participant")]'
+                # Кнопки управления встречей
+                '//button[@data-tooltip*="microphone" or @aria-label*="microphone" or @aria-label*="микрофон"]',
+                '//button[@data-tooltip*="camera" or @aria-label*="camera" or @aria-label*="камера"]', 
+                '//button[@data-tooltip*="end call" or @aria-label*="end call" or @aria-label*="завершить"]',
+                # Иконки материал дизайна
+                '//*[contains(@class, "google-material-icons") and (text()="mic" or text()="mic_off")]',
+                '//*[contains(@class, "google-material-icons") and (text()="videocam" or text()="videocam_off")]',
+                # Элементы интерфейса встречи
+                '//div[@data-self-name]',
+                '//div[contains(@class, "participant") or contains(@class, "Participant")]',
+                # Панель управления внизу
+                '//div[contains(@class, "control") and (contains(@class, "bar") or contains(@class, "panel"))]',
+                # Кнопка "Поднять руку" или меню
+                '//button[@aria-label*="hand" or @aria-label*="рука" or @data-tooltip*="hand"]',
+                # Индикатор количества участников
+                '//*[contains(text(), "participant") or contains(text(), "участник")]'
             ]
             
+            error_indicators = [
+                '//*[contains(text(), "denied") or contains(text(), "отклонен")]',
+                '//*[contains(text(), "rejected") or contains(text(), "отказано")]',
+                '//*[contains(text(), "error") or contains(text(), "ошибка")]',
+                '//*[contains(text(), "unable") or contains(text(), "невозможно")]'
+            ]
+
             while elapsed_time < max_wait_time:
                 logger.info(f"[{self.meeting_id}] Проверяю статус присоединения... ({elapsed_time}с/{max_wait_time}с)")
                 
@@ -190,15 +209,15 @@ class MeetListenerBot:
                         continue
                 
                 # Проверка на отказ
-                error_xpath = '//*[contains(text(), "denied") or contains(text(), "rejected")]'
-                try:
-                    error_element = self.driver.find_element(By.XPATH, error_xpath)
-                    if error_element.is_displayed():
-                        logger.error(f"[{self.meeting_id}] Обнаружено сообщение об отказе: {error_element.text}")
-                        self._save_screenshot("98_join_denied")
-                        raise Exception(f"Присоединение отклонено: {error_element.text}")
-                except:
-                    pass
+                for error_xpath in error_indicators:
+                    try:
+                        error_element = self.driver.find_element(By.XPATH, error_xpath)
+                        if error_element.is_displayed():
+                            logger.error(f"[{self.meeting_id}] Обнаружено сообщение об отказе/ошибке: {error_element.text}")
+                            self._save_screenshot("98_join_denied_or_error")
+                            raise Exception(f"Присоединение отклонено или произошла ошибка: {error_element.text}")
+                    except:
+                        pass
 
                 time.sleep(check_interval)
                 elapsed_time += check_interval

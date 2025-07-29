@@ -88,7 +88,10 @@ class MeetListenerBot:
                 "profile.default_content_setting_values.notifications": 2
             })
 
-            self.driver = uc.Chrome(options=options, use_subprocess=True, headless=False)
+            # ПРАВИЛЬНЫЙ ВЫЗОВ: Убираем параметр `headless`, чтобы избежать ошибки `AttributeError`
+            # в последней версии undetected-chromedriver.
+            # Библиотека сама разберется с режимом на основе опций.
+            self.driver = uc.Chrome(options=options, use_subprocess=True)
             logger.info(f"[{self.meeting_id}] Chrome запущен успешно.")
         except Exception as e:
             logger.critical(f"[{self.meeting_id}] Полный провал запуска Chrome: {e}", exc_info=True)

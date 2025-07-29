@@ -25,6 +25,7 @@ class MeetListenerBot:
     """
     Класс для управления ботом, который подключается к Google Meet,
     слушает аудиопоток и сохраняет его в виде фрагментов (чанков).
+    ЛОГИКА ПОЛНОСТЬЮ СКОПИРОВАНА ИЗ РАБОЧЕГО join_meet/meet_listener.py
     """
     def __init__(self, meeting_url: str, meeting_id: str):
         self.meeting_url = meeting_url
@@ -71,26 +72,28 @@ class MeetListenerBot:
                         return
             except Exception:
                 logger.warning(f"[{self.meeting_id}] Не удалось найти счетчик участников на этой итерации.")
-
+    
+    # --- КРИТИЧЕСКИ ВАЖНЫЙ БЛОК: ИНИЦИАЛИЗАЦИЯ ДРАЙВЕРА 1-в-1 КАК В join_meet ---
     def _initialize_driver(self):
-        logger.info(f"[{self.meeting_id}] Запуск undetected_chromedriver...")
+        logger.info(f"[{self.meeting_id}] Запуск undetected_chromedriver с настройками из join_meet...")
         try:
-            logger.info(f"[{self.meeting_id}] Попытка с автоматическими настройками и профилем...")
+            logger.info(f"[{self.meeting_id}] Попытка №1: с user-data-dir и use_subprocess=True")
             opt = uc.ChromeOptions()
             opt.add_argument('--no-sandbox')
             opt.add_argument('--disable-dev-shm-usage')
-            opt.add_argument(f'--user-data-dir={config.CHROME_PROFILE_DIR}')
+            opt.add_argument(f'--user-data-dir={config.CHROME_PROFILE_DIR}') 
             
             self.driver = uc.Chrome(
                 options=opt,
-                use_subprocess=True,
-                version_main=138 # Закрепляем версию для стабильности
+                headless=False, # Важно для работы в Xvfb
+                use_subprocess=True, # Важно для стабильности
+                version_main=138 # Закрепляем версию для надежности
             )
-            logger.info(f"[{self.meeting_id}] Chrome запущен с автоматическими настройками!")
+            logger.info(f"[{self.meeting_id}] ✅ Chrome запущен (Попытка №1)!")
             
         except Exception as e:
-            logger.error(f"[{self.meeting_id}] Автоматический запуск не сработал: {e}")
-            logger.info(f"[{self.meeting_id}] Пробуем с базовыми ChromeOptions...")
+            logger.error(f"[{self.meeting_id}] Попытка №1 не сработала: {e}")
+            logger.info(f"[{self.meeting_id}] Попытка №2: с базовыми опциями...")
             try:
                 opt = uc.ChromeOptions()
                 opt.add_argument('--no-sandbox')
@@ -105,7 +108,7 @@ class MeetListenerBot:
                 })
                 
                 self.driver = uc.Chrome(options=opt, version_main=138)
-                logger.info(f"[{self.meeting_id}] Chrome запущен с базовыми настройками!")
+                logger.info(f"[{self.meeting_id}] ✅ Chrome запущен (Попытка №2)!")
                 
             except Exception as e2:
                 logger.critical(f"[{self.meeting_id}] Полный провал запуска Chrome: {e2}", exc_info=True)
@@ -119,13 +122,14 @@ class MeetListenerBot:
             logger.info(f"[{self.meeting_id}] Скриншот сохранен: {path}")
         except Exception as e:
             logger.warning(f"[{self.meeting_id}] Не удалось сохранить скриншот '{name}': {e}")
-
+            
+    # --- КРИТИЧЕСКИ ВАЖНЫЙ БЛОК: ЛОГИКА ПРИСОЕДИНЕНИЯ 1-в-1 КАК В join_meet ---
     def join_meet_as_guest(self):
         try:
             logger.info(f"[{self.meeting_id}] Подключаюсь к встрече как гость: {self.meeting_url}")
             self.driver.get(self.meeting_url)
             time.sleep(8)
-            self._save_screenshot("01_meet_page")
+            self._save_screenshot("01_meet_page_loaded")
             
             logger.info(f"[{self.meeting_id}] Ищу поле для ввода имени...")
             name_input_xpath = '//input[@placeholder="Your name" or @aria-label="Your name" or contains(@placeholder, "name")]'
@@ -139,9 +143,8 @@ class MeetListenerBot:
             time.sleep(2)
             self._save_screenshot("02_name_entered")
 
-            # Обработка диалогового окна о разрешении микрофона
             try:
-                logger.info(f"[{self.meeting_id}] Проверяю наличие диалога о разрешении микрофона...")
+                logger.info(f"[{self.meeting_id}] Проверяю наличие диалога о микрофоне...")
                 continue_without_mic_xpath = '//button[.//span[contains(text(), "Continue without microphone")]]'
                 continue_button = WebDriverWait(self.driver, 5).until(
                     EC.element_to_be_clickable((By.XPATH, continue_without_mic_xpath))
@@ -151,83 +154,62 @@ class MeetListenerBot:
                 time.sleep(2)
                 self._save_screenshot("02a_mic_dialog_closed")
             except Exception:
-                logger.info(f"[{self.meeting_id}] Диалог о разрешении микрофона не найден, продолжаю.")
+                logger.info(f"[{self.meeting_id}] Диалог о микрофоне не найден, продолжаю.")
             
-            # Нажатие кнопки "Попросить войти"
             join_button_xpath = '//button[.//span[contains(text(), "Ask to join") or contains(text(), "Попросить войти")]]'
             logger.info(f"[{self.meeting_id}] Ищу кнопку 'Ask to join'...")
             join_button = WebDriverWait(self.driver, 30).until(
                 EC.element_to_be_clickable((By.XPATH, join_button_xpath))
             )
             join_button.click()
-            self._save_screenshot("03_after_ask_join")
+            self._save_screenshot("03_after_ask_to_join")
             
-            logger.info(f"[{self.meeting_id}] Запрос на присоединение отправлен. Ожидаю одобрения хоста...")
-            
-            # Умное ожидание одобрения (ПОЛНАЯ ВЕРСИЯ ИЗ ОРИГИНАЛА)
-            max_wait_time = 120
-            check_interval = 2
-            elapsed_time = 0
+            logger.info(f"[{self.meeting_id}] Запрос отправлен. Ожидаю одобрения хоста (до 120с)...")
+            max_wait_time, check_interval, elapsed_time = 120, 2, 0
             
             success_indicators = [
-                # Кнопки управления встречей
-                '//button[@data-tooltip*="microphone" or @aria-label*="microphone" or @aria-label*="микрофон"]',
-                '//button[@data-tooltip*="camera" or @aria-label*="camera" or @aria-label*="камера"]', 
-                '//button[@data-tooltip*="end call" or @aria-label*="end call" or @aria-label*="завершить"]',
-                # Иконки материал дизайна
-                '//*[contains(@class, "google-material-icons") and (text()="mic" or text()="mic_off")]',
-                '//*[contains(@class, "google-material-icons") and (text()="videocam" or text()="videocam_off")]',
-                # Элементы интерфейса встречи
+                '//button[@data-tooltip*="microphone" or @aria-label*="microphone"]',
+                '//button[@data-tooltip*="camera" or @aria-label*="camera"]', 
+                '//button[@data-tooltip*="end call" or @aria-label*="end call"]',
                 '//div[@data-self-name]',
-                '//div[contains(@class, "participant") or contains(@class, "Participant")]',
-                # Панель управления внизу
-                '//div[contains(@class, "control") and (contains(@class, "bar") or contains(@class, "panel"))]',
-                # Кнопка "Поднять руку" или меню
-                '//button[@aria-label*="hand" or @aria-label*="рука" or @data-tooltip*="hand"]',
-                # Индикатор количества участников
-                '//*[contains(text(), "participant") or contains(text(), "участник")]'
+                '//button[@aria-label*="hand" or @data-tooltip*="hand"]',
+                '//div[contains(@class, "participant")]'
             ]
-            
             error_indicators = [
                 '//*[contains(text(), "denied") or contains(text(), "отклонен")]',
-                '//*[contains(text(), "rejected") or contains(text(), "отказано")]',
-                '//*[contains(text(), "error") or contains(text(), "ошибка")]',
-                '//*[contains(text(), "unable") or contains(text(), "невозможно")]'
+                '//*[contains(text(), "rejected") or contains(text(), "отказано")]'
             ]
 
             while elapsed_time < max_wait_time:
-                logger.info(f"[{self.meeting_id}] Проверяю статус присоединения... ({elapsed_time}с/{max_wait_time}с)")
-                
-                # Проверка на успех
                 for i, xpath in enumerate(success_indicators):
                     try:
                         if self.driver.find_element(By.XPATH, xpath).is_displayed():
                             self._save_screenshot("04_joined_successfully")
-                            logger.info(f"[{self.meeting_id}] Успешно присоединился к встрече! (индикатор #{i+1})")
+                            logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
                             return
-                    except:
-                        continue
+                    except: continue
                 
-                # Проверка на отказ
                 for error_xpath in error_indicators:
                     try:
                         error_element = self.driver.find_element(By.XPATH, error_xpath)
                         if error_element.is_displayed():
-                            logger.error(f"[{self.meeting_id}] Обнаружено сообщение об отказе/ошибке: {error_element.text}")
-                            self._save_screenshot("98_join_denied_or_error")
-                            raise Exception(f"Присоединение отклонено или произошла ошибка: {error_element.text}")
-                    except:
-                        pass
+                            logger.error(f"[{self.meeting_id}] ❌ Присоединение отклонено: {error_element.text}")
+                            self._save_screenshot("98_join_denied")
+                            raise Exception(f"Присоединение отклонено: {error_element.text}")
+                    except: continue
 
                 time.sleep(check_interval)
                 elapsed_time += check_interval
-            
-            logger.warning(f"[{self.meeting_id}] Превышено время ожидания одобрения ({max_wait_time}с).")
+                if elapsed_time % 30 == 0:
+                    logger.info(f"[{self.meeting_id}] Ожидание... {elapsed_time}с прошло.")
+                    self._save_screenshot(f"wait_{elapsed_time}s")
+
+            logger.warning(f"[{self.meeting_id}] ⚠️ Превышено время ожидания одобрения ({max_wait_time}с).")
             self._save_screenshot("99_join_timeout")
             raise Exception("Превышено время ожидания одобрения хостом.")
 
         except Exception as e:
-            logger.error(f"[{self.meeting_id}] Критическая ошибка при присоединении как гость: {e}", exc_info=True)
+            logger.critical(f"[{self.meeting_id}] ❌ Критическая ошибка при присоединении: {e}", exc_info=True)
             self._save_screenshot("99_join_fatal_error")
             raise
 
@@ -235,26 +217,25 @@ class MeetListenerBot:
         logger.info(f"[{self.meeting_id}] Поиск аудиоустройства с именем '{config.MEET_INPUT_DEVICE_NAME}'...")
         try:
             devices = sd.query_devices()
+            logger.debug(f"Найденные аудиоустройства: {devices}")
             for i, device in enumerate(devices):
                 if config.MEET_INPUT_DEVICE_NAME in device['name'] and device['max_input_channels'] > 0:
-                    logger.info(f"[{self.meeting_id}] Найдено целевое устройство: ID {i}, Имя: {device['name']}")
+                    logger.info(f"[{self.meeting_id}] ✅ Найдено целевое устройство: ID {i}, Имя: {device['name']}")
                     return i
             raise ValueError(f"Не удалось найти входное аудиоустройство с именем '{config.MEET_INPUT_DEVICE_NAME}'")
         except Exception as e:
-            logger.error(f"[{self.meeting_id}] Ошибка при поиске аудиоустройств: {e}", exc_info=True)
+            logger.error(f"[{self.meeting_id}] ❌ Ошибка при поиске аудиоустройств: {e}", exc_info=True)
             raise
 
+    # --- Упрощенный callback, как в оригинале, без лишнего логирования ---
     def _audio_capture_callback(self, indata, frames, time, status):
-        """Этот callback вызывается для каждого нового аудио блока."""
         if status:
             logger.warning(f"[{self.meeting_id}] Статус аудиоустройства: {status}")
-        # Добавляем подробное логирование для отладки
-        logger.info(f"[{self.meeting_id}] Audio callback called, frames: {frames}, status: {status}")
         if self.is_running.is_set():
             self.audio_queue.put(bytes(indata))
 
+    # --- Процессор VAD без лишнего логирования ---
     def _process_audio_stream(self):
-        """Обрабатывает аудиопоток из очереди, используя VAD."""
         threading.current_thread().name = f'VADProcessor-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] Процессор VAD запущен.")
         speech_buffer = []
@@ -262,13 +243,7 @@ class MeetListenerBot:
         while self.is_running.is_set():
             try:
                 audio_frame = self.audio_queue.get(timeout=1)
-                
-                # Логируем для отладки
-                audio_np = np.frombuffer(audio_frame, dtype=np.int16)
-                max_abs_val = np.abs(audio_np).max() if audio_np.size > 0 else 0
                 is_speech = self.vad.is_speech(audio_frame, config.STREAM_SAMPLE_RATE)
-                logger.info(f"[{self.meeting_id}] VAD processing frame. is_speech: {is_speech}, max_signal: {max_abs_val}")
-
                 if is_speech:
                     speech_buffer.append(audio_frame)
                     silent_frames_count = 0
@@ -278,7 +253,6 @@ class MeetListenerBot:
                     full_speech_chunk_bytes = b''.join(speech_buffer)
                     speech_buffer.clear()
                     silent_frames_count = 0
-                    # Сохранение вынесено в отдельный поток, чтобы не блокировать VAD
                     threading.Thread(target=self._save_chunk, args=(full_speech_chunk_bytes,)).start()
             except queue.Empty: continue
             except Exception as e: logger.error(f"[{self.meeting_id}] Ошибка в цикле VAD: {e}")
@@ -289,13 +263,13 @@ class MeetListenerBot:
             file_path = self.output_dir / filename
             audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
             write(str(file_path), config.STREAM_SAMPLE_RATE, audio_np)
-            logger.info(f"[{self.meeting_id}] Фрагмент сохранен: {file_path} (длительность: {len(audio_np)/config.STREAM_SAMPLE_RATE:.2f} сек)")
-        except Exception as e: logger.error(f"[{self.meeting_id}] Ошибка при сохранении аудиофрагмента: {e}")
+            logger.info(f"[{self.meeting_id}] 💾 Фрагмент сохранен: {file_path} (длительность: {len(audio_np)/config.STREAM_SAMPLE_RATE:.2f} сек)")
+        except Exception as e: logger.error(f"[{self.meeting_id}] ❌ Ошибка при сохранении аудиофрагмента: {e}")
 
     def start(self):
         """Основной метод запуска бота в отдельном потоке."""
         main_thread = threading.Thread(target=self._run)
-        main_thread.daemon = True
+        main_thread.daemon = True # Поток завершится, если основной процесс умрет
         main_thread.start()
 
     def _run(self):
@@ -314,7 +288,7 @@ class MeetListenerBot:
             monitor_thread.daemon = True
             monitor_thread.start()
 
-            logger.info(f"[{self.meeting_id}] Начинаю прослушивание аудио с устройства ID {device_id}...")
+            logger.info(f"[{self.meeting_id}] 🎤 Начинаю прослушивание аудио с устройства ID {device_id}...")
             with sd.RawInputStream(
                 samplerate=config.STREAM_SAMPLE_RATE,
                 blocksize=self.frame_size,
@@ -323,25 +297,23 @@ class MeetListenerBot:
                 channels=1,
                 callback=self._audio_capture_callback
             ):
-                # Поток будет жить, пока is_running не будет сброшен
                 self.is_running.wait()
             
-            processor_thread.join() # Дожидаемся завершения обработчика
+            processor_thread.join()
             logger.info(f"[{self.meeting_id}] Поток прослушивания остановлен.")
 
         except Exception as e:
-            logger.critical(f"[{self.meeting_id}] Критическая ошибка в работе бота: {e}", exc_info=True)
+            logger.critical(f"[{self.meeting_id}] ❌ Критическая ошибка в работе бота: {e}", exc_info=True)
         finally:
             self.stop()
             logger.info(f"[{self.meeting_id}] Бот полностью остановлен.")
 
-
     def stop(self):
         if not self.is_running.is_set():
-            return # Уже остановлен
+            return
         
         logger.info(f"[{self.meeting_id}] Получена команда на завершение...")
-        self.is_running.clear() # Сигнализируем всем потокам о завершении
+        self.is_running.clear()
         
         if self.driver:
             try:

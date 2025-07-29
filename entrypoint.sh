@@ -37,21 +37,24 @@ if ! pactl info >/dev/null 2>&1; then
 else
     echo "[Entrypoint] PulseAudio started. Setting up virtual audio devices..."
     # Создаем виртуальное устройство вывода (sink), куда Chrome будет направлять звук.
-    pactl load-module module-null-sink sink_name=meet_sink sink_properties=device.description="Virtual_Sink_for_Meet"
-    # Устанавливаем его как устройство по умолчанию.
+    pactl load-module module-null-sink sink_name=meet_sink sink_properties=device.description="MeetSink"
+    # Создаем виртуальный источник (микрофон), который слушает монитор нашего sink
+    # УБИРАЕМ явное указание формата, чтобы PulseAudio сам занимался преобразованием, как в оригинальном скрипте
+    pactl load-module module-virtual-source source_name=meet_mic master=meet_sink.monitor
+
+    # Устанавливаем наши виртуальные устройства по умолчанию
     pactl set-default-sink meet_sink
-
-    # Создаем виртуальное устройство ввода (source), которое "слушает" вывод из meet_sink.
-    # Это и есть наш "микрофон" для записи.
-    pactl load-module module-virtual-source source_name=meet_mic master=meet_sink.monitor format=s16le rate=16000 channels=1
-
-    # Устанавливаем его как источник по умолчанию.
     pactl set-default-source meet_mic
 
     echo "[Entrypoint] Virtual audio devices 'meet_sink' and 'meet_mic' created."
-    echo "--- Audio Setup ---"
-    pactl list sources short | grep "meet_mic"
-    echo "-------------------"
+    echo "--- Audio Setup Diagnostics ---"
+    echo "--- pactl info ---"
+    pactl info
+    echo "--- Sinks ---"
+    pactl list sinks short
+    echo "--- Sources ---"
+    pactl list sources short
+    echo "-------------------------------"
 fi
 
 # --- 3. Chrome Profile ---

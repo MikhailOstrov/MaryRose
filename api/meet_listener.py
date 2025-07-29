@@ -234,11 +234,6 @@ class MeetListenerBot:
     def _find_device_id(self):
         logger.info(f"[{self.meeting_id}] Поиск аудиоустройства с именем '{config.MEET_INPUT_DEVICE_NAME}'...")
         try:
-            # DEBUG: Распечатываем все доступные устройства, чтобы увидеть их реальные имена
-            logger.info("===== СПИСОК ДОСТУПНЫХ АУДИОУСТРОЙСТВ =====")
-            logger.info(sd.query_devices())
-            logger.info("============================================")
-
             devices = sd.query_devices()
             for i, device in enumerate(devices):
                 if config.MEET_INPUT_DEVICE_NAME in device['name'] and device['max_input_channels'] > 0:
@@ -250,12 +245,16 @@ class MeetListenerBot:
             raise
 
     def _audio_capture_callback(self, indata, frames, time, status):
-        if status: logger.warning(f"[{self.meeting_id}] Статус аудиоустройства: {status}")
-        # DEBUG: Логируем сам факт вызова коллбэка, чтобы убедиться, что звук захватывается
-        logger.info(f"[{self.meeting_id}] Audio callback called, frames: {frames}")
-        if self.is_running.is_set(): self.audio_queue.put(bytes(indata))
+        """Этот callback вызывается для каждого нового аудио блока."""
+        if status:
+            logger.warning(f"[{self.meeting_id}] Статус аудиоустройства: {status}")
+        # Добавляем подробное логирование для отладки
+        logger.info(f"[{self.meeting_id}] Audio callback called, frames: {frames}, status: {status}")
+        if self.is_running.is_set():
+            self.audio_queue.put(bytes(indata))
 
     def _process_audio_stream(self):
+        """Обрабатывает аудиопоток из очереди, используя VAD."""
         threading.current_thread().name = f'VADProcessor-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] Процессор VAD запущен.")
         speech_buffer = []
@@ -264,15 +263,12 @@ class MeetListenerBot:
             try:
                 audio_frame = self.audio_queue.get(timeout=1)
                 
-                # DEBUG: Проверяем, что во фрейме есть хоть какой-то сигнал
+                # Логируем для отладки
                 audio_np = np.frombuffer(audio_frame, dtype=np.int16)
                 max_abs_val = np.abs(audio_np).max() if audio_np.size > 0 else 0
-
                 is_speech = self.vad.is_speech(audio_frame, config.STREAM_SAMPLE_RATE)
-                
-                # DEBUG: Логируем решение VAD и максимальный уровень сигнала во фрейме
                 logger.info(f"[{self.meeting_id}] VAD processing frame. is_speech: {is_speech}, max_signal: {max_abs_val}")
-                
+
                 if is_speech:
                     speech_buffer.append(audio_frame)
                     silent_frames_count = 0

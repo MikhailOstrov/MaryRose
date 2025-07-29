@@ -4,6 +4,11 @@ set -e
 echo "===== [Entrypoint] - STARTING ENVIRONMENT SETUP ====="
 
 # --- 1. Xvfb (Virtual Display) ---
+# УДАЛЯЕМ LOCK-ФАЙЛ, если он остался от предыдущего запуска.
+# Это делает запуск более надежным, особенно после сбоев.
+echo "[Entrypoint] Removing old Xvfb lock file if it exists..."
+rm -f /tmp/.X99-lock
+
 # Запускаем виртуальный X-сервер на дисплее :99
 # Это необходимо, чтобы Chrome мог работать в headless-режиме, но при этом "думать", что у него есть экран.
 echo "[Entrypoint] Starting Xvfb on display :99..."
@@ -54,6 +59,13 @@ fi
 # Это нужно для сохранения сессии и куки.
 echo "[Entrypoint] Ensuring Chrome profile directory exists at /app/chrome_profile"
 mkdir -p /app/chrome_profile
+
+# Очищаем кэш и сессии Chrome от предыдущих запусков (взято из join_meet)
+echo "[Entrypoint] Cleaning up old Chrome session and cache files..."
+rm -rf /app/chrome_profile/Default/Service* 2>/dev/null || true
+rm -rf /app/chrome_profile/Default/Session* 2>/dev/null || true
+
+
 chmod -R 777 /app/chrome_profile
 
 echo "===== [Entrypoint] - ENVIRONMENT READY ====="

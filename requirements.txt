@@ -24,9 +24,9 @@ numpy==1.26.4
 # Машинное обучение
 scikit-learn==1.6.1
 
-# Браузер автоматизация
-selenium==4.15.2
-undetected-chromedriver==3.5.0
+# Браузер автоматизация (версии не закреплены для совместимости)
+selenium
+undetected-chromedriver
 
 # Аудио (дополнительно для meet_listener)
 sounddevice==0.4.6

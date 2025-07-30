@@ -277,14 +277,8 @@ class MeetListenerBot:
             logger.info(f"[{self.meeting_id}] 💾 Фрагмент сохранен: {file_path} (длительность: {len(audio_np)/config.STREAM_SAMPLE_RATE:.2f} сек)")
         except Exception as e: logger.error(f"[{self.meeting_id}] ❌ Ошибка при сохранении аудиофрагмента: {e}")
 
-    def start(self):
-        """Основной метод запуска бота в отдельном потоке."""
-        main_thread = threading.Thread(target=self._run)
-        main_thread.daemon = True # Поток завершится, если основной процесс умрет
-        main_thread.start()
-
-    def _run(self):
-        """Внутренний метод, выполняющий всю работу."""
+    def run(self):
+        """Основной метод, выполняющий всю работу."""
         threading.current_thread().name = f'MeetBot-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] Бот запускается...")
         try:

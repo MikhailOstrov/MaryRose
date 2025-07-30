@@ -64,7 +64,7 @@ MEET_GUEST_NAME = "Mary"
 MEET_AUDIO_CHUNKS_DIR = AUDIO_FILES_DIR / "meet_chunks" # Куда сохранять чанки
 #some change
 # --- Параметры VAD (Voice Activity Detection) ---
-MEET_VAD_AGGRESSIVENESS = 1         # от 0 (наименее агрессивный) до 3 (наиболее агрессивный). Возвращено значение из рабочего прототипа.
+MEET_VAD_AGGRESSIVENESS = 3         # от 0 (наименее агрессивный) до 3 (наиболее агрессивный). ИСПРАВЛЕНО: как в рабочем join_meet!
 MEET_FRAME_DURATION_MS = 30         # длительность фрейма в миллисекундах (10, 20 или 30)
 MEET_PAUSE_THRESHOLD_S = 0.8        # сколько секунд тишины считать концом фразы
 

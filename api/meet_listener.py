@@ -302,9 +302,9 @@ class MeetListenerBot:
                 channels=1,
                 callback=self._audio_capture_callback
             ):
-                self.is_running.wait()
+                # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: как в рабочем оригинале
+                processor_thread.join()
             
-            processor_thread.join()
             logger.info(f"[{self.meeting_id}] Поток прослушивания остановлен.")
 
         except Exception as e:

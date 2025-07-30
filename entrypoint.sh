@@ -5,6 +5,9 @@ echo "=== [Entrypoint] Настройка окружения (версия из 
 
 # --- 1. Настройка Display и Chrome ---
 export DISPLAY=:99
+# Переменные Chrome (как в рабочем join_meet)
+export CHROME_DEVEL_SANDBOX=/usr/lib/chromium-browser/chrome-sandbox
+export CHROME_FLAGS="--memory-pressure-off --max_old_space_size=4096"
 # Очищаем кэш и сессии Chrome от предыдущих запусков
 echo "[Entrypoint] Очистка старых сессий Chrome..."
 rm -rf /app/chrome_profile/Default/Service* 2>/dev/null || true
@@ -25,8 +28,11 @@ fi
 echo "✅ [Entrypoint] Xvfb готов!"
 
 
-echo "[Entrypoint] Запуск PulseAudio..."
-pulseaudio -D --exit-idle-time=-1 # Заменено на команду из join_meet для надежности
+echo "[Entrypoint] Запуск PulseAudio в USER режиме (как в рабочем join_meet)..."
+# ИСПОЛЬЗУЕМ ТОЧНО ТАКУЮ ЖЕ НАСТРОЙКУ КАК В РАБОЧЕМ join_meet/entrypoint.sh
+export PULSE_RUNTIME_PATH=/tmp/pulse-runtime
+mkdir -p $PULSE_RUNTIME_PATH
+pulseaudio --start --exit-idle-time=-1 --daemonize
 sleep 3
 
 echo "[Entrypoint] Настройка виртуального аудио..."
@@ -61,5 +67,5 @@ echo "Available memory: $(free -h | grep Mem)"
 
 echo "=== [Entrypoint] Запуск основного приложения ==="
 echo "[Entrypoint] Передача управления команде: $@"
-# Явно передаем DISPLAY в дочерний процесс для надежности
-exec env DISPLAY=$DISPLAY "$@"
+# Выполняем команду, переданную из Dockerfile (uvicorn)
+exec "$@"

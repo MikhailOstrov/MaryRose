@@ -26,7 +26,7 @@ echo "✅ [Entrypoint] Xvfb готов!"
 
 
 echo "[Entrypoint] Запуск PulseAudio..."
-pulseaudio --start --exit-idle-time=-1 --daemonize
+pulseaudio -D --exit-idle-time=-1 # Заменено на команду из join_meet для надежности
 sleep 3
 
 echo "[Entrypoint] Настройка виртуального аудио..."
@@ -61,5 +61,5 @@ echo "Available memory: $(free -h | grep Mem)"
 
 echo "=== [Entrypoint] Запуск основного приложения ==="
 echo "[Entrypoint] Передача управления команде: $@"
-# Выполняем команду, переданную из Dockerfile (uvicorn)
-exec "$@"
+# Явно передаем DISPLAY в дочерний процесс для надежности
+exec env DISPLAY=$DISPLAY "$@"

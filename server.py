@@ -78,6 +78,7 @@ def run_bot_thread(meeting_id: str, meet_url: str):
     Функция-обертка для запуска бота в отдельном потоке.
     Обеспечивает удаление бота из словаря после завершения работы.
     """
+    #it working
     bot = None
     try:
         logger.info(f"Запуск бота в потоке для встречи {meeting_id}")

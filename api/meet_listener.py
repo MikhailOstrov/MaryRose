@@ -328,9 +328,9 @@ class MeetListenerBot:
             # Сохранение резюме
             summary_filename = f"summary_{self.meeting_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
             summary_filepath = self.summary_output_dir / summary_filename
-            with open(summary_filepath, "w", encoding="utf-8") as f:
-                f.write(summary_text)
-            logger.info(f"[{self.meeting_id}] ✅ Резюме успешно сохранено в: '{summary_filepath}'")
+            # with open(summary_filepath, "w", encoding="utf-8") as f:
+            #     f.write(summary_text)
+            # logger.info(f"[{self.meeting_id}] ✅ Резюме успешно сохранено в: '{summary_filepath}'")
 
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка при постобработке: {e}", exc_info=True)

@@ -24,7 +24,7 @@ from config.config import (STREAM_SAMPLE_RATE,MEET_FRAME_DURATION_MS,
 from handlers.stt_handler import transcribe_chunk
 from handlers.ollama_handler import get_mary_response, get_summary_response
 from handlers.diarization_handler import run_diarization, process_rttm_and_transcribe
-from api.utils import combine_audio_chunks, convert_to_standard_wav
+from api.utils import combine_audio_chunks
 
 logger = logging.getLogger(__name__)
 

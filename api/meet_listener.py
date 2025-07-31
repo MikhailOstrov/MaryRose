@@ -271,6 +271,10 @@ class MeetListenerBot:
                     full_speech_chunk_bytes = b''.join(speech_buffer)
                     speech_buffer.clear()
                     silent_frames_count = 0
+                    # Сначала сохраняем фрагмент в любом случае для последующей обработки
+                    threading.Thread(target=self._save_chunk, args=(full_speech_chunk_bytes,)).start()
+
+                    # Затем выполняем транскрипцию и проверяем на триггерные слова
                     transcription, trigger_word = transcribe_chunk(full_speech_chunk_bytes)
                     print(transcription)
                     if trigger_word == 1:
@@ -282,9 +286,6 @@ class MeetListenerBot:
                         # !!!Можно вывести в GMeet в чат пока что.
                         #
 
-                    else:
-                        continue
-                    threading.Thread(target=self._save_chunk, args=(full_speech_chunk_bytes,)).start()
             except queue.Empty: continue
             except Exception as e: logger.error(f"[{self.meeting_id}] Ошибка в цикле VAD: {e}")
 

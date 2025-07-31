@@ -66,7 +66,11 @@ RUN curl -L https://github.com/ollama/ollama/releases/download/v0.1.48/ollama-li
 
 # 4. Запускаем сервер временно, чтобы СКАЧАТЬ МОДЕЛЬ В ОБРАЗ, и сразу его останавливаем
 # Это "запекает" модель прямо в слой Docker-образа.
-RUN /usr/local/bin/ollama serve & \
+# ВАЖНО: Устанавливаем OLLAMA_MODELS, чтобы модели скачались в /app/.ollama,
+# куда будет смотреть сервер при реальном запуске.
+RUN mkdir -p /app/.ollama && \
+    export OLLAMA_MODELS=/app/.ollama && \
+    /usr/local/bin/ollama serve & \
     sleep 10 && \
     /usr/local/bin/ollama pull llama3:8b-instruct-q4_K_M && \
     pkill -f ollama

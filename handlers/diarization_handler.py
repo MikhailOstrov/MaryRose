@@ -5,13 +5,13 @@ from pathlib import Path
 
 from config.load_models import diarizer_model
 
-def run_diarization(audio_file_path: str, output_dir: str, num_speakers: int = None) -> str:
+def run_diarization(audio_file_path: str, output_dir: str) -> str:
     
     manifest_path = os.path.join(output_dir, "diar_manifest.json")
     meta = {
         'audio_filepath': os.path.abspath(audio_file_path),
         'offset': 0, 'duration': None, 'label': 'infer', 'text': '-',
-        'num_speakers': num_speakers if num_speakers > 0 else None, 
+        'num_speakers': None, 
         'rttm_filepath': None, 'uem_filepath': None
     }
     with open(manifest_path, 'w', encoding='utf-8') as fp:

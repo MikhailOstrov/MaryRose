@@ -1,4 +1,4 @@
-import httpx
+import requests
 
 OLLAMA_BASE_URL = "http://localhost:11434"
 OLLAMA_MODEL = "llama3:8b-instruct-q4_K_M"
@@ -26,37 +26,36 @@ OLLAMA_SUMMARY_PROMPT = """
 ---
 """
 
-client = httpx.AsyncClient(base_url=OLLAMA_BASE_URL, timeout=45.0)
-
-async def _call_ollama(prompt: str) -> str:
+def _call_ollama(prompt: str) -> str:
     """
-    Приватная функция для отправки запроса в Ollama и обработки ответа.
+    Приватная функция для отправки запроса в Ollama и обработки ответа (синхронная).
     """
     data = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
     try:
-        response = await client.post("/api/generate", json=data)
-        response.raise_for_status()
+        # Вызов requests.post блокирующий
+        response = requests.post(f"{OLLAMA_BASE_URL}/api/generate", json=data,  timeout=30.0)
+        response.raise_for_status() # Вызовет исключение для статусов 4xx/5xx
         return response.json().get('response', '')
-    except httpx.RequestError as e:
+    except requests.exceptions.RequestException as e: # Общая ошибка для requests
         print(f"Ollama connection error: {e}")
         return ""
 
-async def get_mary_response(command: str) -> str:
+def get_mary_response(command: str) -> str:
     """
-    Формирует промпт для ассистента и получает ответ от Ollama.
+    Формирует промпт для ассистента и получает ответ от Ollama (синхронная).
     """
     prompt = OLLAMA_ASSISTANT_PROMPT.format(command=command)
-    response_text = await _call_ollama(prompt)
+    response_text = _call_ollama(prompt)
     if not response_text:
         return "Извините, у меня проблемы с подключением."
     return response_text.strip()
 
-async def get_summary_response(dialogue_text: str) -> str:
+def get_summary_response(dialogue_text: str) -> str:
     """
-    Формирует промпт для саммаризации и получает ответ от Ollama.
+    Формирует промпт для саммаризации и получает ответ от Ollama (синхронная).
     """
     prompt = OLLAMA_SUMMARY_PROMPT.format(dialogue_text=dialogue_text)
-    response_text = await _call_ollama(prompt)
+    response_text = _call_ollama(prompt)
     if not response_text:
         return "Не удалось создать резюме из-за ошибки."
     return response_text.strip()

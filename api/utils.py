@@ -1,13 +1,8 @@
-# api/utils.py
-import subprocess
-from pathlib import Path
-from config.config import UPLOADS_DIR
 import glob
 import os
 import logging
 import soundfile as sf
 import numpy as np
-from config.config import STREAM_SAMPLE_RATE
 
 logger = logging.getLogger(__name__)
 

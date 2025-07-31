@@ -1,8 +1,6 @@
-# api/meet_listener.py
 import os
 import time
 import queue
-import asyncio
 import threading
 import logging
 from datetime import datetime
@@ -289,7 +287,7 @@ class MeetListenerBot:
             except queue.Empty: continue
             except Exception as e: logger.error(f"[{self.meeting_id}] Ошибка в цикле VAD: {e}")
 
-    async def _perform_post_processing(self):
+    def _perform_post_processing(self):
         """
         Выполняет всю постобработку: объединение аудио, транскрипцию,
         диаризацию и суммаризацию. Вызывается в отдельном потоке.
@@ -298,7 +296,7 @@ class MeetListenerBot:
         logger.info(f"[{self.meeting_id}] Начинаю постобработку...")
 
         try:
-            # 1. Объединение аудио чанков
+            # Объединение аудио чанков
             combined_audio_filename = f"combined_meeting_{self.meeting_id}.wav"
             combined_audio_filepath = self.output_dir / combined_audio_filename
 
@@ -313,21 +311,21 @@ class MeetListenerBot:
                 logger.error(f"[{self.meeting_id}] Объединенный аудиофайл не был создан: {combined_audio_filepath}")
                 return
             
-            # 3. Диаризация
+            # Диаризация
             logger.info(f"[{self.meeting_id}] Запуск диаризации...")
             rttm_path = run_diarization(str(combined_audio_filepath), str(self.output_dir))
             
-            # 4. Обработка RTTM и транскрипция (возможно, слияние с результатами онлайн STT)
+            # Обработка RTTM и транскрипция (возможно, слияние с результатами онлайн STT)
             logger.info(f"[{self.meeting_id}] Обработка диаризации и транскрипция...")
             dialogue_transcript = process_rttm_and_transcribe(rttm_path, str(combined_audio_filepath))
             print(f"Это вывод диалога: \n{dialogue_transcript}")
 
-            # 5. Суммаризация
+            # Суммаризация
             logger.info(f"[{self.meeting_id}] Создание резюме...")
-            summary_text = await get_summary_response(dialogue_transcript)
+            summary_text = get_summary_response(dialogue_transcript)
             print(f"Это вывод summary: \n{summary_text} соси")
             
-            # 6. Сохранение резюме
+            # Сохранение резюме
             summary_filename = f"summary_{self.meeting_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
             summary_filepath = self.summary_output_dir / summary_filename
             with open(summary_filepath, "w", encoding="utf-8") as f:
@@ -338,19 +336,6 @@ class MeetListenerBot:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка при постобработке: {e}", exc_info=True)
         finally:
             logger.info(f"[{self.meeting_id}] Постобработка завершена.")
-
-    def _run_async_in_thread(self):
-
-        """Вспомогательная функция, которая запускает event loop в новом потоке."""
-
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
-        try:
-            loop.run_until_complete(self._perform_post_processing())
-        finally:
-            loop.close()
-            logger.info(f"[{self.meeting_id}] Event loop в потоке постобработки закрыт.")
 
     def _save_chunk(self, audio_bytes: bytes):
         try:
@@ -405,7 +390,7 @@ class MeetListenerBot:
 
         self.is_running.clear()
         
-        post_processing_thread = threading.Thread(target=self._run_async_in_thread)
+        post_processing_thread = threading.Thread(target=self._perform_post_processing)
         post_processing_thread.daemon = False
         post_processing_thread.start()
 

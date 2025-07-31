@@ -3,6 +3,7 @@ import time
 import queue
 import threading
 import logging
+import requests
 from datetime import datetime
 from uuid import uuid4
 import webrtcvad
@@ -323,7 +324,10 @@ class MeetListenerBot:
             # Суммаризация
             logger.info(f"[{self.meeting_id}] Создание резюме...")
             summary_text = get_summary_response(dialogue_transcript)
-            print(f"Это вывод summary: \n{summary_text} соси")
+            print(f"Это вывод summary: \n{summary_text}")
+            
+            # Отправка результатов на внешний сервер
+            self._send_results_to_backend(dialogue_transcript, summary_text)
             
             # Сохранение резюме
             summary_filename = f"summary_{self.meeting_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
@@ -336,6 +340,47 @@ class MeetListenerBot:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка при постобработке: {e}", exc_info=True)
         finally:
             logger.info(f"[{self.meeting_id}] Постобработка завершена.")
+
+    def _send_results_to_backend(self, full_text: str, summary: str):
+        """Отправляет результаты встречи на внешний backend"""
+        try:
+            # Преобразуем meeting_id в число если это строка
+            meeting_id_int = int(self.meeting_id) if isinstance(self.meeting_id, str) else self.meeting_id
+            
+            # Данные для отправки
+            payload = {
+                "meeting_id": meeting_id_int,
+                "full_text": full_text,
+                "summary": summary
+            }
+            
+            # Заголовки
+            headers = {
+                "X-Internal-Api-Key": "key",
+                "Content-Type": "application/json"
+            }
+            
+            # Отправляем запрос
+            logger.info(f"[{self.meeting_id}] Отправляю результаты на backend...")
+            response = requests.post(
+                "http://35.246.252.4/meetings/internal/result",
+                json=payload,
+                headers=headers,
+                timeout=30
+            )
+            
+            response.raise_for_status()
+            logger.info(f"[{self.meeting_id}] ✅ Результаты успешно отправлены на backend")
+            
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Ошибка при отправке результатов на backend: {e}")
+            logger.error(f"[{self.meeting_id}] ❌ Ошибка при отправке результатов: {e}")
+        except ValueError as e:
+            print(f"❌ Ошибка преобразования meeting_id в число: {e}")
+            logger.error(f"[{self.meeting_id}] ❌ Ошибка meeting_id: {e}")
+        except Exception as e:
+            print(f"❌ Неожиданная ошибка при отправке результатов: {e}")
+            logger.error(f"[{self.meeting_id}] ❌ Неожиданная ошибка: {e}")
 
     def _save_chunk(self, audio_bytes: bytes):
         try:

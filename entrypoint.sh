@@ -68,12 +68,19 @@ echo "Available memory: $(free -h | grep Mem)"
 # Запускаем сервер Ollama в фоновом режиме
 /usr/local/bin/ollama serve &
 
-# Ждем, пока сервер запустится
-# (Можно добавить более умную проверку доступности порта 11434)
-echo "Ожидание запуска сервера Ollama..."
-sleep 5
+echo "[Entrypoint] Ожидание готовности сервера Ollama..."
+# Используем цикл while с curl для проверки, что сервер отвечает, вместо жесткого sleep
+# -s - silent
+# -f - fail silently (return non-zero on server errors)
+# -o /dev/null - discard output
+timeout 60 bash -c 'until curl -sf -o /dev/null http://localhost:11434; do echo "Сервер Ollama еще не готов, ждем..."; sleep 2; done'
 
-echo "Сервер Ollama запущен."
+if [ $? -ne 0 ]; then
+    echo "❌ [Entrypoint] CRITICAL: Сервер Ollama не запустился за 60 секунд. Прерывание."
+    exit 1
+fi
+
+echo "✅ [Entrypoint] Сервер Ollama готов и отвечает."
 
 echo "=== [Entrypoint] Запуск основного приложения ==="
 echo "[Entrypoint] Передача управления команде: $@"

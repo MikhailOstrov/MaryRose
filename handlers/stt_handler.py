@@ -28,7 +28,7 @@ def transcribe_chunk(audio_chunk_bytes: bytes):
             temp_file_path = tmp.name
             sf.write(temp_file_path, audio_np, STREAM_SAMPLE_RATE)
 
-        transcriptions = asr_model.transcribe([temp_file_path], batch_size=1)
+        transcriptions = asr_model.transcribe(temp_file_path, batch_size=1)
         raw_transcript = transcriptions[0].text if transcriptions else ""
 
         corrected_transcript = post_process_transcript(raw_transcript, my_corrections)
@@ -48,7 +48,7 @@ def transcribe_chunk(audio_chunk_bytes: bytes):
 
 def transcribe_file(file_path: str) -> list:
     try:
-        return asr_model.transcribe([file_path], batch_size=16)
+        return asr_model.transcribe(file_path, batch_size=16)
     except Exception as e:
         print(f"Error in transcribe_file: {e}")
         return []

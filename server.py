@@ -8,9 +8,9 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
 
 # Импортируем бизнес-логику и конфигурацию
-import config
-from api import diarization_handler, ollama_handler, utils, stt_handler, tts_handler, speaker_handler
-# НОВЫЙ ИМПОРТ: наш бот для Google Meet
+from config.config import UPLOADS_DIR
+from api import utils
+from handlers import diarization_handler, ollama_handler, stt_handler, tts_handler
 from api.meet_listener import MeetListenerBot
 
 # --- Настройка логирования ---
@@ -22,19 +22,6 @@ app = FastAPI(title="AI Meeting Bot Server")
 
 # Словарь для отслеживания активных ботов
 active_bots = {}
-
-def load_models():
-    """Загружает все ML-модели. Вызывается один раз при старте сервера."""
-    logger.info("--- Loading all ML models for the server ---")
-    config.ensure_dirs_exist()
-    tts_handler.load_tts_model()
-    stt_handler.load_asr_model()
-    diarization_handler.load_diarizer_model()
-    speaker_handler.load_speaker_model()
-    logger.info("--- All models loaded successfully ---")
-
-# ЗАГРУЖАЕМ МОДЕЛИ ПРИ СТАРТЕ ПРИЛОЖЕНИЯ
-load_models()
 
 # --- Безопасность: API ключ ---
 API_KEY = 'key' 
@@ -131,13 +118,13 @@ async def process_file_offline(file: UploadFile = File(...)):
     """Принимает аудиофайл, диаризует, транскрибирует и суммирует его."""
     logger.info(f"Received file for offline processing: {file.filename}")
     
-    upload_path = config.UPLOADS_DIR / file.filename
+    upload_path = UPLOADS_DIR / file.filename
     with open(upload_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
     
     try:
         wav_path = await asyncio.to_thread(utils.convert_to_standard_wav, upload_path)
-        rttm_path = await asyncio.to_thread(diarization_handler.run_diarization, str(wav_path), str(config.UPLOADS_DIR))
+        rttm_path = await asyncio.to_thread(diarization_handler.run_diarization, str(wav_path), str(UPLOADS_DIR))
         dialogue = await asyncio.to_thread(diarization_handler.process_rttm_and_transcribe, rttm_path, str(wav_path))
         summary = await asyncio.to_thread(ollama_handler.get_summary_response, dialogue)
 

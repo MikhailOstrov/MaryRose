@@ -1,29 +1,11 @@
-# api/diarization_handler.py
-import nemo.collections.asr as nemo_asr
-from omegaconf import OmegaConf
-import wget
 import os
 import json
 import subprocess
 from pathlib import Path
-from config import BASE_DIR, DIAR_CONFIG_URL, DIAR_SPEAKER_MODEL
 
-diarizer_model = None
+from config.load_models import diarizer_model
 
-def load_diarizer_model():
-    global diarizer_model
-    if diarizer_model is None:
-        print("Loading Diarization model...")
-        config_path = BASE_DIR / "diar_infer_telephonic.yaml"
-        if not config_path.exists():
-            wget.download(DIAR_CONFIG_URL, str(config_path))
-        config = OmegaConf.load(config_path)
-        config.diarizer.speaker_embeddings.model_path = DIAR_SPEAKER_MODEL
-        diarizer_model = nemo_asr.models.ClusteringDiarizer(cfg=config)
-        print("Diarization model loaded.")
-
-def run_diarization(audio_file_path: str, output_dir: str, num_speakers: int = 0) -> str:
-    if diarizer_model is None: raise RuntimeError("Diarizer model not loaded.")
+def run_diarization(audio_file_path: str, output_dir: str, num_speakers: int) -> str:
     
     manifest_path = os.path.join(output_dir, "diar_manifest.json")
     meta = {
@@ -44,8 +26,7 @@ def run_diarization(audio_file_path: str, output_dir: str, num_speakers: int = 0
     return str(rttm_file_path)
 
 def process_rttm_and_transcribe(rttm_path: str, audio_path: str) -> str:
-    # Используем локальный импорт, чтобы избежать циклических зависимостей при запуске
-    from api.stt_handler import transcribe_file
+    from handlers.stt_handler import transcribe_file
     
     with open(rttm_path, 'r') as f:
         lines = f.readlines()

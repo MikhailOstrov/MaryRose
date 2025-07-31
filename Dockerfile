@@ -56,6 +56,18 @@ WORKDIR /app
 COPY requirements.txt .
 RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
 
+# 3. Скачиваем и устанавливаем Ollama ВНУТРИ ОБРАЗА
+RUN curl -L https://github.com/ollama/ollama/releases/download/v0.1.48/ollama-linux-amd64 -o /usr/local/bin/ollama && \
+    chmod +x /usr/local/bin/ollama
+
+# 4. Запускаем сервер временно, чтобы СКАЧАТЬ МОДЕЛЬ В ОБРАЗ, и сразу его останавливаем
+# Это "запекает" модель прямо в слой Docker-образа.
+RUN /usr/local/bin/ollama serve & \
+    sleep 10 && \
+    /usr/local/bin/ollama pull llama3:8b-instruct-q4_K_M && \
+    pkill -f ollama
+
+
 # --- ШАГ 6: КОПИРОВАНИЕ КОДА И НАСТРОЙКА ENTRYPOINT ---
 COPY . /app/
 RUN chmod +x /app/entrypoint.sh && dos2unix /app/entrypoint.sh
@@ -68,7 +80,7 @@ ENV TORCH_HOME=/app/.cache/torch
 ENV NEMO_CACHE_DIR=/app/.cache/nemo
 ENV PYTHONPATH=/app
 
-RUN python3 download_models.py
+RUN python3 config/load_models.py
 
 # --- ШАГ 8: ЗАПУСК (НЕ ТРОНУТО) ---
 EXPOSE 8001

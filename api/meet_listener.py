@@ -16,9 +16,15 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 # Импортируем конфигурацию из основного файла
-import config
+from config.config import (STREAM_SAMPLE_RATE,MEET_FRAME_DURATION_MS,
+                           MEET_VAD_AGGRESSIVENESS, MEET_PAUSE_THRESHOLD_S, 
+                           MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME,
+                           CHROME_PROFILE_DIR, MEET_GUEST_NAME)
+from handlers.stt_handler import transcribe_chunk
+from handlers.ollama_handler import get_mary_response, get_summary_response
+from handlers.diarization_handler import run_diarization, process_rttm_and_transcribe
+from api.utils import combine_audio_chunks, convert_to_standard_wav
 
-# Используем стандартный логгер, настроенный в server.py
 logger = logging.getLogger(__name__)
 
 class MeetListenerBot:
@@ -34,14 +40,14 @@ class MeetListenerBot:
         self.audio_queue = queue.Queue()
         self.is_running = threading.Event()
         self.is_running.set()
-        self.vad = webrtcvad.Vad(config.MEET_VAD_AGGRESSIVENESS)
+        self.vad = webrtcvad.Vad(MEET_VAD_AGGRESSIVENESS)
 
         # Рассчитываем параметры VAD на основе конфига
-        self.frame_size = int(config.STREAM_SAMPLE_RATE * config.MEET_FRAME_DURATION_MS / 1000)
-        self.silent_frames_threshold = int(config.MEET_PAUSE_THRESHOLD_S * 1000 / config.MEET_FRAME_DURATION_MS)
+        self.frame_size = int(STREAM_SAMPLE_RATE * MEET_FRAME_DURATION_MS / 1000)
+        self.silent_frames_threshold = int(MEET_PAUSE_THRESHOLD_S * 1000 / MEET_FRAME_DURATION_MS)
 
         # Папка для сохранения чанков и скриншотов
-        self.output_dir = config.MEET_AUDIO_CHUNKS_DIR / self.meeting_id
+        self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.meeting_id
         os.makedirs(self.output_dir, exist_ok=True)
         logger.info(f"[{self.meeting_id}] Аудиофрагменты будут сохраняться в: '{self.output_dir}'")
 
@@ -81,7 +87,7 @@ class MeetListenerBot:
             opt = uc.ChromeOptions()
             opt.add_argument('--no-sandbox')
             opt.add_argument('--disable-dev-shm-usage')
-            opt.add_argument(f'--user-data-dir={config.CHROME_PROFILE_DIR}') 
+            opt.add_argument(f'--user-data-dir={CHROME_PROFILE_DIR}') 
             
             self.driver = uc.Chrome(
                 options=opt,
@@ -99,7 +105,7 @@ class MeetListenerBot:
                 opt.add_argument('--no-sandbox')
                 opt.add_argument('--disable-dev-shm-usage')
                 opt.add_argument('--disable-gpu')
-                opt.add_argument(f'--user-data-dir={config.CHROME_PROFILE_DIR}')
+                opt.add_argument(f'--user-data-dir={CHROME_PROFILE_DIR}')
                 opt.add_argument('--window-size=1280,720')
                 
                 opt.add_experimental_option("prefs", {
@@ -137,9 +143,9 @@ class MeetListenerBot:
                 EC.element_to_be_clickable((By.XPATH, name_input_xpath))
             )
             
-            logger.info(f"[{self.meeting_id}] Ввожу имя: {config.MEET_GUEST_NAME}")
+            logger.info(f"[{self.meeting_id}] Ввожу имя: {MEET_GUEST_NAME}")
             name_input.clear()
-            name_input.send_keys(config.MEET_GUEST_NAME)
+            name_input.send_keys(MEET_GUEST_NAME)
             time.sleep(2)
             self._save_screenshot("02_name_entered")
 
@@ -225,15 +231,15 @@ class MeetListenerBot:
             raise
 
     def _find_device_id(self):
-        logger.info(f"[{self.meeting_id}] Поиск аудиоустройства с именем '{config.MEET_INPUT_DEVICE_NAME}'...")
+        logger.info(f"[{self.meeting_id}] Поиск аудиоустройства с именем '{MEET_INPUT_DEVICE_NAME}'...")
         try:
             devices = sd.query_devices()
             logger.debug(f"Найденные аудиоустройства: {devices}")
             for i, device in enumerate(devices):
-                if config.MEET_INPUT_DEVICE_NAME in device['name'] and device['max_input_channels'] > 0:
+                if MEET_INPUT_DEVICE_NAME in device['name'] and device['max_input_channels'] > 0:
                     logger.info(f"[{self.meeting_id}] ✅ Найдено целевое устройство: ID {i}, Имя: {device['name']}")
                     return i
-            raise ValueError(f"Не удалось найти входное аудиоустройство с именем '{config.MEET_INPUT_DEVICE_NAME}'")
+            raise ValueError(f"Не удалось найти входное аудиоустройство с именем '{MEET_INPUT_DEVICE_NAME}'")
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка при поиске аудиоустройств: {e}", exc_info=True)
             raise
@@ -254,7 +260,7 @@ class MeetListenerBot:
         while self.is_running.is_set():
             try:
                 audio_frame = self.audio_queue.get(timeout=1)
-                is_speech = self.vad.is_speech(audio_frame, config.STREAM_SAMPLE_RATE)
+                is_speech = self.vad.is_speech(audio_frame, STREAM_SAMPLE_RATE)
                 if is_speech:
                     speech_buffer.append(audio_frame)
                     silent_frames_count = 0
@@ -264,17 +270,82 @@ class MeetListenerBot:
                     full_speech_chunk_bytes = b''.join(speech_buffer)
                     speech_buffer.clear()
                     silent_frames_count = 0
+                    transcription, trigger_word = transcribe_chunk(full_speech_chunk_bytes)
+                    print(transcription)
+                    if trigger_word == 1:
+                        print("Обнаружено слово-триггер")
+                        response = get_mary_response(transcription)
+                        print(response)
+
+                        # 
+                        # !!!Можно вывести в GMeet в чат пока что.
+                        #
+
+                    else:
+                        continue
                     threading.Thread(target=self._save_chunk, args=(full_speech_chunk_bytes,)).start()
             except queue.Empty: continue
             except Exception as e: logger.error(f"[{self.meeting_id}] Ошибка в цикле VAD: {e}")
+
+    def _perform_post_processing(self):
+        """
+        Выполняет всю постобработку: объединение аудио, транскрипцию,
+        диаризацию и суммаризацию. Вызывается в отдельном потоке.
+        """
+        threading.current_thread().name = f'PostProcessor-{self.meeting_id}'
+        logger.info(f"[{self.meeting_id}] Начинаю постобработку...")
+
+        try:
+            # 1. Объединение аудио чанков
+            combined_audio_filename = f"combined_meeting_{self.meeting_id}.wav"
+            combined_audio_filepath = self.output_dir / combined_audio_filename
+
+            combine_audio_chunks(
+                output_dir=self.output_dir,
+                stream_sample_rate=STREAM_SAMPLE_RATE,
+                meeting_id=self.meeting_id,
+                output_filename=combined_audio_filename
+            )
+            
+            if not os.path.exists(combined_audio_filepath):
+                logger.error(f"[{self.meeting_id}] Объединенный аудиофайл не был создан: {combined_audio_filepath}")
+                return
+            
+            logger.info(f"[{self.meeting_id}] Конвертация объединенного аудио в стандартный WAV...")
+            standard_wav_path = convert_to_standard_wav(combined_audio_filepath)
+            
+            # 3. Диаризация
+            logger.info(f"[{self.meeting_id}] Запуск диаризации...")
+            rttm_path = run_diarization(str(standard_wav_path), str(self.output_dir))
+            
+            # 4. Обработка RTTM и транскрипция (возможно, слияние с результатами онлайн STT)
+            logger.info(f"[{self.meeting_id}] Обработка диаризации и транскрипция...")
+            dialogue_transcript = process_rttm_and_transcribe(rttm_path, str(standard_wav_path))
+
+            # 5. Суммаризация
+            logger.info(f"[{self.meeting_id}] Создание резюме...")
+            summary_text = get_summary_response(dialogue_transcript)
+            
+            # 6. Сохранение резюме
+            summary_filename = f"summary_{self.meeting_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            summary_filepath = self.summary_output_dir / summary_filename
+            with open(summary_filepath, "w", encoding="utf-8") as f:
+                f.write(summary_text)
+            logger.info(f"[{self.meeting_id}] ✅ Резюме успешно сохранено в: '{summary_filepath}'")
+
+        except Exception as e:
+            logger.error(f"[{self.meeting_id}] ❌ Ошибка при постобработке: {e}", exc_info=True)
+        finally:
+            logger.info(f"[{self.meeting_id}] Постобработка завершена.")
+
 
     def _save_chunk(self, audio_bytes: bytes):
         try:
             filename = f'chunk_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{uuid4().hex[:6]}.wav'
             file_path = self.output_dir / filename
             audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
-            write(str(file_path), config.STREAM_SAMPLE_RATE, audio_np)
-            logger.info(f"[{self.meeting_id}] 💾 Фрагмент сохранен: {file_path} (длительность: {len(audio_np)/config.STREAM_SAMPLE_RATE:.2f} сек)")
+            write(str(file_path), STREAM_SAMPLE_RATE, audio_np)
+            logger.info(f"[{self.meeting_id}] 💾 Фрагмент сохранен: {file_path} (длительность: {len(audio_np)/STREAM_SAMPLE_RATE:.2f} сек)")
         except Exception as e: logger.error(f"[{self.meeting_id}] ❌ Ошибка при сохранении аудиофрагмента: {e}")
 
     def run(self):
@@ -295,7 +366,7 @@ class MeetListenerBot:
 
             logger.info(f"[{self.meeting_id}] 🎤 Начинаю прослушивание аудио с устройства ID {device_id}...")
             with sd.RawInputStream(
-                samplerate=config.STREAM_SAMPLE_RATE,
+                samplerate=STREAM_SAMPLE_RATE,
                 blocksize=self.frame_size,
                 device=device_id,
                 dtype='int16',
@@ -318,8 +389,13 @@ class MeetListenerBot:
             return
         
         logger.info(f"[{self.meeting_id}] Получена команда на завершение...")
+
         self.is_running.clear()
         
+        post_processing_thread = threading.Thread(target=self._perform_post_processing)
+        post_processing_thread.daemon = False
+        post_processing_thread.start()
+
         if self.driver:
             try:
                 logger.info(f"[{self.meeting_id}] Закрытие WebDriver...")

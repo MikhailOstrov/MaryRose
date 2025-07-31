@@ -1,7 +1,15 @@
 # api/utils.py
 import subprocess
 from pathlib import Path
-from config import UPLOADS_DIR
+from config.config import UPLOADS_DIR
+import glob
+import os
+import logging
+import soundfile as sf
+import numpy as np
+from config.config import STREAM_SAMPLE_RATE
+
+logger = logging.getLogger(__name__)
 
 def convert_to_standard_wav(input_path: Path) -> Path:
     """
@@ -11,7 +19,6 @@ def convert_to_standard_wav(input_path: Path) -> Path:
     """
     output_filename = f"{input_path.stem}_16k_mono.wav"
     output_path = UPLOADS_DIR / output_filename
-    
     print(f"Converting {input_path.name} to standard WAV format...")
 
     command = [
@@ -30,5 +37,36 @@ def convert_to_standard_wav(input_path: Path) -> Path:
         return output_path
     except subprocess.CalledProcessError as e:
         print(f"FFmpeg conversion error: {e.stderr.decode()}")
-        raise  # Передаем исключение выше, чтобы обработать его в main.py
+        raise
 
+def combine_audio_chunks(output_dir, stream_sample_rate, meeting_id, output_filename):
+    """
+    Соединяет все аудиофрагменты из указанной директории в один WAV-файл.
+
+    Args:
+        output_dir (pathlib.Path или str): Путь к директории, где хранятся аудиофрагменты.
+        stream_sample_rate (int): Частота дискретизации аудиофрагментов.
+        meeting_id (str): ID встречи, используется для логирования.
+        output_filename (str): Имя файла для сохранения объединенного аудио.
+    """
+
+    output_filepath = output_dir / output_filename
+    
+    audio_files = sorted(glob.glob(os.path.join(output_dir, "*.wav")))
+    
+    if not audio_files:
+        logger.warning(f"[{meeting_id}] В директории '{output_dir}' не найдено аудиофайлов для объединения.")
+        return
+
+    combined_audio_data = []
+
+    logger.info(f"[{meeting_id}] Начинаем объединение {len(audio_files)} аудиофрагментов...")
+
+    for file_path in audio_files:
+        data, _ = sf.read(file_path) 
+        combined_audio_data.append(data)
+
+    final_audio_array = np.concatenate(combined_audio_data)
+
+    sf.write(output_filepath, final_audio_array, stream_sample_rate)
+    logger.info(f"[{meeting_id}] Все аудиофрагменты успешно объединены в: '{output_filepath}'")

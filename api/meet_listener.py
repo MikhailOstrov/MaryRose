@@ -325,6 +325,7 @@ class MeetListenerBot:
             # 5. Суммаризация
             logger.info(f"[{self.meeting_id}] Создание резюме...")
             summary_text = get_summary_response(dialogue_transcript)
+            print(summary_text)
             
             # 6. Сохранение резюме
             summary_filename = f"summary_{self.meeting_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"

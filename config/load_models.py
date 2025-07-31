@@ -9,7 +9,7 @@ from omegaconf import OmegaConf
 import torch
 import wget
 from pathlib import Path
-from .config import ASR_MODEL_NAME, TTS_MODEL_ID, DIAR_SPEAKER_MODEL, DIAR_CONFIG_URL
+from config import ASR_MODEL_NAME, TTS_MODEL_ID, DIAR_SPEAKER_MODEL, DIAR_CONFIG_URL
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 

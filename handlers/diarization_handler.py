@@ -3,25 +3,36 @@ import json
 import subprocess
 from pathlib import Path
 
-from config.load_models import diarizer_model
+from omegaconf import OmegaConf
+from nemo.collections.asr.models import ClusteringDiarizer
+
+from config.load_models import load_diarizer_config
 
 def run_diarization(audio_file_path: str, output_dir: str) -> str:
     
+    base_config = load_diarizer_config()
+
     manifest_path = os.path.join(output_dir, "diar_manifest.json")
+
     meta = {
         'audio_filepath': os.path.abspath(audio_file_path),
         'offset': 0, 'duration': None, 'label': 'infer', 'text': '-',
         'num_speakers': None, 
         'rttm_filepath': None, 'uem_filepath': None
     }
+
     with open(manifest_path, 'w', encoding='utf-8') as fp:
         json.dump(meta, fp)
         fp.write('\n')
     
-    diarizer_model.cfg.diarizer.manifest_filepath = manifest_path
-    diarizer_model.cfg.diarizer.out_dir = output_dir
-    diarizer_model.diarize()
-    
+    config_for_diarization = OmegaConf.structured(base_config).copy()
+
+    config_for_diarization.diarizer.manifest_filepath = manifest_path
+    config_for_diarization.diarizer.out_dir = output_dir
+
+    diarizer_model_instance = ClusteringDiarizer(cfg=config_for_diarization)
+    diarizer_model_instance.diarize()
+
     rttm_file_path = list(Path(output_dir).rglob('*.rttm'))[0]
     return str(rttm_file_path)
 

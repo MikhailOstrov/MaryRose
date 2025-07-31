@@ -32,17 +32,14 @@ def load_tts_model():
     print("TTS model loaded.")
     return tts_model
 
-def load_diarizer_model():
+def load_diarizer_config():
     config_path = Path("diar_infer_telephonic.yaml")
     if not config_path.exists():
         wget.download(DIAR_CONFIG_URL, str(config_path))
     config = OmegaConf.load(config_path)
     config.diarizer.speaker_embeddings.model_path = DIAR_SPEAKER_MODEL
-    diarizer_model = nemo_asr.models.ClusteringDiarizer(cfg=config)
-    print("Diarization model loaded.")
-    return diarizer_model
+    return config
 
 asr_model = load_asr_model()
 (vad_model, vad_utils) = load_silero_vad_model()
 tts_model = load_tts_model()
-diarizer_model = load_diarizer_model()

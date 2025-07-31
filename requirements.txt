@@ -20,6 +20,7 @@ pydub==0.25.1
 soundfile==0.12.1
 librosa==0.11.0
 numpy==1.26.4
+onnxruntime
 
 # Машинное обучение
 scikit-learn==1.6.1

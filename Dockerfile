@@ -49,6 +49,10 @@ RUN python3.11 -m pip install --no-cache-dir \
     torchvision==0.22.1 \
     --index-url https://download.pytorch.org/whl/cu118
 
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
 # --- ШАГ 5: УСТАНОВКА ОСТАЛЬНЫХ PYTHON-ЗАВИСИМОСТЕЙ (НЕ ТРОНУТО) ---
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 WORKDIR /app

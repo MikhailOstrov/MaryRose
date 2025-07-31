@@ -8,7 +8,7 @@ STREAMS_DIR = AUDIO_FILES_DIR / "streams"
 MEETINGS_DIR = AUDIO_FILES_DIR / "meetings" # Для записей встреч
 TTS_OUTPUT_DIR = BASE_DIR / "static" / "tts_output"
 CHROME_PROFILE_DIR = BASE_DIR / "chrome_profile" # Для хранения сессии Google
-
+SUMMARY_OUTPUT_DIR = BASE_DIR / "summary"
 
 ASR_MODEL_NAME = "nvidia/stt_ru_fastconformer_hybrid_large_pc"
 SPEAKER_MODEL_NAME = "titanet_large"

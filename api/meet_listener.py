@@ -18,7 +18,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from config.config import (STREAM_SAMPLE_RATE,MEET_FRAME_DURATION_MS,
                            MEET_VAD_AGGRESSIVENESS, MEET_PAUSE_THRESHOLD_S, 
                            MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME,
-                           CHROME_PROFILE_DIR, MEET_GUEST_NAME)
+                           CHROME_PROFILE_DIR, MEET_GUEST_NAME, SUMMARY_OUTPUT_DIR)
 from handlers.stt_handler import transcribe_chunk
 from handlers.ollama_handler import get_mary_response, get_summary_response
 from handlers.diarization_handler import run_diarization, process_rttm_and_transcribe
@@ -40,7 +40,7 @@ class MeetListenerBot:
         self.is_running = threading.Event()
         self.is_running.set()
         self.vad = webrtcvad.Vad(MEET_VAD_AGGRESSIVENESS)
-
+        self.summary_output_dir = SUMMARY_OUTPUT_DIR
         # Рассчитываем параметры VAD на основе конфига
         self.frame_size = int(STREAM_SAMPLE_RATE * MEET_FRAME_DURATION_MS / 1000)
         self.silent_frames_threshold = int(MEET_PAUSE_THRESHOLD_S * 1000 / MEET_FRAME_DURATION_MS)

@@ -41,3 +41,4 @@ python-dotenv==1.0.0
 packaging
 Cython
 httpx
+simpleaudio

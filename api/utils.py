@@ -11,6 +11,10 @@ from config.config import STREAM_SAMPLE_RATE
 
 logger = logging.getLogger(__name__)
 
+'''
+
+Пока не используем. Это на будущее, чтобы конвертировать разные форматы аудио
+
 def convert_to_standard_wav(input_path: Path) -> Path:
     """
     Конвертирует любой аудиофайл в стандартный для NeMo формат:
@@ -38,7 +42,7 @@ def convert_to_standard_wav(input_path: Path) -> Path:
     except subprocess.CalledProcessError as e:
         print(f"FFmpeg conversion error: {e.stderr.decode()}")
         raise
-
+'''
 def combine_audio_chunks(output_dir, stream_sample_rate, meeting_id, output_filename):
     """
     Соединяет все аудиофрагменты из указанной директории в один WAV-файл.

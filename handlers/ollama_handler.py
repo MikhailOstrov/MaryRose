@@ -1,8 +1,14 @@
 import requests
 import os
 
+# Получаем URL Ollama из переменной окружения
+# Для RunPod нужно указать правильный адрес вашего Ollama контейнера
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+print(f"🔗 Ollama URL: {OLLAMA_BASE_URL}")  # Для отладки
+print(f"🌍 Все переменные окружения с OLLAMA: {[k for k in os.environ.keys() if 'OLLAMA' in k.upper()]}")  # Диагностика
 OLLAMA_MODEL = "llama3:8b-instruct-q4_K_M"
+
+
 
 OLLAMA_ASSISTANT_PROMPT = """
 Ты — ассистент по имени Мэри. Тебе дали следующую команду: "{command}".
@@ -26,6 +32,19 @@ OLLAMA_SUMMARY_PROMPT = """
 {dialogue_text}
 ---
 """
+
+def test_ollama_connection() -> bool:
+    """
+    Проверяет подключение к Ollama.
+    """
+    try:
+        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=5.0)
+        response.raise_for_status()
+        print(f"✅ Ollama доступна по адресу: {OLLAMA_BASE_URL}")
+        return True
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Ошибка подключения к Ollama ({OLLAMA_BASE_URL}): {e}")
+        return False
 
 def _call_ollama(prompt: str) -> str:
     """
@@ -60,3 +79,8 @@ def get_summary_response(dialogue_text: str) -> str:
     if not response_text:
         return "Не удалось создать резюме из-за ошибки."
     return response_text.strip()
+
+# Проверяем подключение к Ollama при загрузке модуля
+if __name__ != "__main__":
+    print("🔄 Проверяю подключение к Ollama...")
+    test_ollama_connection()

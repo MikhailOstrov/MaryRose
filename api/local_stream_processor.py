@@ -43,136 +43,31 @@ class LocalStreamProcessor:
         os.makedirs(self.output_dir, exist_ok=True)
         logger.info(f"[{self.meeting_id}] Локальные аудиофрагменты будут сохраняться в: '{self.output_dir}'")
         
-        # Накопление WebM чанков для создания валидного файла
-        self.webm_chunks = []
-        self.webm_chunk_lock = threading.Lock()
-        self.last_processing_time = time.time()
-
     def process_websocket_audio(self, audio_bytes: bytes):
         """
-        Получает аудио данные из WebSocket (WebM/Opus) и накапливает их для создания валидного WebM файла.
-        Эта функция вызывается из WebSocket обработчика.
+        ✅ КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Получает raw PCM данные из WebSocket (как в meet_listener)
+        и напрямую разбивает их на фреймы для VAD, без конвертации через ffmpeg.
         """
         try:
-            # Накапливаем WebM чанки в памяти
-            with self.webm_chunk_lock:
-                self.webm_chunks.append(audio_bytes)
+            if not self.is_running.is_set():
+                return
                 
-            logger.debug(f"[{self.meeting_id}] Получен WebM чанк: {len(audio_bytes)} байт (всего чанков: {len(self.webm_chunks)})")
+            # ✅ Принимаем raw PCM bytes напрямую (16-bit signed, 16kHz, mono)
+            # Преобразуем bytes в numpy array для работы с данными
+            pcm_data = np.frombuffer(audio_bytes, dtype=np.int16)
             
-            # Периодически (каждые 5 секунд или каждые 15 чанков) пытаемся обработать накопленные данные
-            current_time = time.time()
-            if (len(self.webm_chunks) >= 15 or 
-                (current_time - self.last_processing_time) >= 5.0):
-                self._process_accumulated_webm()
-                self.last_processing_time = current_time
-                
-        except Exception as e:
-            logger.error(f"[{self.meeting_id}] Ошибка при обработке WebSocket аудио: {e}")
-
-    def _process_accumulated_webm(self):
-        """
-        Обрабатывает накопленные WebM чанки, создавая валидный WebM файл и конвертируя в PCM.
-        """
-        try:
-            with self.webm_chunk_lock:
-                if not self.webm_chunks:
-                    return
-                
-                # Объединяем все чанки в один WebM файл
-                combined_webm_data = b''.join(self.webm_chunks)
-                
-                # Сохраняем во временный файл
-                temp_webm_file = self.output_dir / f"combined_chunk_{uuid4().hex[:8]}.webm"
-                with open(temp_webm_file, 'wb') as f:
-                    f.write(combined_webm_data)
-                
-                logger.info(f"[{self.meeting_id}] Создан объединенный WebM файл: {len(combined_webm_data)} байт")
-                
-                # Очищаем накопленные чанки
-                self.webm_chunks.clear()
+            logger.debug(f"[{self.meeting_id}] Получен raw PCM чанк: {len(audio_bytes)} байт ({len(pcm_data)} семплов)")
             
-            # Конвертируем WebM в PCM для VAD анализа
-            pcm_data = self._convert_webm_to_pcm(temp_webm_file)
-            
-            if pcm_data is not None and self.is_running.is_set():
-                # Разбиваем PCM данные на фреймы для VAD
-                frame_size = int(STREAM_SAMPLE_RATE * MEET_FRAME_DURATION_MS / 1000)
-                for i in range(0, len(pcm_data), frame_size):
-                    frame = pcm_data[i:i + frame_size]
-                    if len(frame) == frame_size:  # Полный фрейм
-                        self.audio_queue.put(frame.tobytes())
-            
-            # Удаляем временный файл
-            if temp_webm_file.exists():
-                temp_webm_file.unlink()
+            # ✅ Разбиваем PCM данные на фреймы точно как в meet_listener
+            frame_size = int(STREAM_SAMPLE_RATE * MEET_FRAME_DURATION_MS / 1000)
+            for i in range(0, len(pcm_data), frame_size):
+                frame = pcm_data[i:i + frame_size]
+                if len(frame) == frame_size:  # Только полные фреймы
+                    # ✅ Точно как в meet_listener: bytes(indata) -> audio_queue
+                    self.audio_queue.put(frame.tobytes())
                 
         except Exception as e:
-            logger.error(f"[{self.meeting_id}] Ошибка при обработке накопленных WebM данных: {e}")
-
-    def _convert_webm_to_pcm(self, webm_file_path):
-        """
-        Конвертирует WebM/Opus файл в PCM данные для VAD анализа.
-        Добавлена поддержка неполных WebM чанков от MediaRecorder.
-        
-        Args:
-            webm_file_path: Путь к WebM файлу
-            
-        Returns:
-            numpy.ndarray: PCM данные в формате int16, 16kHz, mono или None при ошибке
-        """
-        try:
-            import subprocess
-            
-            # Используем ffmpeg для конвертации WebM в raw PCM с расширенными опциями
-            command = [
-                'ffmpeg',
-                '-y',  # Перезаписывать выходные файлы
-                '-f', 'webm',  # Явно указываем формат
-                '-fflags', '+genpts',  # Генерируем PTS для неполных файлов
-                '-avoid_negative_ts', 'make_zero',  # Избегаем отрицательных timestamp
-                '-i', str(webm_file_path),  # Входной WebM файл
-                '-ar', str(STREAM_SAMPLE_RATE),  # 16kHz sample rate
-                '-ac', '1',  # Mono
-                '-f', 's16le',  # 16-bit signed little-endian PCM
-                '-vn',  # Отключаем видео поток
-                '-loglevel', 'error',  # Уменьшаем verbose логи
-                '-'  # Вывод в stdout
-            ]
-            
-            # Запускаем ffmpeg и получаем PCM данные
-            result = subprocess.run(
-                command,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                timeout=10  # Добавляем timeout для safety
-            )
-            
-            # Проверяем результат (не используем check=True, так как неполные WebM могут давать warning)
-            if result.returncode != 0 and len(result.stdout) == 0:
-                # Если совсем ничего не получилось, логируем ошибку
-                stderr_text = result.stderr.decode() if result.stderr else "Unknown error"
-                logger.warning(f"[{self.meeting_id}] FFmpeg warning/error: {stderr_text}")
-                return None
-            
-            # Конвертируем bytes в numpy array
-            if len(result.stdout) > 0:
-                pcm_data = np.frombuffer(result.stdout, dtype=np.int16)
-                logger.debug(f"[{self.meeting_id}] WebM конвертирован в PCM: {len(pcm_data)} семплов")
-                return pcm_data
-            else:
-                logger.debug(f"[{self.meeting_id}] WebM чанк не содержит аудио данных")
-                return None
-            
-        except subprocess.TimeoutExpired:
-            logger.error(f"[{self.meeting_id}] FFmpeg timeout при обработке WebM файла")
-            return None
-        except subprocess.CalledProcessError as e:
-            logger.error(f"[{self.meeting_id}] FFmpeg ошибка: {e.stderr.decode()}")
-            return None
-        except Exception as e:
-            logger.error(f"[{self.meeting_id}] Ошибка конвертации WebM: {e}")
-            return None
+            logger.error(f"[{self.meeting_id}] Ошибка при обработке raw PCM данных: {e}")
 
     def _process_audio_stream(self):
         """
@@ -348,13 +243,6 @@ class LocalStreamProcessor:
         logger.info(f"[{self.meeting_id}] Получена команда на завершение...")
 
         self.is_running.clear()
-        
-        # Обрабатываем оставшиеся накопленные WebM чанки
-        try:
-            self._process_accumulated_webm()
-            logger.info(f"[{self.meeting_id}] Обработаны финальные WebM чанки")
-        except Exception as e:
-            logger.error(f"[{self.meeting_id}] Ошибка при обработке финальных чанков: {e}")
         
         # Запускаем постобработку в отдельном потоке
         post_processing_thread = threading.Thread(target=self._perform_post_processing)

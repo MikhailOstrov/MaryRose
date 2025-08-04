@@ -38,7 +38,8 @@ class WebsiteListenerBot:
         self.is_running.set()
         self.vad = webrtcvad.Vad(MEET_VAD_AGGRESSIVENESS)
         
-        self.frame_size = int(STREAM_SAMPLE_RATE * MEET_FRAME_DURATION_MS / 1000)
+        # ПРАВИЛЬНЫЙ РАСЧЕТ: (частота * длительность_в_сек * 2 байта_на_сэмпл)
+        self.frame_size = int(STREAM_SAMPLE_RATE * (MEET_FRAME_DURATION_MS / 1000) * 2)
         self.silent_frames_threshold = int(MEET_PAUSE_THRESHOLD_S * 1000 / MEET_FRAME_DURATION_MS)
 
         self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.session_id

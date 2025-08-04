@@ -15,7 +15,8 @@ router = APIRouter()
 # Словарь для хранения активных экземпляров ботов
 active_bots: Dict[str, WebsiteListenerBot] = {}
 
-VAD_FRAME_SIZE = int(STREAM_SAMPLE_RATE * MEET_FRAME_DURATION_MS / 1000)
+# ПРАВИЛЬНЫЙ РАСЧЕТ: (частота * длительность_в_сек * 2 байта_на_сэмпл)
+VAD_FRAME_SIZE = int(STREAM_SAMPLE_RATE * (MEET_FRAME_DURATION_MS / 1000) * 2)
 
 @router.websocket("/listen/{session_id}")
 async def websocket_endpoint(

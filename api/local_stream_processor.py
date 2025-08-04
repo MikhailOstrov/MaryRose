@@ -75,7 +75,6 @@ class LocalStreamProcessor:
     def _convert_webm_to_pcm(self, webm_file_path):
         """
         Конвертирует WebM/Opus файл в PCM данные для VAD анализа.
-        Добавлена поддержка неполных WebM чанков от MediaRecorder.
         
         Args:
             webm_file_path: Путь к WebM файлу
@@ -86,19 +85,14 @@ class LocalStreamProcessor:
         try:
             import subprocess
             
-            # Используем ffmpeg для конвертации WebM в raw PCM с расширенными опциями
+            # Используем ffmpeg для конвертации WebM в raw PCM
             command = [
                 'ffmpeg',
                 '-y',  # Перезаписывать выходные файлы
-                '-f', 'webm',  # Явно указываем формат
-                '-fflags', '+genpts',  # Генерируем PTS для неполных файлов
-                '-avoid_negative_ts', 'make_zero',  # Избегаем отрицательных timestamp
                 '-i', str(webm_file_path),  # Входной WebM файл
                 '-ar', str(STREAM_SAMPLE_RATE),  # 16kHz sample rate
                 '-ac', '1',  # Mono
                 '-f', 's16le',  # 16-bit signed little-endian PCM
-                '-vn',  # Отключаем видео поток
-                '-loglevel', 'error',  # Уменьшаем verbose логи
                 '-'  # Вывод в stdout
             ]
             
@@ -107,28 +101,15 @@ class LocalStreamProcessor:
                 command,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
-                timeout=10  # Добавляем timeout для safety
+                check=True
             )
             
-            # Проверяем результат (не используем check=True, так как неполные WebM могут давать warning)
-            if result.returncode != 0 and len(result.stdout) == 0:
-                # Если совсем ничего не получилось, логируем ошибку
-                stderr_text = result.stderr.decode() if result.stderr else "Unknown error"
-                logger.warning(f"[{self.meeting_id}] FFmpeg warning/error: {stderr_text}")
-                return None
-            
             # Конвертируем bytes в numpy array
-            if len(result.stdout) > 0:
-                pcm_data = np.frombuffer(result.stdout, dtype=np.int16)
-                logger.debug(f"[{self.meeting_id}] WebM конвертирован в PCM: {len(pcm_data)} семплов")
-                return pcm_data
-            else:
-                logger.debug(f"[{self.meeting_id}] WebM чанк не содержит аудио данных")
-                return None
+            pcm_data = np.frombuffer(result.stdout, dtype=np.int16)
+            logger.debug(f"[{self.meeting_id}] WebM конвертирован в PCM: {len(pcm_data)} семплов")
             
-        except subprocess.TimeoutExpired:
-            logger.error(f"[{self.meeting_id}] FFmpeg timeout при обработке WebM файла")
-            return None
+            return pcm_data
+            
         except subprocess.CalledProcessError as e:
             logger.error(f"[{self.meeting_id}] FFmpeg ошибка: {e.stderr.decode()}")
             return None

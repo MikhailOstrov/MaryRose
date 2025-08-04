@@ -139,8 +139,8 @@ class WebsiteListenerBot:
     def _send_results_to_backend(self, full_text: str, summary: str):
         try:
             payload = {"meeting_id": self.meeting_id, "full_text": full_text, "summary": summary}
-            headers = {"X-Internal-Api-Key": INTERNAL_API_KEY, "Content-Type": "application/json"}
-            url = f"{MAIN_BACKEND_URL}/meetings/internal/result"
+            headers = {"X-Internal-Api-Key": "key", "Content-Type": "application/json"}
+            url = f"http://35.246.252.4/meetings/internal/result"
             response = requests.post(url, json=payload, headers=headers, timeout=30)
             response.raise_for_status()
             logger.info(f"[{self.session_id}] ✅ Результаты для meeting_id {self.meeting_id} успешно отправлены.")

@@ -139,7 +139,9 @@ class WebsiteListenerBot:
         try:
             payload = {"meeting_id": self.meeting_id, "full_text": full_text, "summary": summary}
             headers = {"X-Internal-Api-Key": "key", "Content-Type": "application/json"}
-            url = f"http://35.246.252.4/meetings/internal/result"
+            # Используем переменную окружения или дефолтный домен
+            backend_url = os.getenv('MAIN_BACKEND_URL', 'https://maryrose.by')
+            url = f"{backend_url}/meetings/internal/result"
             response = requests.post(url, json=payload, headers=headers, timeout=30)
             response.raise_for_status()
             logger.info(f"[{self.session_id}] ✅ Результаты для meeting_id {self.meeting_id} успешно отправлены.")

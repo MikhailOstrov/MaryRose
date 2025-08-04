@@ -360,10 +360,14 @@ class MeetListenerBot:
                 "Content-Type": "application/json"
             }
             
+            # Используем переменную окружения или дефолтный домен
+            backend_url = os.getenv('MAIN_BACKEND_URL', 'https://maryrose.by')
+            url = f"{backend_url}/meetings/internal/result"
+            
             # Отправляем запрос
             logger.info(f"[{self.meeting_id}] Отправляю результаты на backend...")
             response = requests.post(
-                "http://35.246.252.4/meetings/internal/result",
+                url,
                 json=payload,
                 headers=headers,
                 timeout=30

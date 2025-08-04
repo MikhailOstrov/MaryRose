@@ -42,17 +42,55 @@ class LocalStreamProcessor:
         self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.meeting_id
         os.makedirs(self.output_dir, exist_ok=True)
         logger.info(f"[{self.meeting_id}] Локальные аудиофрагменты будут сохраняться в: '{self.output_dir}'")
+        
+        # Накопление WebM чанков для создания валидного файла
+        self.webm_chunks = []
+        self.webm_chunk_lock = threading.Lock()
+        self.last_processing_time = time.time()
 
     def process_websocket_audio(self, audio_bytes: bytes):
         """
-        Получает аудио данные из WebSocket (WebM/Opus) и конвертирует их в PCM для VAD.
+        Получает аудио данные из WebSocket (WebM/Opus) и накапливает их для создания валидного WebM файла.
         Эта функция вызывается из WebSocket обработчика.
         """
         try:
-            # Сохраняем WebM чанк во временный файл
-            temp_webm_file = self.output_dir / f"temp_chunk_{uuid4().hex[:8]}.webm"
-            with open(temp_webm_file, 'wb') as f:
-                f.write(audio_bytes)
+            # Накапливаем WebM чанки в памяти
+            with self.webm_chunk_lock:
+                self.webm_chunks.append(audio_bytes)
+                
+            logger.debug(f"[{self.meeting_id}] Получен WebM чанк: {len(audio_bytes)} байт (всего чанков: {len(self.webm_chunks)})")
+            
+            # Периодически (каждые 5 секунд или каждые 15 чанков) пытаемся обработать накопленные данные
+            current_time = time.time()
+            if (len(self.webm_chunks) >= 15 or 
+                (current_time - self.last_processing_time) >= 5.0):
+                self._process_accumulated_webm()
+                self.last_processing_time = current_time
+                
+        except Exception as e:
+            logger.error(f"[{self.meeting_id}] Ошибка при обработке WebSocket аудио: {e}")
+
+    def _process_accumulated_webm(self):
+        """
+        Обрабатывает накопленные WebM чанки, создавая валидный WebM файл и конвертируя в PCM.
+        """
+        try:
+            with self.webm_chunk_lock:
+                if not self.webm_chunks:
+                    return
+                
+                # Объединяем все чанки в один WebM файл
+                combined_webm_data = b''.join(self.webm_chunks)
+                
+                # Сохраняем во временный файл
+                temp_webm_file = self.output_dir / f"combined_chunk_{uuid4().hex[:8]}.webm"
+                with open(temp_webm_file, 'wb') as f:
+                    f.write(combined_webm_data)
+                
+                logger.info(f"[{self.meeting_id}] Создан объединенный WebM файл: {len(combined_webm_data)} байт")
+                
+                # Очищаем накопленные чанки
+                self.webm_chunks.clear()
             
             # Конвертируем WebM в PCM для VAD анализа
             pcm_data = self._convert_webm_to_pcm(temp_webm_file)
@@ -70,7 +108,7 @@ class LocalStreamProcessor:
                 temp_webm_file.unlink()
                 
         except Exception as e:
-            logger.error(f"[{self.meeting_id}] Ошибка при обработке WebSocket аудио: {e}")
+            logger.error(f"[{self.meeting_id}] Ошибка при обработке накопленных WebM данных: {e}")
 
     def _convert_webm_to_pcm(self, webm_file_path):
         """
@@ -310,6 +348,13 @@ class LocalStreamProcessor:
         logger.info(f"[{self.meeting_id}] Получена команда на завершение...")
 
         self.is_running.clear()
+        
+        # Обрабатываем оставшиеся накопленные WebM чанки
+        try:
+            self._process_accumulated_webm()
+            logger.info(f"[{self.meeting_id}] Обработаны финальные WebM чанки")
+        except Exception as e:
+            logger.error(f"[{self.meeting_id}] Ошибка при обработке финальных чанков: {e}")
         
         # Запускаем постобработку в отдельном потоке
         post_processing_thread = threading.Thread(target=self._perform_post_processing)

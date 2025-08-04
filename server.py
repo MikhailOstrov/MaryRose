@@ -6,12 +6,15 @@ import threading
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel
+from uuid import uuid4
 
 # Импортируем бизнес-логику и конфигурацию
 from config.config import UPLOADS_DIR
 from api import utils
 from handlers import diarization_handler, ollama_handler, stt_handler, tts_handler
 from api.meet_listener import MeetListenerBot
+from api import websocket_gateway
+from typing import Dict
 
 # --- Настройка логирования ---
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -42,6 +45,12 @@ class StartRequest(BaseModel):
 
 class StopRequest(BaseModel):
     meeting_id: str
+
+session_to_meeting_map: Dict[str, int] = {}
+
+# 3. Модель для нового эндпоинта
+class WebsiteSessionStartRequest(BaseModel):
+    meeting_id: int
 
 # --- Эндпоинты API ---
 
@@ -133,6 +142,25 @@ async def process_file_offline(file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"Failed to process file {file.filename}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
+
+# --- ДОБАВЛЕННЫЕ КОМПОНЕНТЫ ДЛЯ РАБОТЫ С АУДИОПОТОКОМ С САЙТА ---
+
+# 4. Новый эндпоинт для инициации сессии с сайта
+@app.post("/api/v1/internal/website/start-session", dependencies=[Depends(get_api_key)], tags=["Website Sessions"])
+async def start_website_session(request: WebsiteSessionStartRequest):
+    """
+    Создает уникальный ID сессии для подключения WebSocket с сайта
+    и связывает его с ID встречи из основной базы данных.
+    """
+    session_id = str(uuid4())
+    session_to_meeting_map[session_id] = request.meeting_id
+    logger.info(f"Создана новая сессия {session_id} для meeting_id: {request.meeting_id}")
+    return {"status": "success", "session_id": session_id}
+
+# 5. Подключаем роутер WebSocket
+app.include_router(websocket_gateway.router, prefix="/ws")
+
+# --- Конец добавленных компонентов ---
 
 # --- Команда для запуска сервера из терминала ---
 # uvicorn server:app --host 0.0.0.0 --port 8001

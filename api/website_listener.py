@@ -17,7 +17,6 @@ from config.config import (
     MEET_PAUSE_THRESHOLD_S,
     MEET_AUDIO_CHUNKS_DIR,
     SUMMARY_OUTPUT_DIR,
-    INTERNAL_API_KEY
 )
 from handlers.stt_handler import transcribe_chunk
 from handlers.ollama_handler import get_mary_response, get_summary_response

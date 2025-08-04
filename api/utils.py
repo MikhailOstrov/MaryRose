@@ -3,13 +3,12 @@ import os
 import logging
 import soundfile as sf
 import numpy as np
-import subprocess
-from pathlib import Path
-
-# Импортируем конфиг для получения UPLOADS_DIR
-from config.config import UPLOADS_DIR
 
 logger = logging.getLogger(__name__)
+
+'''
+
+Пока не используем. Это на будущее, чтобы конвертировать разные форматы аудио
 
 def convert_to_standard_wav(input_path: Path) -> Path:
     """
@@ -17,14 +16,8 @@ def convert_to_standard_wav(input_path: Path) -> Path:
     WAV, 16000 Гц, моно, 16-bit PCM.
     Возвращает путь к новому сконвертированному файлу.
     """
-    # Убеждаемся, что input_path это Path объект
-    if isinstance(input_path, str):
-        input_path = Path(input_path)
-    
     output_filename = f"{input_path.stem}_16k_mono.wav"
     output_path = UPLOADS_DIR / output_filename
-    
-    logger.info(f"Converting {input_path.name} to standard WAV format...")
     print(f"Converting {input_path.name} to standard WAV format...")
 
     command = [
@@ -38,16 +31,13 @@ def convert_to_standard_wav(input_path: Path) -> Path:
     ]
 
     try:
-        result = subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        logger.info(f"Conversion successful. File saved to: {output_path}")
+        subprocess.run(command, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         print(f"Conversion successful. File saved to: {output_path}")
         return output_path
     except subprocess.CalledProcessError as e:
-        error_msg = f"FFmpeg conversion error: {e.stderr.decode()}"
-        logger.error(error_msg)
-        print(error_msg)
+        print(f"FFmpeg conversion error: {e.stderr.decode()}")
         raise
-
+'''
 def combine_audio_chunks(output_dir, stream_sample_rate, meeting_id, output_filename):
     """
     Соединяет все аудиофрагменты из указанной директории в один WAV-файл.

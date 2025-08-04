@@ -17,7 +17,6 @@ from config.config import (
     MEET_PAUSE_THRESHOLD_S,
     MEET_AUDIO_CHUNKS_DIR,
     SUMMARY_OUTPUT_DIR,
-    MAIN_BACKEND_URL, 
     INTERNAL_API_KEY
 )
 from handlers.stt_handler import transcribe_chunk

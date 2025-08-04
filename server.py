@@ -14,6 +14,7 @@ from api import utils
 from handlers import diarization_handler, ollama_handler, stt_handler, tts_handler
 from api.meet_listener import MeetListenerBot
 from api import websocket_gateway
+from api.session_store import session_to_meeting_map
 from typing import Dict
 
 # --- Настройка логирования ---
@@ -21,7 +22,13 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 # --- Инициализация приложения и загрузка моделей ---
-app = FastAPI(title="AI Meeting Bot Server")
+active_meetings: Dict[str, MeetListenerBot] = {}
+
+app = FastAPI(
+    title="MaryRose API",
+    description="API для управления ботом MaryRose и получения результатов встреч.",
+    version="1.0.0"
+)
 
 # Словарь для отслеживания активных ботов
 active_bots = {}
@@ -45,8 +52,6 @@ class StartRequest(BaseModel):
 
 class StopRequest(BaseModel):
     meeting_id: str
-
-session_to_meeting_map: Dict[str, int] = {}
 
 # 3. Модель для нового эндпоинта
 class WebsiteSessionStartRequest(BaseModel):

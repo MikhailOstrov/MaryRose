@@ -4,8 +4,7 @@ name: Build and Overwrite 'v3' tag on Runpod
 # Триггер: запускать при push в ветку main
 on:
   push:
-    branches:
-      - main
+    branches: -CI-CD
 
 jobs:
   build-and-deploy:

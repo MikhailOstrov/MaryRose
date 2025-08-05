@@ -24,7 +24,7 @@ if hf_token:
     login(token=hf_token)
     print("Успешный вход в Hugging Face.")
 else:
-    print("Токен Hugging Face не найден в переменных окружения.")
+    print(f"Токен Hugging Face не найден в переменных окружения. {hf_token}")
 
 def load_asr_model():
     asr_model = WhisperModel(ASR_MODEL_NAME)

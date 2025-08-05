@@ -83,6 +83,29 @@ OLLAMA_SUMMARY_PROMPT = """
 Резюме:
 """
 
+OLLAMA_TITLE_PROMPT = """
+Ты — русскоязычный ИИ-ассистент. Твоя задача — создать короткий и ёмкий заголовок для встречи на основе её содержания.
+
+ВАЖНЫЕ ПРАВИЛА:
+1. ЯЗЫК ОТВЕТА: Отвечай ТОЛЬКО на РУССКОМ языке.
+2. ДЛИНА: Заголовок должен быть коротким (максимум 60 символов).
+3. СТИЛЬ: Используй формат "Обсуждение темы" или "Планирование проекта".
+4. СУТЬ: Отрази главную тему встречи одной фразой.
+
+### Примеры хороших заголовков:
+- "Обсуждение запуска новой функции"
+- "Планирование маркетинговой кампании"
+- "Анализ результатов квартала"
+- "Техническое совещание по проекту"
+
+Диалог встречи:
+---
+{dialogue_text}
+---
+
+Создай короткий заголовок для этой встречи (только заголовок, без лишнего текста):
+"""
+
 def _call_ollama(prompt: str) -> str:
     """Отправляет запрос в Ollama и получает ответ"""
     data = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
@@ -109,4 +132,12 @@ def get_summary_response(dialogue_text: str) -> str:
     response_text = _call_ollama(prompt)
     if not response_text:
         return "Не удалось создать резюме из-за ошибки."
+    return response_text.strip()
+
+def get_title_response(dialogue_text: str) -> str:
+    """Создает короткий заголовок для встречи с помощью Ollama"""
+    prompt = OLLAMA_TITLE_PROMPT.format(dialogue_text=dialogue_text)
+    response_text = _call_ollama(prompt)
+    if not response_text:
+        return ""  # Возвращаем пустую строку при ошибке
     return response_text.strip()

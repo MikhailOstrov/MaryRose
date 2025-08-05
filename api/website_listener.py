@@ -19,7 +19,7 @@ from config.config import (
     SUMMARY_OUTPUT_DIR,
 )
 from handlers.stt_handler import transcribe_chunk
-from handlers.ollama_handler import get_mary_response, get_summary_response
+from handlers.ollama_handler import get_mary_response, get_summary_response, get_title_response
 from handlers.diarization_handler import run_diarization, process_rttm_and_transcribe
 from api.utils import combine_audio_chunks
 
@@ -129,15 +129,16 @@ class WebsiteListenerBot:
             rttm_path = run_diarization(str(combined_audio_filepath), str(self.output_dir))
             dialogue_transcript = process_rttm_and_transcribe(rttm_path, str(combined_audio_filepath))
             summary_text = get_summary_response(dialogue_transcript)
-            self._send_results_to_backend(dialogue_transcript, summary_text)
+            title_text = get_title_response(dialogue_transcript)
+            self._send_results_to_backend(dialogue_transcript, summary_text, title_text)
         except Exception as e:
             logger.error(f"[{self.session_id}] ❌ Ошибка при постобработке: {e}", exc_info=True)
         finally:
             logger.info(f"[{self.session_id}] Постобработка для сессии с сайта завершена.")
 
-    def _send_results_to_backend(self, full_text: str, summary: str):
+    def _send_results_to_backend(self, full_text: str, summary: str, title: str):
         try:
-            payload = {"meeting_id": self.meeting_id, "full_text": full_text, "summary": summary}
+            payload = {"meeting_id": self.meeting_id, "full_text": full_text, "summary": summary, "title": title}
             headers = {"X-Internal-Api-Key": "key", "Content-Type": "application/json"}
             # Используем переменную окружения или дефолтный домен
             backend_url = os.getenv('MAIN_BACKEND_URL', 'https://maryrose.by')

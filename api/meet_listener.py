@@ -21,7 +21,7 @@ from config.config import (STREAM_SAMPLE_RATE,MEET_FRAME_DURATION_MS,
                            MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME,
                            CHROME_PROFILE_DIR, MEET_GUEST_NAME, SUMMARY_OUTPUT_DIR)
 from handlers.stt_handler import transcribe_chunk
-from handlers.ollama_handler import get_mary_response, get_summary_response
+from handlers.ollama_handler import get_mary_response, get_summary_response, get_title_response
 from handlers.diarization_handler import run_diarization, process_rttm_and_transcribe
 from api.utils import combine_audio_chunks
 
@@ -326,8 +326,13 @@ class MeetListenerBot:
             summary_text = get_summary_response(dialogue_transcript)
             print(f"Это вывод summary: \n{summary_text}")
             
+            # Генерация заголовка
+            logger.info(f"[{self.meeting_id}] Создание заголовка...")
+            title_text = get_title_response(dialogue_transcript)
+            print(f"Это вывод заголовка: \n{title_text}")
+            
             # Отправка результатов на внешний сервер
-            self._send_results_to_backend(dialogue_transcript, summary_text)
+            self._send_results_to_backend(dialogue_transcript, summary_text, title_text)
             
             # Сохранение резюме
             summary_filename = f"summary_{self.meeting_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
@@ -341,7 +346,7 @@ class MeetListenerBot:
         finally:
             logger.info(f"[{self.meeting_id}] Постобработка завершена.")
 
-    def _send_results_to_backend(self, full_text: str, summary: str):
+    def _send_results_to_backend(self, full_text: str, summary: str, title: str):
         """Отправляет результаты встречи на внешний backend"""
         try:
             # Преобразуем meeting_id в число если это строка
@@ -351,7 +356,8 @@ class MeetListenerBot:
             payload = {
                 "meeting_id": meeting_id_int,
                 "full_text": full_text,
-                "summary": summary
+                "summary": summary,
+                "title": title
             }
             
             # Заголовки

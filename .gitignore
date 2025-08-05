@@ -33,3 +33,4 @@ Thumbs.db
 
 # Исключаем сам Dockerfile ignore, если он есть
 .dockerignore
+.github

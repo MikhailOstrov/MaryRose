@@ -1,32 +1,77 @@
-# --- ШАГ 1: БАЗОВЫЙ ОБРАЗ ---
-FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04
+# --- ЭТАП 1: СБОРЩИК (BUILDER) ---
+# Используем полный devel-образ для установки зависимостей, требующих компиляции.
+FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04 AS builder
 
-# --- ШАГ 2: УСТАНОВКА СИСТЕМНЫХ ЗАВИСИМОСТЕЙ ---
-# Добавлены только зависимости для Chrome/Audio, БЕЗ ИЗМЕНЕНИЯ установки Python.
+# Установка всех системных зависимостей, включая -dev пакеты
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    # Основные утилиты, необходимые для проекта
-    software-properties-common build-essential wget curl git ca-certificates jq unzip dos2unix \
-    # ЗАВИСИМОСТИ CHROME/AUDIO ИЗ JOIN_MEET (полный список для надежности)
-    gnupg procps xvfb pulseaudio dbus-x11 x11-utils \
-    fonts-liberation libnss3 libgdk-pixbuf-2.0-0 libgtk-3-0 libxss1 libgbm1 \
-    libxrandr2 libpangocairo-1.0-0 libatk1.0-0 libcairo-gobject2 \
-    libxcomposite1 libxcursor1 libxdamage1 libxfixes3 libxinerama1 \
-    libappindicator3-1 libxshmfence1 libglu1-mesa \
-    # Аудио-библиотеки (включая DEV пакеты из join_meet)
-    libsndfile1 libportaudio2 portaudio19-dev libasound2-dev \
-    # ОРИГИНАЛЬНАЯ УСТАНОВКА PYTHON 3.11 (НЕ ТРОНУТА)
+    # Утилиты для сборки и установки
+    software-properties-common build-essential wget curl ca-certificates \
+    # Python 3.11 и его dev-пакеты
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update \
-    && apt-get install -y --no-install-recommends python3.11 python3.11-dev python3.11-distutils \
+    && apt-get install -y python3.11 python3.11-dev python3.11-distutils \
+    # Dev-пакеты для аудио
+    portaudio19-dev libasound2-dev \
     # Очистка
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# ОРИГИНАЛЬНАЯ УСТАНОВКА PIP (НЕ ТРОНУТА)
+# Установка pip
 RUN wget https://bootstrap.pypa.io/get-pip.py && python3.11 get-pip.py && rm get-pip.py
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 
-# --- ШАГ 3: УСТАНОВКА GOOGLE CHROME И CHROMEDRIVER (надежный метод из join_meet) ---
+# Рабочая директория
+WORKDIR /app
+
+# Установка Python-зависимостей
+# Сначала ставим тяжелые пакеты (PyTorch)
+RUN python3.11 -m pip install --no-cache-dir \
+    torch==2.7.1 \
+    torchaudio==2.7.1 \
+    torchvision==0.22.1 \
+    --index-url https://download.pytorch.org/whl/cu118
+
+# Затем ставим остальные зависимости из requirements.txt
+COPY requirements.txt .
+RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
+
+
+# --- ЭТАП 2: ФИНАЛЬНЫЙ ОБРАЗ (RUNTIME) ---
+# Используем более легковесный runtime-образ
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+
+# Установка только RUNTIME системных зависимостей
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    # Утилиты, необходимые для entrypoint и работы приложения
+    wget curl git ca-certificates jq unzip dos2unix gnupg procps \
+    # Зависимости для Xvfb (виртуальный дисплей)
+    xvfb \
+    # Зависимости для PulseAudio (аудио)
+    pulseaudio dbus-x11 x11-utils \
+    # Зависимости для Chrome
+    fonts-liberation libnss3 libgdk-pixbuf-2.0-0 libgtk-3-0 libxss1 libgbm1 \
+    libxrandr2 libpangocairo-1.0-0 libatk1.0-0 libcairo-gobject2 \
+    libxcomposite1 libxcursor1 libxdamage1 libxfixes3 libxinerama1 \
+    libappindicator3-1 libxshmfence1 libglu1-mesa \
+    # Runtime аудио-библиотеки
+    libsndfile1 libportaudio2 \
+    # FFMpeg
+    ffmpeg \
+    # Python 3.11 (без -dev)
+    && add-apt-repository ppa:deadsnakes/ppa \
+    && apt-get update \
+    && apt-get install -y python3.11 python3.11-distutils \
+    # Очистка
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# Установка pip и настройка Python
+RUN wget https://bootstrap.pypa.io/get-pip.py && python3.11 get-pip.py && rm get-pip.py
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
+
+# Установка Google Chrome и Chromedriver
 RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
     && sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list' \
     && apt-get update \
@@ -42,61 +87,28 @@ RUN CHROME_VERSION=$(google-chrome --version | cut -d " " -f 3 | cut -d "." -f 1
     rm -rf /tmp/chromedriver-linux64* && \
     chromedriver --version
 
-# --- ШАГ 4: УСТАНОВКА PYTORCH (ОРИГИНАЛЬНАЯ ВЕРСИЯ, НЕ ТРОНУТА) ---
-RUN python3.11 -m pip install --no-cache-dir \
-    torch==2.7.1 \
-    torchaudio==2.7.1 \
-    torchvision==0.22.1 \
-    --index-url https://download.pytorch.org/whl/cu118
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
-
-# --- ШАГ 5: УСТАНОВКА ОСТАЛЬНЫХ PYTHON-ЗАВИСИМОСТЕЙ (НЕ ТРОНУТО) ---
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
-WORKDIR /app
-
-COPY requirements.txt .
-RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
-
-# 3. Скачиваем и устанавливаем Ollama ВНУТРИ ОБРАЗА
+# Устанавливаем Ollama CLI
 RUN curl -L https://github.com/ollama/ollama/releases/download/v0.1.48/ollama-linux-amd64 -o /usr/local/bin/ollama && \
     chmod +x /usr/local/bin/ollama
 
-# 4. Запускаем сервер временно, чтобы СКАЧАТЬ МОДЕЛЬ В ОБРАЗ, и сразу его останавливаем
-# Это "запекает" модель прямо в слой Docker-образа.
-# ВАЖНО: Устанавливаем OLLAMA_MODELS, чтобы модели скачались в /app/.ollama,
-# куда будет смотреть сервер при реальном запуске.
-RUN mkdir -p /app/.ollama && \
-    export OLLAMA_MODELS=/app/.ollama && \
-    /usr/local/bin/ollama serve & \
-    sleep 10 && \
-    /usr/local/bin/ollama pull llama3:8b-instruct-q4_K_M && \
-    pkill -f ollama
+# Рабочая директория
+WORKDIR /app
 
+# Копируем установленные Python пакеты из этапа сборщика
+COPY --from=builder /usr/local/lib/python3.11/site-packages/ /usr/local/lib/python3.11/site-packages/
 
-# --- ШАГ 6: КОПИРОВАНИЕ КОНФИГУРАЦИИ И ЗАГРУЗКА МОДЕЛЕЙ ---
-# Сначала копируем только файлы, необходимые для загрузки моделей
-COPY config/ /app/config/
+# Копируем код приложения
+COPY . /app/
 
-# Настройка переменных окружения для моделей
+# Настройка переменных окружения (пути к моделям будут заданы в entrypoint.sh)
 ENV HOME=/app
-ENV TORCH_HOME=/app/.cache/torch
-ENV NEMO_CACHE_DIR=/app/.cache/nemo
 ENV PYTHONPATH=/app
 
-# Загружаем модели (этот слой будет кешироваться)
-RUN python3 config/load_models.py
-
-# --- ШАГ 7: КОПИРОВАНИЕ ОСТАЛЬНОГО КОДА И НАСТРОЙКА ENTRYPOINT ---
-# Только потом копируем весь остальной код
-COPY . /app/
+# Настройка entrypoint и профиля Chrome
 RUN chmod +x /app/entrypoint.sh && dos2unix /app/entrypoint.sh
-# ВАЖНО: Создаем папку профиля, как в join_meet
 RUN mkdir -p /app/chrome_profile && chmod 755 /app/chrome_profile
 
-# --- ШАГ 8: ЗАПУСК (НЕ ТРОНУТО) ---
+# Запуск
 EXPOSE 8001
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001"]

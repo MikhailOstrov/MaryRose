@@ -42,6 +42,7 @@ class MeetListenerBot:
         self.is_running.set()
         self.vad = webrtcvad.Vad(MEET_VAD_AGGRESSIVENESS)
         self.summary_output_dir = SUMMARY_OUTPUT_DIR
+        self.joined_successfully = False # Флаг для контроля успешного входа
         # Рассчитываем параметры VAD на основе конфига
         self.frame_size = int(STREAM_SAMPLE_RATE * MEET_FRAME_DURATION_MS / 1000)
         self.silent_frames_threshold = int(MEET_PAUSE_THRESHOLD_S * 1000 / MEET_FRAME_DURATION_MS)
@@ -173,21 +174,16 @@ class MeetListenerBot:
             logger.info(f"[{self.meeting_id}] Запрос отправлен. Ожидаю одобрения хоста (до 120с)...")
             max_wait_time, check_interval, elapsed_time = 120, 2, 0
             
-            # ПОЛНЫЙ И НАДЕЖНЫЙ СПИСОК ИНДИКАТОРОВ УСПЕХА ИЗ ОРИГИНАЛА
+            # ОБНОВЛЕННЫЙ И НАДЕЖНЫЙ СПИСОК ИНДИКАТОРОВ УСПЕХА
             success_indicators = [
-                # Кнопки управления встречей (включая русские)
-                '//button[@data-tooltip*="microphone" or @aria-label*="microphone" or @aria-label*="микрофон"]',
-                '//button[@data-tooltip*="camera" or @aria-label*="camera" or @aria-label*="камера"]', 
+                # Кнопка завершения звонка - самый надежный индикатор
                 '//button[@data-tooltip*="end call" or @aria-label*="end call" or @aria-label*="завершить"]',
-                # Иконки Google
-                '//*[contains(@class, "google-material-icons") and (text()="mic" or text()="mic_off")]',
-                '//*[contains(@class, "google-material-icons") and (text()="videocam" or text()="videocam_off")]',
-                # Другие элементы интерфейса
-                '//div[@data-self-name]',
-                '//div[contains(@class, "participant") or contains(@class, "Participant")]',
-                '//div[contains(@class, "control") and (contains(@class, "bar") or contains(@class, "panel"))]',
-                '//button[@aria-label*="hand" or @aria-label*="рука" or @data-tooltip*="hand"]',
-                '//*[contains(text(), "participant") or contains(text(), "участник")]'
+                # Кнопка списка участников, которая появляется только внутри встречи
+                "//button[.//i[text()='people'] and @aria-label]",
+                # Другие надежные элементы интерфейса
+                '//div[@data-self-name]', # Элемент с именем самого бота
+                '//div[contains(@class, "control") and (contains(@class, "bar") or contains(@class, "panel"))]', # Панель управления
+                '//button[@aria-label*="hand" or @aria-label*="рука" or @data-tooltip*="hand"]' # Кнопка "поднять руку"
             ]
             # ПОЛНЫЙ СПИСОК ИНДИКАТОРОВ ОШИБКИ
             error_indicators = [
@@ -203,6 +199,7 @@ class MeetListenerBot:
                         if self.driver.find_element(By.XPATH, xpath).is_displayed():
                             self._save_screenshot("04_joined_successfully")
                             logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
+                            self.joined_successfully = True
                             return True
                     except: continue
                 
@@ -450,9 +447,13 @@ class MeetListenerBot:
 
         self.is_running.clear()
         
-        post_processing_thread = threading.Thread(target=self._perform_post_processing)
-        post_processing_thread.daemon = False
-        post_processing_thread.start()
+        # Запускаем постобработку только если бот успешно вошел в конференцию
+        if self.joined_successfully:
+            post_processing_thread = threading.Thread(target=self._perform_post_processing)
+            post_processing_thread.daemon = False
+            post_processing_thread.start()
+        else:
+            logger.info(f"[{self.meeting_id}] Пропускаю постобработку, так как вход в конференцию не был успешно завершен.")
 
         if self.driver:
             try:

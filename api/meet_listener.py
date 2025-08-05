@@ -203,7 +203,7 @@ class MeetListenerBot:
                         if self.driver.find_element(By.XPATH, xpath).is_displayed():
                             self._save_screenshot("04_joined_successfully")
                             logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
-                            return
+                            return True
                     except: continue
                 
                 for error_xpath in error_indicators:
@@ -212,7 +212,7 @@ class MeetListenerBot:
                         if error_element.is_displayed():
                             logger.error(f"[{self.meeting_id}] ❌ Присоединение отклонено: {error_element.text}")
                             self._save_screenshot("98_join_denied")
-                            raise Exception(f"Присоединение отклонено или произошла ошибка: {error_element.text}")
+                            return False
                     except: continue
 
                 time.sleep(check_interval)
@@ -223,12 +223,12 @@ class MeetListenerBot:
 
             logger.warning(f"[{self.meeting_id}] ⚠️ Превышено время ожидания одобрения ({max_wait_time}с).")
             self._save_screenshot("99_join_timeout")
-            raise Exception("Превышено время ожидания одобрения хостом.")
+            return False
 
         except Exception as e:
             logger.critical(f"[{self.meeting_id}] ❌ Критическая ошибка при присоединении: {e}", exc_info=True)
             self._save_screenshot("99_join_fatal_error")
-            raise
+            return False
 
     def _find_device_id(self):
         logger.info(f"[{self.meeting_id}] Поиск аудиоустройства с именем '{MEET_INPUT_DEVICE_NAME}'...")
@@ -403,33 +403,38 @@ class MeetListenerBot:
 
     def run(self):
         """Основной метод, выполняющий всю работу."""
-        threading.current_thread().name = f'MeetBot-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] Бот запускается...")
         try:
             self._initialize_driver()
-            self.join_meet_as_guest()
-            device_id = self._find_device_id()
-
-            processor_thread = threading.Thread(target=self._process_audio_stream)
-            processor_thread.start()
             
-            monitor_thread = threading.Thread(target=self._monitor_participants)
-            monitor_thread.daemon = True
-            monitor_thread.start()
-
-            logger.info(f"[{self.meeting_id}] 🎤 Начинаю прослушивание аудио с устройства ID {device_id}...")
-            with sd.RawInputStream(
-                samplerate=STREAM_SAMPLE_RATE,
-                blocksize=self.frame_size,
-                device=device_id,
-                dtype='int16',
-                channels=1,
-                callback=self._audio_capture_callback
-            ):
-                # КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: как в рабочем оригинале
-                processor_thread.join()
+            # Попытка присоединиться к встрече
+            joined_successfully = self.join_meet_as_guest()
             
-            logger.info(f"[{self.meeting_id}] Поток прослушивания остановлен.")
+            if joined_successfully:
+                logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")
+                device_id = self._find_device_id()
+
+                processor_thread = threading.Thread(target=self._process_audio_stream)
+                processor_thread.start()
+                
+                monitor_thread = threading.Thread(target=self._monitor_participants)
+                monitor_thread.daemon = True
+                monitor_thread.start()
+
+                logger.info(f"[{self.meeting_id}] 🎤 Начинаю прослушивание аудио с устройства ID {device_id}...")
+                with sd.RawInputStream(
+                    samplerate=STREAM_SAMPLE_RATE,
+                    blocksize=self.frame_size,
+                    device=device_id,
+                    dtype='int16',
+                    channels=1,
+                    callback=self._audio_capture_callback
+                ):
+                    processor_thread.join()
+                
+                logger.info(f"[{self.meeting_id}] Поток прослушивания остановлен.")
+            else:
+                logger.warning(f"[{self.meeting_id}] Не удалось присоединиться к встрече. Завершаю работу.")
 
         except Exception as e:
             logger.critical(f"[{self.meeting_id}] ❌ Критическая ошибка в работе бота: {e}", exc_info=True)

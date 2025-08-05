@@ -33,7 +33,7 @@ jobs:
       # 4. Отправляем команду на Runpod для обновления пода
       - name: Trigger Runpod Pod Restart
         run: |
-          echo "Triggering restart for Pod kknh3ekd97bm8f using the updated :v3 tag..."
+          echo "Triggering restart for Pod 11f8c9cknf0dcg using the updated :v3 tag..."
           curl -X POST \
-            "https://api.runpod.io/v2/kknh3ekd97bm8f/restart" \
+            "https://api.runpod.io/v2/11f8c9cknf0dcg/restart" \
             -H "Authorization: Bearer ${{ secrets.RUNPOD_API_KEY }}"

@@ -22,7 +22,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 print("<<<<< ЗАПУСК CI/CD ТЕСТ V1.0: Приложение стартует! >>>>>")
-logging.info("<<<<< ЗАПУСК CI/CD ТЕСТ V1.0: Приложение стартует! >>>>>")
+logging.info("<<<<< ЗАПУСК CI/CD ТЕСТ V1.0: Приложение стартует! урааааа работает>>>>>")
 
 # --- Инициализация приложения и загрузка моделей ---
 active_meetings: Dict[str, MeetListenerBot] = {}

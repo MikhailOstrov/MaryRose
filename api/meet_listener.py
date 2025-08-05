@@ -58,6 +58,8 @@ class MeetListenerBot:
         logger.info(f"[{self.meeting_id}] Мониторинг участников запущен.")
         
         participant_locator_xpath = "//button[.//i[text()='people'] and @aria-label]"
+        consecutive_failures = 0
+        max_failures = 10
 
         while self.is_running.is_set():
             for _ in range(15): # Проверяем каждые 15 секунд
@@ -73,12 +75,24 @@ class MeetListenerBot:
                 if numbers:
                     count = int(numbers)
                     logger.info(f"[{self.meeting_id}] Текущее количество участников: {count}")
+                    consecutive_failures = 0 # Сбрасываем счетчик при успехе
                     if count <= 1:
                         logger.warning(f"[{self.meeting_id}] Встреча пуста. Завершаю работу...")
                         self.stop()
                         return
+                else:
+                    # Это может произойти, если элемент найден, но в нем нет цифр
+                    consecutive_failures += 1
+                    logger.warning(f"[{self.meeting_id}] Не удалось извлечь число участников из элемента. Попытка {consecutive_failures}/{max_failures}.")
+
             except Exception:
-                logger.warning(f"[{self.meeting_id}] Не удалось найти счетчик участников на этой итерации.")
+                consecutive_failures += 1
+                logger.warning(f"[{self.meeting_id}] Не удалось найти счетчик участников. Попытка {consecutive_failures}/{max_failures}.")
+
+            if consecutive_failures >= max_failures:
+                logger.error(f"[{self.meeting_id}] Не удалось найти счетчик участников {max_failures} раз подряд. Предполагаю, что встреча завершена.")
+                self.stop()
+                return
     
     # --- КРИТИЧЕСКИ ВАЖНЫЙ БЛОК: ИНИЦИАЛИЗАЦИЯ ДРАЙВЕРА 1-в-1 КАК В join_meet ---
     def _initialize_driver(self):

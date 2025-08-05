@@ -29,6 +29,8 @@ jobs:
           context: .
           push: true
           tags: roma3213/maryrose-app:v3 # Жестко заданный тег, который будет перезаписан
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       # 4. Отправляем команду на Runpod для обновления пода
       - name: Trigger Runpod Pod Restart

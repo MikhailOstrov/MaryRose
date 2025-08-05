@@ -76,19 +76,25 @@ RUN mkdir -p /app/.ollama && \
     pkill -f ollama
 
 
-# --- ШАГ 6: КОПИРОВАНИЕ КОДА И НАСТРОЙКА ENTRYPOINT ---
-COPY . /app/
-RUN chmod +x /app/entrypoint.sh && dos2unix /app/entrypoint.sh
-# ВАЖНО: Создаем папку профиля, как в join_meet
-RUN mkdir -p /app/chrome_profile && chmod 755 /app/chrome_profile
+# --- ШАГ 6: КОПИРОВАНИЕ КОНФИГУРАЦИИ И ЗАГРУЗКА МОДЕЛЕЙ ---
+# Сначала копируем только файлы, необходимые для загрузки моделей
+COPY config/ /app/config/
 
-# --- ШАГ 7: ЗАГРУЗКА МОДЕЛЕЙ И НАСТРОЙКА ПЕРЕМЕННЫХ (НЕ ТРОНУТО) ---
+# Настройка переменных окружения для моделей
 ENV HOME=/app
 ENV TORCH_HOME=/app/.cache/torch
 ENV NEMO_CACHE_DIR=/app/.cache/nemo
 ENV PYTHONPATH=/app
 
+# Загружаем модели (этот слой будет кешироваться)
 RUN python3 config/load_models.py
+
+# --- ШАГ 7: КОПИРОВАНИЕ ОСТАЛЬНОГО КОДА И НАСТРОЙКА ENTRYPOINT ---
+# Только потом копируем весь остальной код
+COPY . /app/
+RUN chmod +x /app/entrypoint.sh && dos2unix /app/entrypoint.sh
+# ВАЖНО: Создаем папку профиля, как в join_meet
+RUN mkdir -p /app/chrome_profile && chmod 755 /app/chrome_profile
 
 # --- ШАГ 8: ЗАПУСК (НЕ ТРОНУТО) ---
 EXPOSE 8001

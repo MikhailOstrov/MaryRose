@@ -1,10 +1,11 @@
 # Название CI/CD пайплайна
 name: Build and Overwrite 'v3' tag on Runpod
 
-# Триггер: запускать при push в ветку main
+# Триггер: запускать при push в ветку CI-CD
 on:
   push:
-    branches: - CI-CD
+    branches:
+      - CI-CD
 
 jobs:
   build-and-deploy:

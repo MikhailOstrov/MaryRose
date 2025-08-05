@@ -44,6 +44,8 @@ FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
 # Установка только RUNTIME системных зависимостей
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    # ИСПРАВЛЕНИЕ: Добавляем software-properties-common для add-apt-repository
+    software-properties-common \
     # Утилиты, необходимые для entrypoint и работы приложения
     wget curl git ca-certificates jq unzip dos2unix gnupg procps \
     # Зависимости для Xvfb (виртуальный дисплей)

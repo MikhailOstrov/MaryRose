@@ -1,53 +1,7 @@
-import requests
-import os
-import time
-
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = "llama3:8b-instruct-q4_K_M"
-
-def ensure_model_available():
-    """Проверяет наличие модели и загружает её если нужно"""
-    try:
-        # Проверяем доступные модели
-        response = requests.get(f"{OLLAMA_BASE_URL}/api/tags", timeout=10)
-        response.raise_for_status()
-        models = response.json().get('models', [])
-        
-        # Проверяем, есть ли нужная модель
-        model_exists = any(OLLAMA_MODEL in model.get('name', '') for model in models)
-        
-        if model_exists:
-            print(f"✅ Модель {OLLAMA_MODEL} готова к использованию")
-            return True
-            
-        print(f"📥 Загружаю модель {OLLAMA_MODEL}...")
-        
-        # Загружаем модель
-        pull_response = requests.post(
-            f"{OLLAMA_BASE_URL}/api/pull",
-            json={"name": OLLAMA_MODEL},
-            timeout=600  # 10 минут на загрузку
-        )
-        pull_response.raise_for_status()
-        print(f"✅ Модель {OLLAMA_MODEL} успешно загружена!")
-        return True
-        
-    except Exception as e:
-        print(f"❌ Ошибка при работе с моделью: {e}")
-        return False
-
-# Автоматически проверяем и загружаем модель при импорте модуля
-print("🚀 Инициализация Ollama...")
-ensure_model_available()
-
-
+from config.load_models import llm_model
 
 OLLAMA_ASSISTANT_PROMPT = """
-Ты — умный русскоязычный помощник по имени Мэри. Отвечай только на русском языке, кратко и по существу.
-
-Команда пользователя: "{command}"
-
-Дай четкий и полезный ответ:
+Ты — умный русскоязычный помощник по имени Мэри. Отвечай только на русском языке, кратко и по существу. Дай четкий и полезный ответ.
 """
 
 OLLAMA_SUMMARY_PROMPT = """
@@ -74,13 +28,6 @@ OLLAMA_SUMMARY_PROMPT = """
 
 ---
 Теперь проанализируй следующий диалог и создай резюме по тому же формату.
-
-Диалог для анализа:
----
-{dialogue_text}
----
-
-Резюме:
 """
 
 OLLAMA_TITLE_PROMPT = """
@@ -97,47 +44,43 @@ OLLAMA_TITLE_PROMPT = """
 - "Планирование маркетинговой кампании"
 - "Анализ результатов квартала"
 - "Техническое совещание по проекту"
-
-Диалог встречи:
----
-{dialogue_text}
----
-
-Создай короткий заголовок для этой встречи (только заголовок, без лишнего текста):
 """
 
-def _call_ollama(prompt: str) -> str:
-    """Отправляет запрос в Ollama и получает ответ"""
-    data = {"model": OLLAMA_MODEL, "prompt": prompt, "stream": False}
-    
-    try:
-        response = requests.post(f"{OLLAMA_BASE_URL}/api/generate", json=data, timeout=30.0)
-        response.raise_for_status()
-        return response.json().get('response', '')
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Ошибка Ollama: {e}")
-        return ""
+def get_summary_response(cleaned_dialogue: str) -> str:
+
+    messages = [
+    {"role": "system", "content": OLLAMA_SUMMARY_PROMPT},
+    {"role": "user", "content": cleaned_dialogue},
+    ]
+
+    outputs = llm_model(
+        messages,
+        max_new_tokens=2056,
+    )
+    return outputs[0]["generated_text"][-1]
 
 def get_mary_response(command: str) -> str:
-    """Получает ответ от Мэри на команду пользователя"""
-    prompt = OLLAMA_ASSISTANT_PROMPT.format(command=command)
-    response_text = _call_ollama(prompt)
-    if not response_text:
-        return "Извините, у меня проблемы с подключением."
-    return response_text.strip()
 
-def get_summary_response(dialogue_text: str) -> str:
-    """Создает резюме диалога с помощью Ollama"""
-    prompt = OLLAMA_SUMMARY_PROMPT.format(dialogue_text=dialogue_text)
-    response_text = _call_ollama(prompt)
-    if not response_text:
-        return "Не удалось создать резюме из-за ошибки."
-    return response_text.strip()
+    messages = [
+    {"role": "system", "content": OLLAMA_ASSISTANT_PROMPT},
+    {"role": "user", "content": command},
+    ]
+
+    outputs = llm_model(
+        messages,
+        max_new_tokens=256,
+    )
+    return outputs[0]["generated_text"][-1]
 
 def get_title_response(dialogue_text: str) -> str:
-    """Создает короткий заголовок для встречи с помощью Ollama"""
-    prompt = OLLAMA_TITLE_PROMPT.format(dialogue_text=dialogue_text)
-    response_text = _call_ollama(prompt)
-    if not response_text:
-        return ""  # Возвращаем пустую строку при ошибке
-    return response_text.strip()
+
+    messages = [
+    {"role": "system", "content": OLLAMA_TITLE_PROMPT},
+    {"role": "user", "content": dialogue_text},
+    ]
+
+    outputs = llm_model(
+        messages,
+        max_new_tokens=32,
+    )
+    return outputs[0]["generated_text"][-1]

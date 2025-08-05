@@ -16,13 +16,12 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 # Импортируем конфигурацию из основного файла
-from config.config import (STREAM_SAMPLE_RATE,MEET_FRAME_DURATION_MS,
-                           MEET_VAD_AGGRESSIVENESS, MEET_PAUSE_THRESHOLD_S, 
+from config.config import (STREAM_SAMPLE_RATE,SILENCE_THRESHOLD_FRAMES, MEET_FRAME_DURATION_MS,
                            MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME,
                            CHROME_PROFILE_DIR, MEET_GUEST_NAME, SUMMARY_OUTPUT_DIR)
-from handlers.stt_handler import transcribe_chunk
 from handlers.ollama_handler import get_mary_response, get_summary_response, get_title_response
 from handlers.diarization_handler import run_diarization, process_rttm_and_transcribe
+from config.load_models import vad_model, asr_model
 from api.utils import combine_audio_chunks
 
 logger = logging.getLogger(__name__)
@@ -40,12 +39,13 @@ class MeetListenerBot:
         self.audio_queue = queue.Queue()
         self.is_running = threading.Event()
         self.is_running.set()
-        self.vad = webrtcvad.Vad(MEET_VAD_AGGRESSIVENESS)
+        self.vad = vad_model
+        self.asr_model = asr_model
         self.summary_output_dir = SUMMARY_OUTPUT_DIR
         self.joined_successfully = False # Флаг для контроля успешного входа
         # Рассчитываем параметры VAD на основе конфига
         self.frame_size = int(STREAM_SAMPLE_RATE * MEET_FRAME_DURATION_MS / 1000)
-        self.silent_frames_threshold = int(MEET_PAUSE_THRESHOLD_S * 1000 / MEET_FRAME_DURATION_MS)
+        self.silent_frames_threshold = SILENCE_THRESHOLD_FRAMES
 
         # Папка для сохранения чанков и скриншотов
         self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.meeting_id
@@ -266,38 +266,61 @@ class MeetListenerBot:
     def _process_audio_stream(self):
         threading.current_thread().name = f'VADProcessor-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] Процессор VAD запущен.")
+
         speech_buffer = []
         silent_frames_count = 0
+        
+        # Предполагаем, что TRIGGER_WORD и asr_model определены в классе
+        TRIGGER_WORD = "мэри"
+
         while self.is_running.is_set():
             try:
+                # Получаем аудио-фрейм из очереди
                 audio_frame = self.audio_queue.get(timeout=1)
+                
+                # Проверяем, является ли фрейм речью
                 is_speech = self.vad.is_speech(audio_frame, STREAM_SAMPLE_RATE)
+
                 if is_speech:
                     speech_buffer.append(audio_frame)
                     silent_frames_count = 0
                 else:
                     silent_frames_count += 1
+
+                # Если буфер речи не пуст и обнаружена пауза
                 if speech_buffer and silent_frames_count > self.silent_frames_threshold:
                     full_speech_chunk_bytes = b''.join(speech_buffer)
                     speech_buffer.clear()
                     silent_frames_count = 0
-                    # Сначала сохраняем фрагмент в любом случае для последующей обработки
+
+                    # Запускаем сохранение фрагмента в отдельном потоке
                     threading.Thread(target=self._save_chunk, args=(full_speech_chunk_bytes,)).start()
 
-                    # Затем выполняем транскрипцию и проверяем на триггерные слова
-                    transcription, trigger_word = transcribe_chunk(full_speech_chunk_bytes)
+                    # Выполняем транскрибацию
+                    audio_np = np.frombuffer(full_speech_chunk_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+                    segments, info = self.asr_model.transcribe(audio_np, beam_size=5)
+                    transcription = " ".join([seg.text for seg in segments])
                     print(transcription)
-                    if trigger_word == 1:
-                        print("Обнаружено слово-триггер")
-                        response = get_mary_response(transcription)
-                        print(response)
 
-                        # 
-                        # !!!Можно вывести в GMeet в чат пока что.
-                        #
+                    if transcription:
 
-            except queue.Empty: continue
-            except Exception as e: logger.error(f"[{self.meeting_id}] Ошибка в цикле VAD: {e}")
+                        # Если обнаружено слово-триггер
+                        text_to_check = transcription.lstrip().lower()
+
+                        if text_to_check.startswith(TRIGGER_WORD):
+                            print("Обнаружено слово-триггер в начале фразы")
+                            
+                            command_text = transcription.strip(" ,.:")
+                            
+                            # Отправляем всю команду и получаем ответ
+                            if command_text:
+                                response = get_mary_response(command_text)
+                                print(f"Ответ от Мэри: {response}")
+
+            except queue.Empty:
+                continue
+            except Exception as e:
+                logger.error(f"[{self.meeting_id}] Ошибка в цикле VAD: {e}")
 
     def _perform_post_processing(self):
         """
@@ -332,14 +355,19 @@ class MeetListenerBot:
             dialogue_transcript = process_rttm_and_transcribe(rttm_path, str(combined_audio_filepath))
             print(f"Это вывод диалога: \n{dialogue_transcript}")
 
+            # Убираем метки спикеров, что икслючить засорение промптов
+            import re
+            pattern = r"\[speaker_\d+\]:\s*"
+            cleaned_dialogue = re.sub(pattern, "", dialogue_transcript)
+
             # Суммаризация
             logger.info(f"[{self.meeting_id}] Создание резюме...")
-            summary_text = get_summary_response(dialogue_transcript)
+            summary_text = get_summary_response(cleaned_dialogue)
             print(f"Это вывод summary: \n{summary_text}")
             
             # Генерация заголовка
             logger.info(f"[{self.meeting_id}] Создание заголовка...")
-            title_text = get_title_response(dialogue_transcript)
+            title_text = get_title_response(cleaned_dialogue)
             print(f"Это вывод заголовка: \n{title_text}")
             
             # Отправка результатов на внешний сервер

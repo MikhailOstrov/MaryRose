@@ -24,6 +24,8 @@ onnxruntime
 
 # Машинное обучение
 scikit-learn==1.6.1
+transformers
+faster_whisper
 
 # Браузер автоматизация (версии не закреплены для совместимости)
 selenium

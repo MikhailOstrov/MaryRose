@@ -4,27 +4,30 @@ os.environ['HOME'] = '/app'
 os.environ['TORCH_HOME'] = '/app/.cache/torch'
 os.environ['NEMO_CACHE_DIR'] = '/app/.cache/nemo'
 
-import nemo.collections.asr as nemo_asr
+from faster_whisper import WhisperModel
+import transformers
 from omegaconf import OmegaConf
 import torch
 import wget
 from pathlib import Path
-from config import ASR_MODEL_NAME, TTS_MODEL_ID, DIAR_SPEAKER_MODEL, DIAR_CONFIG_URL
+from config import ASR_MODEL_NAME, TTS_MODEL_ID, DIAR_SPEAKER_MODEL, DIAR_CONFIG_URL, LLM_NAME
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 def load_asr_model():
-    asr_model = nemo_asr.models.EncDecHybridRNNTCTCBPEModel.from_pretrained(model_name=ASR_MODEL_NAME).to(device)
+    asr_model = WhisperModel(ASR_MODEL_NAME)
     print("ASR model loaded.")
     return asr_model
 
 def load_silero_vad_model():
     model, utils = torch.hub.load(repo_or_dir='snakers4/silero-vad',
                                   model='silero_vad',
-                                  force_reload=True,
-                                  onnx=True)
+                                  force_reload=False)
     print("Silero VAD model loaded.")
-    return model, utils
+    (get_speech_timestamps, _, _, VADIterator, _) = vad_utils
+    iterator = VADIterator(vad_model,
+                           threshold=0.1)
+    return model, utils, iterator
 
 def load_tts_model():
     tts_model, _ = torch.hub.load(repo_or_dir='snakers4/silero-models', model='silero_tts', language='ru', speaker=TTS_MODEL_ID, trust_repo=True)
@@ -40,6 +43,18 @@ def load_diarizer_config():
     config.diarizer.speaker_embeddings.model_path = DIAR_SPEAKER_MODEL
     return config
 
+def load_llm():
+    hf_token = os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    pipeline = transformers.pipeline(
+    "text-generation",
+    model=LLM_NAME,
+    model_kwargs={"torch_dtype": torch.bfloat16},
+    device_map="cuda",
+    token=hf_token
+    )
+    return pipeline
+
+llm_model = load_llm()
 asr_model = load_asr_model()
-(vad_model, vad_utils) = load_silero_vad_model()
+(vad_model, vad_utils, vad_iterator) = load_silero_vad_model()
 tts_model = load_tts_model()

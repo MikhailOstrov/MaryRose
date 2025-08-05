@@ -2,11 +2,10 @@ import os
 import json
 import subprocess
 from pathlib import Path
-
 from omegaconf import OmegaConf
-from nemo.collections.asr.models import ClusteringDiarizer
 
-from config.load_models import load_diarizer_config
+from nemo.collections.asr.models import ClusteringDiarizer
+from config.load_models import load_diarizer_config, asr_model
 
 def run_diarization(audio_file_path: str, output_dir: str) -> str:
     
@@ -36,32 +35,53 @@ def run_diarization(audio_file_path: str, output_dir: str) -> str:
     rttm_file_path = list(Path(output_dir).rglob('*.rttm'))[0]
     return str(rttm_file_path)
 
-def process_rttm_and_transcribe(rttm_path: str, audio_path: str) -> str:
-    from handlers.stt_handler import transcribe_file
-    
+def process_rttm_and_transcribe(rttm_path: str, audio_path: str):
+    """
+    Разрезает аудио по разметке RTTM, транскрибирует и форматирует результат.
+    Выводит каждую реплику на новой строке, как в Коде 1.
+    """
+    if not asr_model:
+        print("❌ Модель ASR не загружена. Пропуск транскрипции.")
+        return ""
+
     with open(rttm_path, 'r') as f:
         lines = f.readlines()
 
     segments_dir = Path(rttm_path).parent / "segments"
     segments_dir.mkdir(exist_ok=True)
-    
+
     segments = []
     for line in lines:
         parts = line.strip().split()
-        start, duration, speaker = float(parts[3]), float(parts[4]), parts[7]
-        segment_path = segments_dir / f"{start:.3f}_{speaker}.wav"
+        if len(parts) < 8:
+            continue
         
+        start, duration, speaker = float(parts[3]), float(parts[4]), parts[7]
+        
+        segment_path = segments_dir / f"{start:.3f}_{speaker}.wav"
         command = ['ffmpeg', '-y', '-i', audio_path, '-ss', str(start), '-t', str(duration), '-c', 'copy', str(segment_path)]
-        subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        segments.append({'speaker': speaker, 'path': str(segment_path), 'start': start})
+        
+        try:
+            subprocess.run(command, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            segments.append({'speaker': speaker, 'path': str(segment_path), 'start': start})
+        except subprocess.CalledProcessError as e:
+            print(f"❌ Ошибка при нарезке аудиофрагмента {segment_path}: {e}")
+            continue
 
     segments.sort(key=lambda x: x['start'])
-    
-    transcriptions = transcribe_file([s['path'] for s in segments])
-    
+
     full_dialogue = []
-    for i, segment in enumerate(segments):
-        text = transcriptions[i].text if i < len(transcriptions) else ""
-        full_dialogue.append(f"[{segment['speaker']}]: {text}")
-        
+
+    for segment in segments:
+        try:
+            # Транскрибируем каждый сегмент по отдельности
+            transcriptions, _ = asr_model.transcribe(segment['path'], beam_size=5, language="ru")
+            text = " ".join([t.text for t in transcriptions])
+
+            if text.strip():  # Пропускаем пустые транскрипции
+                # Форматируем каждую реплику на новой строке
+                full_dialogue.append(f"[{segment['speaker']}]: {text}")
+        except Exception as e:
+            print(f"❌ Ошибка при транскрибации сегмента {segment['path']}: {e}")
+
     return "\n".join(full_dialogue)

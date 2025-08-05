@@ -11,6 +11,9 @@ import torch
 import wget
 from pathlib import Path
 from config import ASR_MODEL_NAME, TTS_MODEL_ID, DIAR_SPEAKER_MODEL, DIAR_CONFIG_URL, LLM_NAME
+from dotenv import load_dotenv
+
+load_dotenv() 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -44,7 +47,7 @@ def load_diarizer_config():
     return config
 
 def load_llm():
-    hf_token = os.environ.get("HUGGING_FACE_HUB_TOKEN")
+    hf_token = os.getenv("HUGGING_FACE_HUB_TOKEN")
     pipeline = transformers.pipeline(
     "text-generation",
     model=LLM_NAME,

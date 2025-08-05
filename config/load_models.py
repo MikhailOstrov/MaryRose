@@ -18,7 +18,7 @@ load_dotenv()
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-hf_token = os.environ.get("HUGGING_FACE_HUB_TOKEN")
+hf_token = os.getenv("HUGGING_FACE_HUB_TOKEN")
 
 if hf_token:
     login(token=hf_token)

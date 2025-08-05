@@ -141,7 +141,7 @@ class WebsiteListenerBot:
             payload = {"meeting_id": self.meeting_id, "full_text": full_text, "summary": summary, "title": title}
             headers = {"X-Internal-Api-Key": "key", "Content-Type": "application/json"}
             # Используем переменную окружения или дефолтный домен
-            backend_url = os.getenv('MAIN_BACKEND_URL', 'https://twenty-rockets-shout.loca.lt')
+            backend_url = os.getenv('MAIN_BACKEND_URL', 'https://puny-goats-smell.loca.lt')
             # backend_url = os.getenv('MAIN_BACKEND_URL', 'https://maryrose.by')
             url = f"{backend_url}/meetings/internal/result"
             response = requests.post(url, json=payload, headers=headers, timeout=30)

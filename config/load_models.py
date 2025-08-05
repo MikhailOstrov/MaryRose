@@ -6,6 +6,7 @@ os.environ['NEMO_CACHE_DIR'] = '/app/.cache/nemo'
 
 from faster_whisper import WhisperModel
 import transformers
+from huggingface_hub import login
 from omegaconf import OmegaConf
 import torch
 import wget
@@ -13,6 +14,14 @@ from pathlib import Path
 from config import ASR_MODEL_NAME, TTS_MODEL_ID, DIAR_SPEAKER_MODEL, DIAR_CONFIG_URL, LLM_NAME
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+hf_token = os.environ.get("HUGGING_FACE_HUB_TOKEN")
+
+if hf_token:
+    login(token=hf_token)
+    print("Успешный вход в Hugging Face.")
+else:
+    print("Токен Hugging Face не найден в переменных окружения.")
 
 def load_asr_model():
     asr_model = WhisperModel(ASR_MODEL_NAME)

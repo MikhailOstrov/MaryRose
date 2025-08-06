@@ -14,13 +14,12 @@ datasets==2.14.0
 pyarrow==14.0.1
 
 # Аудио обработка
-silero==0.4.1
 webrtcvad==2.0.10
 pydub==0.25.1
 soundfile==0.12.1
 librosa==0.11.0
 numpy==1.26.4
-onnxruntime
+onnxruntimenumpy
 
 # Машинное обучение
 scikit-learn==1.6.1
@@ -37,6 +36,7 @@ sounddevice==0.4.6
 scipy==1.11.3
 Pillow==10.1.0
 pyaudio==0.2.14
+silero-vad==5.1.2 # ---Добавил---
 
 # Утилиты
 requests==2.31.0

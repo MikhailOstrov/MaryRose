@@ -57,7 +57,7 @@ def get_summary_response(cleaned_dialogue: str) -> str:
         messages,
         max_new_tokens=2056,
     )
-    return outputs[0]["generated_text"][-1]
+    return outputs[0]["generated_text"][-1]["content"]
 
 def get_mary_response(command: str) -> str:
 
@@ -70,7 +70,7 @@ def get_mary_response(command: str) -> str:
         messages,
         max_new_tokens=256,
     )
-    return outputs[0]["generated_text"][-1]
+    return outputs[0]["generated_text"][-1]["content"]
 
 def get_title_response(dialogue_text: str) -> str:
 
@@ -83,4 +83,4 @@ def get_title_response(dialogue_text: str) -> str:
         messages,
         max_new_tokens=32,
     )
-    return outputs[0]["generated_text"][-1]
+    return outputs[0]["generated_text"][-1]["content"]

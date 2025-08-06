@@ -9,9 +9,9 @@ from pydantic import BaseModel
 from uuid import uuid4
 
 # Импортируем бизнес-логику и конфигурацию
-from config.config import UPLOADS_DIR
-from api import utils
-from handlers import diarization_handler, ollama_handler, stt_handler, tts_handler
+# from config.config import UPLOADS_DIR
+# from api import utils
+# from handlers import diarization_handler, ollama_handler, tts_handler
 from api.meet_listener import MeetListenerBot
 from api import websocket_gateway
 from api.session_store import session_to_meeting_map
@@ -129,7 +129,7 @@ async def stop_processing(request: StopRequest):
         raise HTTPException(status_code=500, detail=f"Не удалось инициировать остановку бота: {str(e)}")
 
 # --- Эндпоинт для офлайн-обработки (без изменений) ---
-
+'''
 @app.post("/api/v1/internal/process-file-offline", dependencies=[Depends(get_api_key)])
 async def process_file_offline(file: UploadFile = File(...)):
     """Принимает аудиофайл, диаризует, транскрибирует и суммирует его."""
@@ -140,17 +140,22 @@ async def process_file_offline(file: UploadFile = File(...)):
         shutil.copyfileobj(file.file, buffer)
     
     try:
-        wav_path = await asyncio.to_thread(utils.convert_to_standard_wav, upload_path)
-        rttm_path = await asyncio.to_thread(diarization_handler.run_diarization, str(wav_path), str(UPLOADS_DIR))
-        dialogue = await asyncio.to_thread(diarization_handler.process_rttm_and_transcribe, rttm_path, str(wav_path))
-        summary = await asyncio.to_thread(ollama_handler.get_summary_response, dialogue)
+        # wav_path = await asyncio.to_thread(utils.convert_to_standard_wav, upload_path)
+        rttm_path = await asyncio.to_thread(diarization_handler.run_diarization, str(upload_path), str(UPLOADS_DIR))
+        dialogue = await asyncio.to_thread(diarization_handler.process_rttm_and_transcribe, rttm_path, str(upload_path))
+
+        import re
+        pattern = r"\[speaker_\d+\]:\s*"
+        cleaned_dialogue = re.sub(pattern, "", dialogue)
+    
+        summary = await asyncio.to_thread(ollama_handler.get_summary_response, cleaned_dialogue)
 
         logger.info(f"Successfully processed file: {file.filename}")
         return {"status": "success", "full_transcript": dialogue, "summary": summary}
     except Exception as e:
         logger.error(f"Failed to process file {file.filename}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to process file: {str(e)}")
-
+'''
 # --- ДОБАВЛЕННЫЕ КОМПОНЕНТЫ ДЛЯ РАБОТЫ С АУДИОПОТОКОМ С САЙТА ---
 
 # 4. Новый эндпоинт для инициации сессии с сайта

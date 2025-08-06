@@ -7,21 +7,20 @@ from uuid import uuid4
 
 import numpy as np
 from scipy.io.wavfile import write
-import webrtcvad
 import requests
 
 from config.config import (
     STREAM_SAMPLE_RATE,
     MEET_FRAME_DURATION_MS,
-    MEET_VAD_AGGRESSIVENESS,
-    MEET_PAUSE_THRESHOLD_S,
     MEET_AUDIO_CHUNKS_DIR,
     SUMMARY_OUTPUT_DIR,
 )
-from handlers.stt_handler import transcribe_chunk
+
 from handlers.ollama_handler import get_mary_response, get_summary_response, get_title_response
 from handlers.diarization_handler import run_diarization, process_rttm_and_transcribe
 from api.utils import combine_audio_chunks
+from config.load_models import vad_model, asr_model
+from config.config import SILENCE_THRESHOLD_FRAMES
 
 logger = logging.getLogger(__name__)
 
@@ -31,16 +30,18 @@ class WebsiteListenerBot:
     Логика обработки полностью синхронизирована с MeetListenerBot.
     """
     def __init__(self, session_id: str, meeting_id: int):
+
         self.session_id = session_id
         self.meeting_id = meeting_id # Ключевой ID для отправки результата
         self.audio_queue = queue.Queue()
         self.is_running = threading.Event()
         self.is_running.set()
-        self.vad = webrtcvad.Vad(MEET_VAD_AGGRESSIVENESS)
-        
+        self.vad = vad_model
+        self.asr_model = asr_model
+
         # ПРАВИЛЬНЫЙ РАСЧЕТ: (частота * длительность_в_сек * 2 байта_на_сэмпл)
         self.frame_size = int(STREAM_SAMPLE_RATE * (MEET_FRAME_DURATION_MS / 1000) * 2)
-        self.silent_frames_threshold = int(MEET_PAUSE_THRESHOLD_S * 1000 / MEET_FRAME_DURATION_MS)
+        self.silent_frames_threshold = SILENCE_THRESHOLD_FRAMES
 
         self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.session_id
         os.makedirs(self.output_dir, exist_ok=True)
@@ -64,40 +65,56 @@ class WebsiteListenerBot:
         speech_buffer = []
         silent_frames_count = 0
 
+        TRIGGER_WORD = "мэри"
+        
         while self.is_running.is_set() or not self.audio_queue.empty():
             try:
+                # Получаем аудио-фрейм из очереди
                 audio_frame = self.audio_queue.get(timeout=1)
                 
-                if len(audio_frame) != self.frame_size:
-                    continue
-
+                # Проверяем, является ли фрейм речью
                 is_speech = self.vad.is_speech(audio_frame, STREAM_SAMPLE_RATE)
+
                 if is_speech:
                     speech_buffer.append(audio_frame)
                     silent_frames_count = 0
                 else:
                     silent_frames_count += 1
-                
-                if speech_buffer and (silent_frames_count > self.silent_frames_threshold or (not self.is_running.is_set() and self.audio_queue.empty())):
+
+                # Если буфер речи не пуст и обнаружена пауза
+                if speech_buffer and silent_frames_count > self.silent_frames_threshold:
                     full_speech_chunk_bytes = b''.join(speech_buffer)
                     speech_buffer.clear()
                     silent_frames_count = 0
-                    
+
+                    # Запускаем сохранение фрагмента в отдельном потоке
                     threading.Thread(target=self._save_chunk, args=(full_speech_chunk_bytes,)).start()
 
-                    transcription, trigger_word = transcribe_chunk(full_speech_chunk_bytes)
-                    print(f"[{self.session_id}] Промежуточная транскрипция: {transcription}")
-                    if trigger_word == 1:
-                        print(f"[{self.session_id}] Обнаружено слово-триггер")
-                        response = get_mary_response(transcription)
-                        print(f"[{self.session_id}] Ответ AI: {response}")
+                    # Выполняем транскрибацию
+                    audio_np = np.frombuffer(full_speech_chunk_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+                    segments, info = self.asr_model.transcribe(audio_np, beam_size=5)
+                    transcription = " ".join([seg.text for seg in segments])
+                    print(transcription)
+
+                    if transcription:
+
+                        # Если обнаружено слово-триггер
+                        text_to_check = transcription.lstrip().lower()
+
+                        if text_to_check.startswith(TRIGGER_WORD):
+                            print("Обнаружено слово-триггер в начале фразы")
+                            
+                            command_text = transcription.strip(" ,.:")
+                            
+                            # Отправляем всю команду и получаем ответ
+                            if command_text:
+                                response = get_mary_response(command_text)
+                                print(f"Ответ от Мэри: {response}")
 
             except queue.Empty:
-                if not self.is_running.is_set():
-                    break
                 continue
             except Exception as e:
-                logger.error(f"[{self.session_id}] Ошибка в цикле VAD: {e}", exc_info=True)
+                logger.error(f"[{self.meeting_id}] Ошибка в цикле VAD: {e}")
 
     def _save_chunk(self, audio_bytes: bytes):
         try:
@@ -127,10 +144,19 @@ class WebsiteListenerBot:
                 return
             
             rttm_path = run_diarization(str(combined_audio_filepath), str(self.output_dir))
+            
             dialogue_transcript = process_rttm_and_transcribe(rttm_path, str(combined_audio_filepath))
-            summary_text = get_summary_response(dialogue_transcript)
-            title_text = get_title_response(dialogue_transcript)
+
+            import re
+            pattern = r"\[speaker_\d+\]:\s*"
+            cleaned_dialogue = re.sub(pattern, "", dialogue_transcript)
+
+            summary_text = get_summary_response(cleaned_dialogue)
+            
+            title_text = get_title_response(cleaned_dialogue)
+            
             self._send_results_to_backend(dialogue_transcript, summary_text, title_text)
+
         except Exception as e:
             logger.error(f"[{self.session_id}] ❌ Ошибка при постобработке: {e}", exc_info=True)
         finally:

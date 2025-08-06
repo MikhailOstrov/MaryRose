@@ -20,8 +20,6 @@ from .config import (
     MEET_INPUT_DEVICE_NAME,
     MEET_GUEST_NAME,
     MEET_AUDIO_CHUNKS_DIR,
-    MEET_VAD_AGGRESSIVENESS,
     MEET_FRAME_DURATION_MS,
-    MEET_PAUSE_THRESHOLD_S,
     ensure_dirs_exist
 )

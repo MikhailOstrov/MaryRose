@@ -379,7 +379,8 @@ class MeetListenerBot:
                 output_dir=self.output_dir,
                 stream_sample_rate=STREAM_SAMPLE_RATE,
                 meeting_id=self.meeting_id,
-                output_filename=combined_audio_filename
+                output_filename=combined_audio_filename,
+                pattern="chunk_*.wav"
             )
             
             if not os.path.exists(combined_audio_filepath):

@@ -37,7 +37,7 @@ def convert_to_standard_wav(input_path: Path) -> Path:
         print(f"FFmpeg conversion error: {e.stderr.decode()}")
         raise
 '''
-def combine_audio_chunks(output_dir, stream_sample_rate, meeting_id, output_filename):
+def combine_audio_chunks(output_dir, stream_sample_rate, meeting_id, output_filename, pattern="chunk_*.wav"):
     """
     Соединяет все аудиофрагменты из указанной директории в один WAV-файл.
 
@@ -50,21 +50,21 @@ def combine_audio_chunks(output_dir, stream_sample_rate, meeting_id, output_file
 
     output_filepath = output_dir / output_filename
     
-    audio_files = sorted(glob.glob(os.path.join(output_dir, "*.wav")))
-    
-    if not audio_files:
-        logger.warning(f"[{meeting_id}] В директории '{output_dir}' не найдено аудиофайлов для объединения.")
-        return
+    all_chunks = sorted(glob.glob(pattern))
+    if not all_chunks:
+        print("Нет файлов для объединения. Запустите сначала скрипт записи аудио.")
+        return None, None
 
-    combined_audio_data = []
+    full_audio = []
+    print(f"Найдено {len(all_chunks)} фрагментов. Объединение...")
+    # Используем первый фрагмент, чтобы получить частоту дискретизации
+    data, rate = sf.read(all_chunks[0], dtype='float32')
+    full_audio.append(data)
+    for chunk in all_chunks[1:]:
+        data, _ = sf.read(chunk, dtype='float32')
+        full_audio.append(data)
 
-    logger.info(f"[{meeting_id}] Начинаем объединение {len(audio_files)} аудиофрагментов...")
+    combined_audio = np.concatenate(full_audio)
 
-    for file_path in audio_files:
-        data, _ = sf.read(file_path) 
-        combined_audio_data.append(data)
-
-    final_audio_array = np.concatenate(combined_audio_data)
-
-    sf.write(output_filepath, final_audio_array, stream_sample_rate)
+    sf.write(output_filepath, combined_audio, stream_sample_rate)
     logger.info(f"[{meeting_id}] Все аудиофрагменты успешно объединены в: '{output_filepath}'")

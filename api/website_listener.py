@@ -97,7 +97,7 @@ class WebsiteListenerBot:
                                 self._save_chunk(full_audio_np)
                                 speech_buffer = []
 
-                                segments, info = self.asr_model.transcribe(full_audio_np, beam_size=5)
+                                segments, info = self.asr_model.transcribe(full_audio_np, beam_size=5, language='ru')
                                 transcription = " ".join([seg.text for seg in segments]).strip()
                                 
                                 if transcription:

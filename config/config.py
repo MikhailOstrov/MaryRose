@@ -26,8 +26,10 @@ VERIFICATION_THRESHOLD = 0.7
 MEET_INPUT_DEVICE_NAME = "pulse"
 MEET_GUEST_NAME = "Mary"
 MEET_AUDIO_CHUNKS_DIR = AUDIO_FILES_DIR / "meet_chunks"
-SILENCE_THRESHOLD_FRAMES = 16
+MEET_VAD_AGGRESSIVENESS = 2  # Агрессивность VAD (0-3, где 3 - самая агрессивная)
 MEET_FRAME_DURATION_MS = 30 
+MEET_PAUSE_THRESHOLD_S = 2.0  # Пауза в секундах перед завершением записи
+SILENCE_THRESHOLD_FRAMES = 16 
 
 def ensure_dirs_exist():
     """Создает все необходимые директории."""

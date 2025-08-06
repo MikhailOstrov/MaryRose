@@ -340,7 +340,7 @@ class MeetListenerBot:
                                     
                                     self._save_chunk(full_audio_np)
 
-                                    segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=5)
+                                    segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=5, language="ru")
                                     transcription = "".join([seg.text for seg in segments]).strip()
                                     
                                     if transcription:

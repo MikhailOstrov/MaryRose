@@ -314,7 +314,7 @@ class MeetListenerBot:
                     speech_prob = self.vad(chunk_to_process, STREAM_SAMPLE_RATE).item()
                     
                     # Логика определения начала и конца речи
-                    if speech_prob > 0.5: # Порог можно настроить
+                    if speech_prob > 0.3: # Порог можно настроить
                         if not is_speaking:
                             logger.info(f"[{self.meeting_id}] Обнаружено начало речи.")
                             is_speaking = True
@@ -338,7 +338,7 @@ class MeetListenerBot:
                                     full_audio_np = np.concatenate(speech_buffer_for_asr)
                                     speech_buffer_for_asr = [] # Очищаем буфер
                                     
-                                    # self._save_chunk(full_audio_np.astype(np.int16).tobytes()) # Раскомментировать для отладки
+                                    self._save_chunk(full_audio_np)
 
                                     segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=5)
                                     transcription = "".join([seg.text for seg in segments]).strip()

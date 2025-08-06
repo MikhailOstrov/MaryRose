@@ -286,7 +286,7 @@ class MeetListenerBot:
                 audio_tensor = torch.from_numpy(audio_np)
                 
                 # Получаем вероятность речи от модели Silero
-                speech_prob = self.vad_model(audio_tensor, self.sample_rate).item()
+                speech_prob = self.vad(audio_tensor, self.sample_rate).item()
                 is_speech = speech_prob > 0.1
 
                 if is_speech:

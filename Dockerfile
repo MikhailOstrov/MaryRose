@@ -1,5 +1,5 @@
 # --- ШАГ 1: БАЗОВЫЙ ОБРАЗ ---
-FROM nvidia/cuda:11.8.0-cudnn8-devel-ubuntu22.04
+FROM nvidia/cuda:12.3.2-cudnn9-devel-ubuntu22.04
 
 # --- ШАГ 2: УСТАНОВКА СИСТЕМНЫХ ЗАВИСИМОСТЕЙ ---
 # Добавлены только зависимости для Chrome/Audio, БЕЗ ИЗМЕНЕНИЯ установки Python.

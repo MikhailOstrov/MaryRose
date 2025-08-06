@@ -64,14 +64,14 @@ RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
 # Сначала копируем только файлы, необходимые для загрузки моделей
 COPY config/ /app/config/
 
-# Настройка переменных окружения для моделей
+# Настройка переменных окружения для моделей (используем /workspace для RunPod)
 ENV HOME=/app
-ENV TORCH_HOME=/app/.cache/torch
-ENV NEMO_CACHE_DIR=/app/.cache/nemo
+ENV TORCH_HOME=/workspace/.cache/torch
+ENV NEMO_CACHE_DIR=/workspace/.cache/nemo
+ENV HF_HOME=/workspace/.cache/huggingface
 ENV PYTHONPATH=/app
 
-# Загружаем модели (этот слой будет кешироваться)
-RUN python3 config/load_models.py
+# НЕ загружаем модели на этапе сборки - они будут загружены при первом запуске в /workspace
 
 # --- ШАГ 7: КОПИРОВАНИЕ ОСТАЛЬНОГО КОДА И НАСТРОЙКА ENTRYPOINT ---
 # Только потом копируем весь остальной код

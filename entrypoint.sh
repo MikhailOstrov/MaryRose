@@ -1,7 +1,27 @@
 #!/bin/bash
 set -e
 
-echo "=== [Entrypoint] Настройка окружения (версия из join_meet) ==="
+echo "=== [Entrypoint] Настройка окружения для RunPod (версия из join_meet) ==="
+
+# --- 0. Проверка и настройка /workspace ---
+echo "[Entrypoint] Проверка Volume диска /workspace..."
+if [ ! -d "/workspace" ]; then
+    echo "❌ [Entrypoint] CRITICAL: /workspace не найден. Убедитесь, что Volume диск подключен."
+    exit 1
+fi
+
+echo "[Entrypoint] Создание структуры папок в /workspace..."
+mkdir -p /workspace/.cache/torch
+mkdir -p /workspace/.cache/nemo
+mkdir -p /workspace/.cache/huggingface  
+mkdir -p /workspace/models
+echo "✅ [Entrypoint] Структура /workspace создана."
+
+# Настройка переменных окружения для моделей
+export TORCH_HOME=/workspace/.cache/torch
+export NEMO_CACHE_DIR=/workspace/.cache/nemo
+export HF_HOME=/workspace/.cache/huggingface
+echo "[Entrypoint] Переменные окружения для моделей настроены."
 
 # --- 1. Настройка Display и Chrome ---
 export DISPLAY=:99
@@ -81,6 +101,26 @@ if [ $? -ne 0 ]; then
 fi
 
 echo "✅ [Entrypoint] Сервер Ollama готов и отвечает."
+
+# --- Предварительная загрузка моделей (если еще не загружены) ---
+echo "=== [Entrypoint] Проверка моделей в /workspace ==="
+echo "[Entrypoint] Загрузка моделей при первом запуске может занять несколько минут..."
+
+# Запускаем загрузку моделей в фоновом режиме для ускорения запуска
+python3 -c "
+import sys
+sys.path.append('/app')
+try:
+    print('[Model Check] Начинаем проверку и загрузку моделей...')
+    from config.load_models import llm_model, asr_model, vad_model, tts_model, diarizer_config
+    print('[Model Check] ✅ Все модели готовы к использованию')
+except Exception as e:
+    print(f'[Model Check] ❌ Ошибка загрузки моделей: {e}')
+    sys.exit(1)
+" &
+
+MODEL_LOAD_PID=$!
+echo "[Entrypoint] Загрузка моделей запущена в фоновом режиме (PID: $MODEL_LOAD_PID)"
 
 echo "=== [Entrypoint] Запуск основного приложения ==="
 echo "[Entrypoint] Передача управления команде: $@"

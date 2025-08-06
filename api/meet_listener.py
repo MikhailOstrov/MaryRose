@@ -6,7 +6,7 @@ import logging
 import requests
 from datetime import datetime
 from uuid import uuid4
-import webrtcvad
+import torch
 import numpy as np
 from scipy.io.wavfile import write
 import sounddevice as sd
@@ -264,63 +264,77 @@ class MeetListenerBot:
 
     # --- Процессор VAD без лишнего логирования ---
     def _process_audio_stream(self):
-        threading.current_thread().name = f'VADProcessor-{self.meeting_id}'
-        logger.info(f"[{self.meeting_id}] Процессор VAD запущен.")
 
-        speech_buffer = []
+        threading.current_thread().name = f'VADProcessor-{self.meeting_id}'
+        logger.info(f"[{self.meeting_id}] Процессор VAD запущен с моделью Silero.")
+
+        speech_buffer = []  # ИЗМЕНЕНИЕ: Буфер будет хранить numpy-массивы
         silent_frames_count = 0
-        
-        # Предполагаем, что TRIGGER_WORD и asr_model определены в классе
+
         TRIGGER_WORD = "мэри"
 
         while self.is_running.is_set():
             try:
-                # Получаем аудио-фрейм из очереди
-                audio_frame = self.audio_queue.get(timeout=1)
+                # Получаем аудио-фрейм из очереди (ожидаем байты)
+                audio_frame_bytes = self.audio_queue.get(timeout=1)
                 
-                # Проверяем, является ли фрейм речью
-                is_speech = self.vad.is_speech(audio_frame, STREAM_SAMPLE_RATE)
+                # --- ИЗМЕНЕНИЕ 1: Новая логика VAD ---
+                # Преобразуем байты в numpy-массив float32, как требует модель
+                audio_np = np.frombuffer(audio_frame_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+                
+                # Преобразуем в тензор PyTorch
+                audio_tensor = torch.from_numpy(audio_np)
+                
+                # Получаем вероятность речи от модели Silero
+                speech_prob = self.vad_model(audio_tensor, self.sample_rate).item()
+                is_speech = speech_prob > 0.1
 
                 if is_speech:
-                    speech_buffer.append(audio_frame)
+                    # ИЗМЕНЕНИЕ: Добавляем в буфер numpy-массив, а не байты
+                    speech_buffer.append(audio_np)
                     silent_frames_count = 0
                 else:
                     silent_frames_count += 1
 
-                # Если буфер речи не пуст и обнаружена пауза
+                # Если буфер речи не пуст и обнаружена достаточная пауза
                 if speech_buffer and silent_frames_count > self.silent_frames_threshold:
-                    full_speech_chunk_bytes = b''.join(speech_buffer)
+                    # --- ИЗМЕНЕНИЕ 2: Объединение numpy-массивов ---
+                    full_audio_np = np.concatenate(speech_buffer)
                     speech_buffer.clear()
                     silent_frames_count = 0
 
-                    # Запускаем сохранение фрагмента в отдельном потоке
+                    # Запускаем сохранение фрагмента в отдельном потоке (опционально, но полезно)
+                    # Для этого нужно преобразовать numpy обратно в байты
+                    full_speech_chunk_bytes = (full_audio_np * 32768.0).astype(np.int16).tobytes()
                     threading.Thread(target=self._save_chunk, args=(full_speech_chunk_bytes,)).start()
 
-                    # Выполняем транскрибацию
-                    audio_np = np.frombuffer(full_speech_chunk_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-                    segments, info = self.asr_model.transcribe(audio_np, beam_size=5)
-                    transcription = " ".join([seg.text for seg in segments])
-                    print(transcription)
-
+                    # Выполняем транскрибацию, передавая numpy-массив
+                    segments, info = self.asr_model.transcribe(full_audio_np, beam_size=5)
+                    transcription = " ".join([seg.text for seg in segments]).strip()
+                    
                     if transcription:
+                        logger.info(f"[{self.meeting_id}] Распознано: {transcription}")
 
-                        # Если обнаружено слово-триггер
+                        # Приводим распознанный текст к нижнему регистру и убираем пробелы в начале
                         text_to_check = transcription.lstrip().lower()
 
+                        # Проверяем, начинается ли фраза с триггерного слова
                         if text_to_check.startswith(TRIGGER_WORD):
-                            print("Обнаружено слово-триггер в начале фразы")
+                            logger.info(f"[{self.meeting_id}] Обнаружено слово-триггер в начале фразы.")
                             
+                            # Убираем лишние символы с краев всей исходной фразы
                             command_text = transcription.strip(" ,.:")
                             
-                            # Отправляем всю команду и получаем ответ
+                            # Отправляем ВСЮ команду (включая триггер) и получаем ответ
                             if command_text:
+                                logger.info(f"[{self.meeting_id}] Отправка команды: '{command_text}'")
                                 response = get_mary_response(command_text)
-                                print(f"Ответ от Мэри: {response}")
+                                logger.info(f"[{self.meeting_id}] Ответ от Мэри: {response}")
 
             except queue.Empty:
                 continue
             except Exception as e:
-                logger.error(f"[{self.meeting_id}] Ошибка в цикле VAD: {e}")
+                logger.error(f"[{self.meeting_id}] Ошибка в цикле VAD: {e}", exc_info=True)
 
     def _perform_post_processing(self):
         """

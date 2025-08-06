@@ -76,7 +76,7 @@ class WebsiteListenerBot:
                 audio_tensor = torch.from_numpy(audio_np)
                 
                 speech_prob = self.vad(audio_tensor, STREAM_SAMPLE_RATE).item()
-                is_speech = speech_prob > 0.1
+                is_speech = speech_prob > 0.5
 
                 if is_speech:
                     if not is_speech:

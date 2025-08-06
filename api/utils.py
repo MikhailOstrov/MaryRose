@@ -49,8 +49,8 @@ def combine_audio_chunks(output_dir, stream_sample_rate, meeting_id, output_file
     """
 
     output_filepath = output_dir / output_filename
-    
-    all_chunks = sorted(glob.glob(pattern))
+
+    all_chunks = sorted(glob.glob(os.path.join(output_dir, "*.wav")))
     if not all_chunks:
         print("Нет файлов для объединения. Запустите сначала скрипт записи аудио.")
         return None, None

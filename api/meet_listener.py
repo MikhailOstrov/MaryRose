@@ -264,70 +264,100 @@ class MeetListenerBot:
 
     # --- Процессор VAD без лишнего логирования ---
     def _process_audio_stream(self):
-
         threading.current_thread().name = f'VADProcessor-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] Процессор VAD запущен с моделью Silero.")
 
-        speech_buffer = []  # ИЗМЕНЕНИЕ: Буфер будет хранить numpy-массивы
-        silent_frames_count = 0
-        is_speech = False
+        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+        
+        # 1. Буфер для накопления аудио перед отправкой в VAD. Хранит тензор.
+        vad_buffer = None
+        # 2. Размер чанка для анализа VAD. Должен быть кратен 512. 1536 (96 мс) - хорошее значение.
+        VAD_CHUNK_SIZE = 1536
+        
+        # 3. Буфер для накопления речевых сегментов перед отправкой в ASR.
+        speech_buffer_for_asr = []
+        
+        # 4. Состояние: говорим ли мы сейчас
+        is_speaking = False
+        
+        # 5. Счетчик кадров тишины после того, как речь была обнаружена
+        silent_frames_after_speech = 0
+        
         TRIGGER_WORD = "мэри"
 
         while self.is_running.is_set():
             try:
-
+                # Получаем сырые байты из очереди
                 audio_frame_bytes = self.audio_queue.get(timeout=1)
+                if not audio_frame_bytes:
+                    continue
+
+                # Конвертируем в тензор
                 audio_np = np.frombuffer(audio_frame_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-                audio_tensor = torch.from_numpy(audio_np)
-                
-                speech_prob = self.vad(audio_tensor, STREAM_SAMPLE_RATE).item()
-                is_speech = speech_prob > 0.1
+                new_audio_tensor = torch.from_numpy(audio_np)
 
-                if is_speech:
-                    if not is_speech:
-                        logger.info("Обнаружена речь.")
-                    is_speech = True
-                    speech_buffer.append(audio_np)
-                    silent_frames_count = 0
-
+                # Добавляем новый фрейм в буфер VAD
+                if vad_buffer is None:
+                    vad_buffer = new_audio_tensor
                 else:
-                    if is_speech: # Завершение фразы
-                        silence_counter += 1
-                        if silence_counter > SILENCE_THRESHOLD_FRAMES:
-                            is_speech = False
-                            logger.info("Речь закончилась.")
+                    vad_buffer = torch.cat([vad_buffer, new_audio_tensor])
 
-                            if speech_buffer:
-                                full_audio_np = np.concatenate(speech_buffer)
-                                self._save_chunk(full_audio_np)
-                                speech_buffer = []
-
-                                segments, info = self.asr_model.transcribe(full_audio_np, beam_size=5)
-                                transcription = " ".join([seg.text for seg in segments]).strip()
+                # Обрабатываем буфер, пока в нем есть данные для анализа
+                while vad_buffer is not None and vad_buffer.shape[0] >= VAD_CHUNK_SIZE:
+                    
+                    # Берем чанк для обработки из начала буфера
+                    chunk_to_process = vad_buffer[:VAD_CHUNK_SIZE]
+                    # Оставляем остаток в буфере
+                    vad_buffer = vad_buffer[VAD_CHUNK_SIZE:]
+                    
+                    # Отправляем чанк нужного размера в модель VAD
+                    speech_prob = self.vad(chunk_to_process, STREAM_SAMPLE_RATE).item()
+                    
+                    # Логика определения начала и конца речи
+                    if speech_prob > 0.5: # Порог можно настроить
+                        if not is_speaking:
+                            logger.info(f"[{self.meeting_id}] Обнаружено начало речи.")
+                            is_speaking = True
+                        
+                        # Добавляем речевой чанк в буфер для ASR
+                        speech_buffer_for_asr.append(chunk_to_process.numpy())
+                        silent_frames_after_speech = 0
+                    else:
+                        if is_speaking:
+                            # Речь была, но сейчас тишина. Начинаем считать "кадры тишины".
+                            silent_frames_after_speech += 1
+                            
+                            # Если тишина длится достаточно долго, считаем, что фраза закончилась.
+                            if silent_frames_after_speech > self.silent_frames_threshold:
+                                logger.info(f"[{self.meeting_id}] Обнаружен конец фразы.")
+                                is_speaking = False
+                                silent_frames_after_speech = 0
                                 
-                                if transcription:
-                                    logger.info(f"[{self.meeting_id}] Распознано: {transcription}")
+                                # --- БЛОК ОБРАБОТКИ ЗАКОНЧЕННОЙ ФРАЗЫ ---
+                                if speech_buffer_for_asr:
+                                    full_audio_np = np.concatenate(speech_buffer_for_asr)
+                                    speech_buffer_for_asr = [] # Очищаем буфер
+                                    
+                                    # self._save_chunk(full_audio_np.astype(np.int16).tobytes()) # Раскомментировать для отладки
 
-                                    # Приводим распознанный текст к нижнему регистру и убираем пробелы в начале
-                                    text_to_check = transcription.lstrip().lower()
-
-                                    # Проверяем, начинается ли фраза с триггерного слова
-                                    if text_to_check.startswith(TRIGGER_WORD):
-                                        logger.info(f"[{self.meeting_id}] Обнаружено слово-триггер в начале фразы.")
+                                    segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=5)
+                                    transcription = "".join([seg.text for seg in segments]).strip()
+                                    
+                                    if transcription:
+                                        logger.info(f"[{self.meeting_id}] Распознано: '{transcription}'")
                                         
-                                        # Убираем лишние символы с краев всей исходной фразы
-                                        command_text = transcription.strip(" ,.:")
-                                        
-                                        # Отправляем ВСЮ команду (включая триггер) и получаем ответ
-                                        if command_text:
-                                            logger.info(f"[{self.meeting_id}] Отправка команды: '{command_text}'")
-                                            response = get_mary_response(command_text)
+                                        # Проверка на триггерное слово
+                                        if transcription.lower().lstrip().startswith(TRIGGER_WORD):
+                                            logger.info(f"[{self.meeting_id}] Обнаружено слово-триггер. Отправка команды...")
+                                            response = get_mary_response(transcription)
                                             logger.info(f"[{self.meeting_id}] Ответ от Мэри: {response}")
-
-                    else: # Продолжительная тишина
-                        silent_frames_count += 1
-
+                
             except queue.Empty:
+                # Если очередь пуста, и у нас есть накопленная речь, обрабатываем ее.
+                if is_speaking and speech_buffer_for_asr:
+                    logger.info(f"[{self.meeting_id}] Тайм-аут, обрабатываем оставшуюся речь.")
+                    is_speaking = False
+                    # Тут можно скопировать блок обработки законченной фразы, если нужно
                 continue
             except Exception as e:
                 logger.error(f"[{self.meeting_id}] Ошибка в цикле VAD: {e}", exc_info=True)

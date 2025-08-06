@@ -77,7 +77,32 @@ else
     echo "⚠️ [Entrypoint] PulseAudio не отвечает. Захват звука не будет работать."
 fi
 
-# --- 3. Проверки и запуск приложения ---
+# --- 3. Загрузка моделей (ПЕРВЫМ ДЕЛОМ!) ---
+echo "=== [Entrypoint] Загрузка моделей в /workspace ==="
+echo "[Entrypoint] Загрузка моделей при первом запуске может занять несколько минут..."
+
+python3 -c "
+import sys
+sys.path.append('/app')
+try:
+    print('[Model Load] Начинаем проверку и загрузку моделей...')
+    from config.load_models import llm_model, asr_model, vad_model, tts_model, diarizer_config
+    print('[Model Load] ✅ Все модели успешно загружены и готовы к использованию')
+except Exception as e:
+    print(f'[Model Load] ❌ Ошибка загрузки моделей: {e}')
+    import traceback
+    traceback.print_exc()
+    sys.exit(1)
+"
+
+if [ $? -ne 0 ]; then
+    echo "❌ [Entrypoint] CRITICAL: Загрузка моделей не удалась. Прерывание."
+    exit 1
+fi
+
+echo "✅ [Entrypoint] Все модели загружены и готовы!"
+
+# --- 4. Проверки системы ---
 echo "=== [Entrypoint] Проверка системы ==="
 echo "DISPLAY=$DISPLAY"
 echo "Chrome version: $(google-chrome --version 2>/dev/null || echo 'Chrome не найден')"
@@ -85,42 +110,7 @@ echo "ChromeDriver: $(chromedriver --version 2>/dev/null || echo 'ChromeDriver �
 echo "Python version: $(python3 --version)"
 echo "Available memory: $(free -h | grep Mem)"
 
-# Запускаем сервер Ollama в фоновом режиме
-/usr/local/bin/ollama serve &
-
-echo "[Entrypoint] Ожидание готовности сервера Ollama..."
-# Используем цикл while с curl для проверки, что сервер отвечает, вместо жесткого sleep
-# -s - silent
-# -f - fail silently (return non-zero on server errors)
-# -o /dev/null - discard output
-timeout 60 bash -c 'until curl -sf -o /dev/null http://localhost:11434; do echo "Сервер Ollama еще не готов, ждем..."; sleep 2; done'
-
-if [ $? -ne 0 ]; then
-    echo "❌ [Entrypoint] CRITICAL: Сервер Ollama не запустился за 60 секунд. Прерывание."
-    exit 1
-fi
-
-echo "✅ [Entrypoint] Сервер Ollama готов и отвечает."
-
-# --- Предварительная загрузка моделей (если еще не загружены) ---
-echo "=== [Entrypoint] Проверка моделей в /workspace ==="
-echo "[Entrypoint] Загрузка моделей при первом запуске может занять несколько минут..."
-
-# Запускаем загрузку моделей в фоновом режиме для ускорения запуска
-python3 -c "
-import sys
-sys.path.append('/app')
-try:
-    print('[Model Check] Начинаем проверку и загрузку моделей...')
-    from config.load_models import llm_model, asr_model, vad_model, tts_model, diarizer_config
-    print('[Model Check] ✅ Все модели готовы к использованию')
-except Exception as e:
-    print(f'[Model Check] ❌ Ошибка загрузки моделей: {e}')
-    sys.exit(1)
-" &
-
-MODEL_LOAD_PID=$!
-echo "[Entrypoint] Загрузка моделей запущена в фоновом режиме (PID: $MODEL_LOAD_PID)"
+# Ollama не используется - приложение работает с HuggingFace моделями напрямую
 
 echo "=== [Entrypoint] Запуск основного приложения ==="
 echo "[Entrypoint] Передача управления команде: $@"

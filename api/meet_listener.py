@@ -326,6 +326,7 @@ class MeetListenerBot:
                                     if transcription.lower().lstrip().startswith(STREAM_TRIGGER_WORD):
 
                                         clean_transcription = ''.join(char for char in transcription.lower() if char.isalnum() or char.isspace())
+                                        print(clean_transcription)
 
                                         if STREAM_STOP_WORD_1 in clean_transcription or STREAM_STOP_WORD_2 in clean_transcription or STREAM_STOP_WORD_3 in clean_transcription:
                                             logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")

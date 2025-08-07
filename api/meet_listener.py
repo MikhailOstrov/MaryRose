@@ -17,8 +17,8 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
 from config.config import (STREAM_SAMPLE_RATE,SILENCE_THRESHOLD_FRAMES, MEET_FRAME_DURATION_MS,
-                           MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME, STREAM_TRIGGER_WORD,
-                           CHROME_PROFILE_DIR, MEET_GUEST_NAME, SUMMARY_OUTPUT_DIR, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2)
+                           MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME, STREAM_TRIGGER_WORD, CHROME_PROFILE_DIR,
+                           MEET_GUEST_NAME, SUMMARY_OUTPUT_DIR, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, STREAM_STOP_WORD_3)
 from handlers.ollama_handler import get_mary_response, get_summary_response, get_title_response
 from handlers.diarization_handler import run_diarization, process_rttm_and_transcribe
 from config.load_models import vad_model, asr_model
@@ -323,18 +323,16 @@ class MeetListenerBot:
                                     transcription = "".join([seg.text for seg in segments]).strip()
                                     print(f"Распознано: {transcription}")
 
-                                    if (transcription.lower().lstrip().startswith(STREAM_TRIGGER_WORD) and
-                                        (STREAM_STOP_WORD_1 in transcription.lower() or STREAM_STOP_WORD_2 in transcription.lower())):
-
-                                        logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")
-                                        self.stop()
-
                                     if transcription.lower().lstrip().startswith(STREAM_TRIGGER_WORD):
-                                        
-                                        logger.info(f"[{self.meeting_id}] Мэри услышала вас")
-                                        response = get_mary_response(transcription)
-                                        logger.info(f"[{self.meeting_id}] Ответ от Мэри: {response}")
-                
+
+                                        clean_transcription = ''.join(char for char in transcription.lower() if char.isalnum() or char.isspace())
+
+                                        if STREAM_STOP_WORD_1 in clean_transcription or STREAM_STOP_WORD_2 in clean_transcription or STREAM_STOP_WORD_3 in clean_transcription:
+                                            logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")
+                                        else:
+                                            logger.info(f"[{self.meeting_id}] Мэри услышала вас")
+                                            response = get_mary_response(transcription)
+                                            logger.info(f"[{self.meeting_id}] Ответ от Мэри: {response}")
             except queue.Empty:
                 if is_speaking and speech_buffer_for_asr:
                     logger.info(f"[{self.meeting_id}] Тайм-аут, обрабатываем оставшуюся речь.")

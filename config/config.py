@@ -34,8 +34,11 @@ SILENCE_THRESHOLD_FRAMES = 16 # Для определения пауз в реч
 
 LLM_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct" # Модель Llama 
 STREAM_TRIGGER_WORD = "мэри" # Триггер для работы Мэри
-STREAM_STOP_WORD_1 = "стоп" # Триггер для завершения работы бота
-STREAM_STOP_WORD_2 = "закончи встречу" # Триггер для завершения работы бота
+
+# Триггеры для завершения работы бота
+STREAM_STOP_WORD_1 = "стоп"
+STREAM_STOP_WORD_2 = "закончи встречу"
+STREAM_STOP_WORD_3 = "заверши встречу"
 
 # Промпты для Llama 
 OLLAMA_ASSISTANT_PROMPT = """

@@ -329,6 +329,7 @@ class MeetListenerBot:
 
                                         if STREAM_STOP_WORD_1 in clean_transcription or STREAM_STOP_WORD_2 in clean_transcription or STREAM_STOP_WORD_3 in clean_transcription:
                                             logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")
+                                            self.stop()
                                         else:
                                             logger.info(f"[{self.meeting_id}] Мэри услышала вас")
                                             response = get_mary_response(transcription)

@@ -7,6 +7,7 @@ from omegaconf import OmegaConf
 from nemo.collections.asr.models import ClusteringDiarizer
 from config.load_models import load_diarizer_config, asr_model
 
+# Запуск процесса диаризации 
 def run_diarization(audio_file_path: str, output_dir: str) -> str:
     
     base_config = load_diarizer_config()
@@ -35,11 +36,9 @@ def run_diarization(audio_file_path: str, output_dir: str) -> str:
     rttm_file_path = list(Path(output_dir).rglob('*.rttm'))[0]
     return str(rttm_file_path)
 
+# Диаризация и объединение с транскрибацией
 def process_rttm_and_transcribe(rttm_path: str, audio_path: str):
-    """
-    Разрезает аудио по разметке RTTM, транскрибирует и форматирует результат.
-    Выводит каждую реплику на новой строке, как в Коде 1.
-    """
+
     if not asr_model:
         print("❌ Модель ASR не загружена. Пропуск транскрипции.")
         return ""
@@ -74,12 +73,10 @@ def process_rttm_and_transcribe(rttm_path: str, audio_path: str):
 
     for segment in segments:
         try:
-            # Транскрибируем каждый сегмент по отдельности
             transcriptions, _ = asr_model.transcribe(segment['path'], beam_size=5, language="ru")
             text = " ".join([t.text for t in transcriptions])
 
-            if text.strip():  # Пропускаем пустые транскрипции
-                # Форматируем каждую реплику на новой строке
+            if text.strip():
                 full_dialogue.append(f"[{segment['speaker']}]: {text}")
         except Exception as e:
             print(f"❌ Ошибка при транскрибации сегмента {segment['path']}: {e}")

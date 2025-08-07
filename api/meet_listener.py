@@ -16,10 +16,9 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 
-# Импортируем конфигурацию из основного файла
 from config.config import (STREAM_SAMPLE_RATE,SILENCE_THRESHOLD_FRAMES, MEET_FRAME_DURATION_MS,
-                           MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME,
-                           CHROME_PROFILE_DIR, MEET_GUEST_NAME, SUMMARY_OUTPUT_DIR)
+                           MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME, STREAM_TRIGGER_WORD,
+                           CHROME_PROFILE_DIR, MEET_GUEST_NAME, SUMMARY_OUTPUT_DIR, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2)
 from handlers.ollama_handler import get_mary_response, get_summary_response, get_title_response
 from handlers.diarization_handler import run_diarization, process_rttm_and_transcribe
 from config.load_models import vad_model, asr_model
@@ -28,31 +27,31 @@ from api.utils import combine_audio_chunks
 logger = logging.getLogger(__name__)
 
 class MeetListenerBot:
-    """
-    Класс для управления ботом, который подключается к Google Meet,
-    слушает аудиопоток и сохраняет его в виде фрагментов (чанков).
-    ЛОГИКА ПОЛНОСТЬЮ СКОПИРОВАНА ИЗ РАБОЧЕГО join_meet/meet_listener.py
-    """
+
+    # Определение атрибутов класса
     def __init__(self, meeting_url: str, meeting_id: str):
-        self.meeting_url = meeting_url
+
+        self.meeting_url = meeting_url # Ссылка на Google Meet
         self.meeting_id = meeting_id # ID для отслеживания сессии
-        self.driver = None
-        self.audio_queue = queue.Queue()
+        self.driver = None 
+        self.audio_queue = queue.Queue() # Для аудиопотока
+
         self.is_running = threading.Event()
         self.is_running.set()
-        self.vad = vad_model
-        self.asr_model = asr_model
-        self.summary_output_dir = SUMMARY_OUTPUT_DIR
-        self.joined_successfully = False # Флаг для контроля успешного входа
-        # Рассчитываем параметры VAD на основе конфига
-        self.frame_size = int(STREAM_SAMPLE_RATE * MEET_FRAME_DURATION_MS / 1000)
-        self.silent_frames_threshold = SILENCE_THRESHOLD_FRAMES
 
-        # Папка для сохранения чанков и скриншотов
-        self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.meeting_id
+        self.vad = vad_model # VAD-модель (from config.load_models import vad_model)
+        self.asr_model = asr_model # Whisper (from config.load_models import asr_model)
+        self.summary_output_dir = SUMMARY_OUTPUT_DIR # Директория сохранения summary
+        self.joined_successfully = False 
+
+        self.frame_size = int(STREAM_SAMPLE_RATE * MEET_FRAME_DURATION_MS / 1000) # Для VAD-модели (длительность чанка)
+        self.silent_frames_threshold = SILENCE_THRESHOLD_FRAMES # Пауза в речи в сек.
+
+        self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.meeting_id # Папка для сохранения чанков и скриншотов
         os.makedirs(self.output_dir, exist_ok=True)
         logger.info(f"[{self.meeting_id}] Аудиофрагменты будут сохраняться в: '{self.output_dir}'")
 
+    # Отслеживание кол-ва участников
     def _monitor_participants(self):
         """Отслеживает количество участников. Если бот остается один, он завершает работу."""
         threading.current_thread().name = f'ParticipantMonitor-{self.meeting_id}'
@@ -95,7 +94,7 @@ class MeetListenerBot:
                 self.stop()
                 return
     
-    # --- КРИТИЧЕСКИ ВАЖНЫЙ БЛОК: ИНИЦИАЛИЗАЦИЯ ДРАЙВЕРА 1-в-1 КАК В join_meet ---
+    # Инициализация драйвера для подключения
     def _initialize_driver(self):
         logger.info(f"[{self.meeting_id}] Запуск undetected_chromedriver с настройками из join_meet...")
         try:
@@ -135,7 +134,8 @@ class MeetListenerBot:
             except Exception as e2:
                 logger.critical(f"[{self.meeting_id}] Полный провал запуска Chrome: {e2}", exc_info=True)
                 raise
-
+    
+    # Скриншот для отладки 
     def _save_screenshot(self, name: str):
         """Сохраняет скриншот для отладки."""
         path = self.output_dir / f'{datetime.now().strftime("%H%M%S")}_{name}.png'
@@ -145,7 +145,7 @@ class MeetListenerBot:
         except Exception as e:
             logger.warning(f"[{self.meeting_id}] Не удалось сохранить скриншот '{name}': {e}")
             
-    # --- КРИТИЧЕСКИ ВАЖНЫЙ БЛОК: ЛОГИКА ПРИСОЕДИНЕНИЯ 1-в-1 КАК В join_meet ---
+    # Присоединение в Google Meet
     def join_meet_as_guest(self):
         try:
             logger.info(f"[{self.meeting_id}] Подключаюсь к встрече как гость: {self.meeting_url}")
@@ -241,7 +241,8 @@ class MeetListenerBot:
             logger.critical(f"[{self.meeting_id}] ❌ Критическая ошибка при присоединении: {e}", exc_info=True)
             self._save_screenshot("99_join_fatal_error")
             return False
-
+    
+    # Поиск и определение аудиоустройства
     def _find_device_id(self):
         logger.info(f"[{self.meeting_id}] Поиск аудиоустройства с именем '{MEET_INPUT_DEVICE_NAME}'...")
         try:
@@ -256,113 +257,93 @@ class MeetListenerBot:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка при поиске аудиоустройств: {e}", exc_info=True)
             raise
 
-    # --- Упрощенный callback, как в оригинале, без лишнего логирования ---
+    # Callback функция
     def _audio_capture_callback(self, indata, frames, time, status):
         if status:
             logger.warning(f"[{self.meeting_id}] Статус аудиоустройства: {status}")
         if self.is_running.is_set():
             self.audio_queue.put(bytes(indata))
 
-    # --- Процессор VAD без лишнего логирования ---
+    # Обработка аудиопотока -- транскрибация -- ответ (если обнаружен триггер)
     def _process_audio_stream(self):
         threading.current_thread().name = f'VADProcessor-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] Процессор VAD запущен с моделью Silero.")
 
-        # --- НАЧАЛО ИЗМЕНЕНИЙ ---
-        
-        # 1. Буфер для накопления аудио перед отправкой в VAD. Хранит тензор.
         vad_buffer = None
-        # 2. Размер чанка для анализа VAD. Должен быть кратен 512. 1536 (96 мс) - хорошее значение.
         VAD_CHUNK_SIZE = 512
-        
-        # 3. Буфер для накопления речевых сегментов перед отправкой в ASR.
         speech_buffer_for_asr = []
-        
-        # 4. Состояние: говорим ли мы сейчас
         is_speaking = False
-        
-        # 5. Счетчик кадров тишины после того, как речь была обнаружена
         silent_frames_after_speech = 0
-        
-        TRIGGER_WORD = "мэри"
 
         while self.is_running.is_set():
+            
             try:
-                # Получаем сырые байты из очереди
                 audio_frame_bytes = self.audio_queue.get(timeout=1)
                 if not audio_frame_bytes:
                     continue
 
-                # Конвертируем в тензор
                 audio_np = np.frombuffer(audio_frame_bytes, dtype=np.int16).astype(np.float32) / 32768.0
                 new_audio_tensor = torch.from_numpy(audio_np)
 
-                # Добавляем новый фрейм в буфер VAD
                 if vad_buffer is None:
                     vad_buffer = new_audio_tensor
                 else:
                     vad_buffer = torch.cat([vad_buffer, new_audio_tensor])
 
-                # Обрабатываем буфер, пока в нем есть данные для анализа
                 while vad_buffer is not None and vad_buffer.shape[0] >= VAD_CHUNK_SIZE:
                     
-                    # Берем чанк для обработки из начала буфера
                     chunk_to_process = vad_buffer[:VAD_CHUNK_SIZE]
-                    # Оставляем остаток в буфере
                     vad_buffer = vad_buffer[VAD_CHUNK_SIZE:]
-                    
-                    # Отправляем чанк нужного размера в модель VAD
                     speech_prob = self.vad(chunk_to_process, STREAM_SAMPLE_RATE).item()
                     
-                    # Логика определения начала и конца речи
-                    if speech_prob > 0.3: # Порог можно настроить
+                    if speech_prob > 0.3:
                         if not is_speaking:
                             logger.info(f"[{self.meeting_id}] Обнаружено начало речи.")
                             is_speaking = True
                         
-                        # Добавляем речевой чанк в буфер для ASR
                         speech_buffer_for_asr.append(chunk_to_process.numpy())
                         silent_frames_after_speech = 0
                     else:
                         if is_speaking:
-                            # Речь была, но сейчас тишина. Начинаем считать "кадры тишины".
+                            
                             silent_frames_after_speech += 1
                             
-                            # Если тишина длится достаточно долго, считаем, что фраза закончилась.
                             if silent_frames_after_speech > self.silent_frames_threshold:
                                 logger.info(f"[{self.meeting_id}] Обнаружен конец фразы.")
                                 is_speaking = False
                                 silent_frames_after_speech = 0
                                 
-                                # --- БЛОК ОБРАБОТКИ ЗАКОНЧЕННОЙ ФРАЗЫ ---
                                 if speech_buffer_for_asr:
                                     full_audio_np = np.concatenate(speech_buffer_for_asr)
-                                    speech_buffer_for_asr = [] # Очищаем буфер
+                                    speech_buffer_for_asr = []
                                     
                                     self._save_chunk(full_audio_np)
 
                                     segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=5, language="ru")
                                     transcription = "".join([seg.text for seg in segments]).strip()
-                                    
-                                    if transcription:
-                                        logger.info(f"[{self.meeting_id}] Распознано: '{transcription}'")
+                                    print(f"Распознано: {transcription}")
+
+                                    if (transcription.lower().lstrip().startswith(STREAM_TRIGGER_WORD) and
+                                        (STREAM_STOP_WORD_1 in transcription.lower() or STREAM_STOP_WORD_2 in transcription.lower())):
+
+                                        logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")
+                                        self.stop()
+
+                                    if transcription.lower().lstrip().startswith(STREAM_TRIGGER_WORD):
                                         
-                                        # Проверка на триггерное слово
-                                        if transcription.lower().lstrip().startswith(TRIGGER_WORD):
-                                            logger.info(f"[{self.meeting_id}] Обнаружено слово-триггер. Отправка команды...")
-                                            response = get_mary_response(transcription)
-                                            logger.info(f"[{self.meeting_id}] Ответ от Мэри: {response}")
+                                        logger.info(f"[{self.meeting_id}] Мэри услышала вас")
+                                        response = get_mary_response(transcription)
+                                        logger.info(f"[{self.meeting_id}] Ответ от Мэри: {response}")
                 
             except queue.Empty:
-                # Если очередь пуста, и у нас есть накопленная речь, обрабатываем ее.
                 if is_speaking and speech_buffer_for_asr:
                     logger.info(f"[{self.meeting_id}] Тайм-аут, обрабатываем оставшуюся речь.")
                     is_speaking = False
-                    # Тут можно скопировать блок обработки законченной фразы, если нужно
                 continue
             except Exception as e:
                 logger.error(f"[{self.meeting_id}] Ошибка в цикле VAD: {e}", exc_info=True)
 
+    # Постобработка: объединение аудиочанков -- запуск диаризации и объединение с транскрибацией -- суммаризация -- генерация заголовка -- отправка результатов на внешний сервер
     def _perform_post_processing(self):
         """
         Выполняет всю постобработку: объединение аудио, транскрипцию,
@@ -416,42 +397,32 @@ class MeetListenerBot:
             self._send_results_to_backend(dialogue_transcript, summary_text, title_text)
             
             # Сохранение резюме
-            summary_filename = f"summary_{self.meeting_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-            summary_filepath = self.summary_output_dir / summary_filename
-            # with open(summary_filepath, "w", encoding="utf-8") as f:
-            #     f.write(summary_text)
-            # logger.info(f"[{self.meeting_id}] ✅ Резюме успешно сохранено в: '{summary_filepath}'")
+            # summary_filename = f"summary_{self.meeting_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            # summary_filepath = self.summary_output_dir / summary_filename
 
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка при постобработке: {e}", exc_info=True)
         finally:
             logger.info(f"[{self.meeting_id}] Постобработка завершена.")
 
+    # Функция отправки результатов на внешний сервер
     def _send_results_to_backend(self, full_text: str, summary: str, title: str):
-        """Отправляет результаты встречи на внешний backend"""
         try:
-            # Преобразуем meeting_id в число если это строка
             meeting_id_int = int(self.meeting_id) if isinstance(self.meeting_id, str) else self.meeting_id
             
-            # Данные для отправки
             payload = {
                 "meeting_id": meeting_id_int,
                 "full_text": full_text,
                 "summary": summary,
                 "title": title
             }
-            
-            # Заголовки
             headers = {
                 "X-Internal-Api-Key": "key",
                 "Content-Type": "application/json"
             }
-            
-            # Используем переменную окружения или дефолтный домен
             backend_url = os.getenv('MAIN_BACKEND_URL', 'https://maryrose.by')
             url = f"{backend_url}/meetings/internal/result"
             
-            # Отправляем запрос
             logger.info(f"[{self.meeting_id}] Отправляю результаты на backend...")
             response = requests.post(
                 url,
@@ -472,7 +443,8 @@ class MeetListenerBot:
         except Exception as e:
             print(f"❌ Неожиданная ошибка при отправке результатов: {e}")
             logger.error(f"[{self.meeting_id}] ❌ Неожиданная ошибка: {e}")
-    
+
+    # Сохранение аудиочанков
     def _save_chunk(self, audio_np):
         """Сохраняет аудио-чанк в файл WAV."""
         if audio_np.size == 0:
@@ -485,6 +457,7 @@ class MeetListenerBot:
         except Exception as e:
             logger.infog(f"❌ Ошибка при сохранении аудиофрагмента: {e}")
 
+    # Запуск работы бота
     def run(self):
         """Основной метод, выполняющий всю работу."""
         logger.info(f"[{self.meeting_id}] Бот запускается...")
@@ -526,6 +499,7 @@ class MeetListenerBot:
             self.stop()
             logger.info(f"[{self.meeting_id}] Бот полностью остановлен.")
 
+    # Остановка бота
     def stop(self):
         if not self.is_running.is_set():
             return
@@ -534,7 +508,6 @@ class MeetListenerBot:
 
         self.is_running.clear()
         
-        # Запускаем постобработку только если бот успешно вошел в конференцию
         if self.joined_successfully:
             post_processing_thread = threading.Thread(target=self._perform_post_processing)
             post_processing_thread.daemon = False

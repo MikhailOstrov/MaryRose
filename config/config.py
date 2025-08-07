@@ -3,34 +3,121 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 AUDIO_FILES_DIR = BASE_DIR / "audio_files"
 USER_DATA_DIR = BASE_DIR / "user_data"
-UPLOADS_DIR = AUDIO_FILES_DIR / "uploads"
-STREAMS_DIR = AUDIO_FILES_DIR / "streams"
 MEETINGS_DIR = AUDIO_FILES_DIR / "meetings" # Для записей встреч
 TTS_OUTPUT_DIR = BASE_DIR / "static" / "tts_output"
 CHROME_PROFILE_DIR = BASE_DIR / "chrome_profile" # Для хранения сессии  Google
 SUMMARY_OUTPUT_DIR = BASE_DIR / "summary"
-
-ASR_MODEL_NAME = "deepdml/faster-whisper-large-v3-turbo-ct2"
-SPEAKER_MODEL_NAME = "titanet_large"
-TTS_MODEL_ID = 'v4_ru'
-TTS_SPEAKER = 'xenia'
-TTS_SAMPLE_RATE = 48000
-LLM_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct"
-DIAR_CONFIG_URL = 'https://raw.githubusercontent.com/NVIDIA/NeMo/main/examples/speaker_tasks/diarization/conf/inference/diar_infer_telephonic.yaml'
-DIAR_SPEAKER_MODEL = 'ecapa_tdnn'
-
-STREAM_SAMPLE_RATE = 16000
-STREAM_TRIGGER_WORD = "мэри"
-VERIFICATION_THRESHOLD = 0.7 
-
 MEET_INPUT_DEVICE_NAME = "pulse"
-MEET_GUEST_NAME = "Mary"
-MEET_AUDIO_CHUNKS_DIR = AUDIO_FILES_DIR / "meet_chunks"
-MEET_FRAME_DURATION_MS = 30 
-MEET_PAUSE_THRESHOLD_S = 1  # Пауза в секундах перед завершением записи
-SILENCE_THRESHOLD_FRAMES = 16
+MEET_GUEST_NAME = "Mary" # Имя ассистента
+MEET_AUDIO_CHUNKS_DIR = AUDIO_FILES_DIR / "meet_chunks" 
 
 def ensure_dirs_exist():
     """Создает все необходимые директории."""
-    for path in [UPLOADS_DIR, STREAMS_DIR, TTS_OUTPUT_DIR, USER_DATA_DIR, MEETINGS_DIR, CHROME_PROFILE_DIR, MEET_AUDIO_CHUNKS_DIR]:
+    for path in [TTS_OUTPUT_DIR, USER_DATA_DIR, MEETINGS_DIR, CHROME_PROFILE_DIR, MEET_AUDIO_CHUNKS_DIR]:
         path.mkdir(parents=True, exist_ok=True)
+
+ASR_MODEL_NAME = "deepdml/faster-whisper-large-v3-turbo-ct2" # Модель Whisper 
+
+TTS_MODEL_ID = 'v4_ru' # Модель TTS
+TTS_SPEAKER = 'xenia' # Спикер TTS
+TTS_SAMPLE_RATE = 48000 # Частота TTS
+
+# Модели и файлы для диаризации
+SPEAKER_MODEL_NAME = "titanet_large"
+DIAR_CONFIG_URL = 'https://raw.githubusercontent.com/NVIDIA/NeMo/main/examples/speaker_tasks/diarization/conf/inference/diar_infer_telephonic.yaml'
+DIAR_SPEAKER_MODEL = 'ecapa_tdnn'
+
+STREAM_SAMPLE_RATE = 16000 # Частота для аудиочанков
+MEET_FRAME_DURATION_MS = 30 # Размер чанка
+MEET_PAUSE_THRESHOLD_S = 1  # Пауза в секундах перед завершением записи
+SILENCE_THRESHOLD_FRAMES = 16 # Для определения пауз в речи
+
+LLM_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct" # Модель Llama 
+STREAM_TRIGGER_WORD = "мэри" # Триггер для работы Мэри
+STREAM_STOP_WORD_1 = "стоп" # Триггер для завершения работы бота
+STREAM_STOP_WORD_2 = "закончи встречу" # Триггер для завершения работы бота
+
+# Промпты для Llama 
+OLLAMA_ASSISTANT_PROMPT = """
+Ты — умный русскоязычный помощник по имени Мэри. Отвечай только на русском языке, кратко и по существу. Дай четкий и полезный ответ.
+"""
+
+OLLAMA_TITLE_PROMPT = """ Ты — русскоязычный ИИ-ассистент. Твоя задача — создать короткий и ёмкий заголовок для встречи на основе её содержания.
+
+ВАЖНЫЕ ПРАВИЛА:
+1. ЯЗЫК ОТВЕТА: Отвечай ТОЛЬКО на РУССКОМ языке.
+2. ДЛИНА: Заголовок должен быть коротким (максимум 60 символов).
+3. СТИЛЬ: Используй формат "Обсуждение темы" или "Планирование проекта".
+4. СУТЬ: Отрази главную тему встречи одной фразой.
+
+### Примеры хороших заголовков:
+- "Обсуждение запуска новой функции"
+- "Планирование маркетинговой кампании"
+- "Анализ результатов квартала"
+- "Техническое совещание по проекту"
+"""
+
+OLLAMA_SUMMARY_PROMPT = '''Я провёл встречу в Google Meet, и вот стенограмма. Пожалуйста, проанализируй её и предоставь чёткое, структурированное резюме. Очень важно, чтобы ты строго следовал этой структуре, избегая повторений и сохраняя читаемость.
+
+Во время анализа, пожалуйста, исправляй грамматические и стилистические ошибки в тексте, чтобы итоговое резюме было грамотным.
+
+ВАЖНЫЕ ПРАВИЛА:
+1.  ЯЗЫК ОТВЕТА: Всегда и без исключений отвечай ТОЛЬКО на РУССКОМ языке.
+2.  ТОЧНОСТЬ: Основывай резюме только на информации из предоставленного диалога.
+
+#### **Ключевые моменты**
+(Список основных тезисов и тем, которые обсуждались на встрече)
+
+
+#### **Моменты, на которых был акцент**
+(Наиболее важные темы, которым было уделено больше всего внимания. Почему они важны?)
+
+
+#### **Решения**
+(Принятые решения и договорённости)
+
+
+#### **Задачи для участников**
+(Конкретные задачи, назначенные участникам встречи, с указанием ответственных и, если возможно, сроков)
+
+
+#### **Следующие шаги**
+(Список конкретных действий, которые необходимо предпринять после встречи, чтобы продвинуть проект вперёд)
+
+
+#### **Риски**
+(Потенциальные риски или препятствия, которые были выявлены в ходе обсуждения)
+
+
+#### **Вопросы**
+(Неразрешённые вопросы, требующие дальнейшего обсуждения или уточнения)'''
+
+# ---------- Другой промпт ----------
+
+'''
+OLLAMA_SUMMARY_PROMPT = """
+Ты — русскоязычный ИИ-ассистент, профессиональный аналитик встреч. Твоя задача — проанализировать предоставленный диалог и создать краткое резюме на русском языке.
+
+ВАЖНЫЕ ПРАВИЛА:
+1.  ЯЗЫК ОТВЕТА: Всегда и без исключений отвечай ТОЛЬКО на РУССКОМ языке.
+2.  СТРОГИЙ ФОРМАТ: Неукоснительно следуй предложенной структуре с использованием Markdown-заголовков (###) и списков (-). Не добавляй ничего лишнего.
+3.  ТОЧНОСТЬ: Основывай резюме только на информации из предоставленного диалога.
+
+### Пример желаемого результата:
+
+Резюме:
+### Ключевые моменты
+- Обсуждение запуска новой функции.
+- Принято решение о проведении A/B теста на следующей неделе.
+
+### Поручения и задачи
+- Иван: Подготовить сегменты пользователей для A/B теста к среде.
+- Анна: Подготовить дизайн и тексты для новой фичи к среде.
+
+### Решения
+- Запустить A/B тестирование новой функции на следующей неделе.
+
+---
+Теперь проанализируй следующий диалог и создай резюме по тому же формату.
+"""
+'''

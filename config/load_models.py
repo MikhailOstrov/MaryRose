@@ -14,7 +14,6 @@ workspace_dirs = [
     '/workspace/.cache/huggingface',
     '/workspace/models'
 ]
-
 for dir_path in workspace_dirs:
     Path(dir_path).mkdir(parents=True, exist_ok=True)
     print(f"Создана директория: {dir_path}")
@@ -31,7 +30,6 @@ from dotenv import load_dotenv
 load_dotenv() 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
 hf_token = os.getenv("HUGGING_FACE_HUB_TOKEN")
 
 if hf_token:
@@ -40,29 +38,28 @@ if hf_token:
 else:
     print(f"Токен Hugging Face не найден в переменных окружения. {hf_token}")
 
+# Функция проверки, загружены ли модели
 def check_model_exists(model_identifier, model_type="whisper"):
     """Проверяет существование модели в /workspace"""
     if model_type == "whisper":
-        # Проверяем папку модели Whisper
         model_path = Path(f"/workspace/.cache/torch/whisper/{model_identifier}")
         return model_path.exists()
     elif model_type == "huggingface":
-        # Проверяем кеш HuggingFace
         hf_cache = Path(f"/workspace/.cache/huggingface/hub")
         if not hf_cache.exists():
             return False
-        # Ищем папки с моделью
         for model_dir in hf_cache.iterdir():
             if model_identifier.replace("/", "--") in model_dir.name:
                 return True
         return False
     elif model_type == "torch_hub":
-        # Проверяем кеш torch.hub
         torch_cache = Path(f"/workspace/.cache/torch/hub")
         return torch_cache.exists() and any(torch_cache.iterdir())
     return False
 
+# Проверка и загрузка Whisper
 def load_asr_model():
+
     if check_model_exists(ASR_MODEL_NAME, "whisper"):
         print(f"ASR модель {ASR_MODEL_NAME} найдена в /workspace, загружаем...")
     else:
@@ -72,6 +69,7 @@ def load_asr_model():
     print("ASR model loaded.")
     return asr_model
 
+# Проверка и загрузка Whisper
 def load_silero_vad_model():
     if check_model_exists("silero-vad", "torch_hub"):
         print("Silero VAD модель найдена в /workspace, загружаем...")
@@ -87,6 +85,7 @@ def load_silero_vad_model():
                            threshold=0.1)
     return model, utils, iterator
 
+# Проверка и загрузка модели TTS
 def load_tts_model():
     if check_model_exists("silero-models", "torch_hub"):
         print(f"TTS модель {TTS_MODEL_ID} найдена в /workspace, загружаем...")
@@ -98,6 +97,7 @@ def load_tts_model():
     print("TTS model loaded.")
     return tts_model
 
+# Проверка и загрузка конфига диаризации
 def load_diarizer_config():
     config_path = Path("/workspace/models/diar_infer_telephonic.yaml")
     if not config_path.exists():
@@ -110,6 +110,7 @@ def load_diarizer_config():
     config.diarizer.speaker_embeddings.model_path = DIAR_SPEAKER_MODEL
     return config
 
+# Проверка и загрузка Llama
 def load_llm():
     if check_model_exists(LLM_NAME, "huggingface"):
         print(f"LLM модель {LLM_NAME} найдена в /workspace, загружаем...")

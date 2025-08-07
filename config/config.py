@@ -27,7 +27,7 @@ MEET_INPUT_DEVICE_NAME = "pulse"
 MEET_GUEST_NAME = "Mary"
 MEET_AUDIO_CHUNKS_DIR = AUDIO_FILES_DIR / "meet_chunks"
 MEET_FRAME_DURATION_MS = 30 
-MEET_PAUSE_THRESHOLD_S = 1.5  # Пауза в секундах перед завершением записи
+MEET_PAUSE_THRESHOLD_S = 1  # Пауза в секундах перед завершением записи
 SILENCE_THRESHOLD_FRAMES = 16
 
 def ensure_dirs_exist():

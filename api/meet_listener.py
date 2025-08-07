@@ -10,6 +10,7 @@ import torch
 import numpy as np
 from scipy.io.wavfile import write
 import sounddevice as sd
+import soundfile as sf
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -471,15 +472,18 @@ class MeetListenerBot:
         except Exception as e:
             print(f"❌ Неожиданная ошибка при отправке результатов: {e}")
             logger.error(f"[{self.meeting_id}] ❌ Неожиданная ошибка: {e}")
-
-    def _save_chunk(self, audio_bytes: bytes):
+    
+    def _save_chunk(self, audio_np):
+        """Сохраняет аудио-чанк в файл WAV."""
+        if audio_np.size == 0:
+            return
+        filename = f'chunk_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{uuid4().hex[:6]}.wav'
+        file_path = self.output_dir / filename
         try:
-            filename = f'chunk_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{uuid4().hex[:6]}.wav'
-            file_path = self.output_dir / filename
-            audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
-            write(str(file_path), STREAM_SAMPLE_RATE, audio_np)
-            logger.info(f"[{self.meeting_id}] 💾 Фрагмент сохранен: {file_path} (длительность: {len(audio_np)/STREAM_SAMPLE_RATE:.2f} сек)")
-        except Exception as e: logger.error(f"[{self.meeting_id}] ❌ Ошибка при сохранении аудиофрагмента: {e}")
+            sf.write(file_path, audio_np, STREAM_SAMPLE_RATE)
+            logger.info(f"💾 Фрагмент сохранен: {filename} (длительность: {len(audio_np)/STREAM_SAMPLE_RATE:.2f} сек)")
+        except Exception as e:
+            logger.infog(f"❌ Ошибка при сохранении аудиофрагмента: {e}")
 
     def run(self):
         """Основной метод, выполняющий всю работу."""

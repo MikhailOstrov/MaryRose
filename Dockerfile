@@ -80,11 +80,6 @@ RUN chmod +x /app/entrypoint.sh && dos2unix /app/entrypoint.sh
 # ВАЖНО: Создаем папку профиля, как в join_meet
 RUN mkdir -p /app/chrome_profile && chmod 755 /app/chrome_profile
 
-# --- Политики Chrome/Chromium: автоматически разрешаем микрофон для meet.google.com ---
-RUN mkdir -p /etc/opt/chrome/policies/managed /etc/chromium/policies/managed
-COPY config/chrome_policies/microphone_policy.json /etc/opt/chrome/policies/managed/microphone_policy.json
-COPY config/chrome_policies/microphone_policy.json /etc/chromium/policies/managed/microphone_policy.json
-
 # --- ШАГ 8: ЗАПУСК (НЕ ТРОНУТО) ---
 EXPOSE 8001
 ENTRYPOINT ["/app/entrypoint.sh"]

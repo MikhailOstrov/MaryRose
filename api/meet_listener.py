@@ -68,8 +68,6 @@ class MeetListenerBot:
         self.enable_auto_tts = True
         # Временная опция: использовать системный default микрофон для озвучки/захвата
         self.force_default_audio = True
-        # Для троттлинга логов роутинга
-        self._last_routing_log_ts = 0.0
 
     # Отслеживание кол-ва участников
     def _monitor_participants(self):
@@ -189,7 +187,6 @@ class MeetListenerBot:
         1) До 5 сек ищем кнопку "с микрофоном" (RU/EN) и кликаем.
         2) Если не нашли — до 2 сек пробуем "без микрофона".
         """
-        logger.info(f"[{self.meeting_id}] [MicDialog] Старт обработки диалога микрофона")
         with_mic_variants = [
             "use microphone", "join with microphone", "use your microphone",
             "продолжить с микрофоном", "использовать микрофон", "войти с микрофоном",
@@ -231,42 +228,6 @@ class MeetListenerBot:
             logger.info(f"[{self.meeting_id}] Кнопка 'без микрофона' нажата за {time.time()-t0:.2f}s")
             return
         logger.info(f"[{self.meeting_id}] Диалог микрофона не найден за {time.time()-t0:.2f}s — продолжаю.")
-
-    def _log_permissions_state(self):
-        """Пытается залогировать состояние Permissions API для микрофона."""
-        try:
-            state = self.driver.execute_script(
-                "return (navigator.permissions && navigator.permissions.query) ? undefined : 'unsupported';"
-            )
-            if state == 'unsupported':
-                logger.info(f"[{self.meeting_id}] [Perms] Permissions API недоступен")
-                return
-            # Выполним асинхронный запрос через промис
-            js = """
-            const cb = arguments[0];
-            navigator.permissions.query({name:'microphone'}).then(r=>cb(r.state)).catch(()=>cb('error'));
-            """
-            result = self.driver.execute_async_script(js)
-            logger.info(f"[{self.meeting_id}] [Perms] microphone permission state: {result}")
-        except Exception as e:
-            logger.info(f"[{self.meeting_id}] [Perms] Не удалось получить состояние: {e}")
-
-    def _request_microphone_stream(self, timeout_ms: int = 2000) -> bool:
-        """Асинхронно вызывает getUserMedia({audio:true}) и логирует результат. Возвращает True при успехе."""
-        try:
-            js = """
-            const cb = arguments[0];
-            const to = setTimeout(()=>cb('timeout'), arguments[1]);
-            navigator.mediaDevices.getUserMedia({audio:true})
-              .then(()=>{ clearTimeout(to); cb('ok'); })
-              .catch((e)=>{ clearTimeout(to); cb('fail:'+(e && e.name ? e.name : 'error')); });
-            """
-            res = self.driver.execute_async_script(js, int(timeout_ms))
-            logger.info(f"[{self.meeting_id}] [gUM] getUserMedia result: {res}")
-            return res == 'ok'
-        except Exception as e:
-            logger.info(f"[{self.meeting_id}] [gUM] Ошибка вызова getUserMedia: {e}")
-            return False
 
     def _handle_chrome_permission_prompt(self):
         """
@@ -444,9 +405,6 @@ class MeetListenerBot:
                         if self.driver.find_element(By.XPATH, xpath).is_displayed():
                             self._save_screenshot("04_joined_successfully")
                             logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
-                            # Пробуем форсировать создание audio stream и логируем
-                            self._log_permissions_state()
-                            self._request_microphone_stream(timeout_ms=2000)
                             # После входа пытаемся перенаправить новые потоки Chrome. Если ничего не появилось,
                             # не ждём лишнее время — логируем и идём дальше, обеспечивая фоновое ensure_routing
                             try:

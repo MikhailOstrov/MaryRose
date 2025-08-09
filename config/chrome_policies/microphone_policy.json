@@ -1,4 +1,7 @@
 {
   "AudioCaptureAllowed": true,
-  "AudioCaptureAllowedUrls": ["https://meet.google.com"]
+  "AudioCaptureAllowedUrls": [
+    "https://meet.google.com"
+  ]
 }
+

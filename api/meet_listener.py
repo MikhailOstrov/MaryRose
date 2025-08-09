@@ -126,6 +126,15 @@ class MeetListenerBot:
                 version_main=138 # Закрепляем версию для надежности
             )
             logger.info(f"[{self.meeting_id}] ✅ Chrome запущен (Попытка №1)!")
+            # CDP-грант прав на микрофон для meet.google.com
+            try:
+                self.driver.execute_cdp_cmd("Browser.grantPermissions", {
+                    "origin": "https://meet.google.com",
+                    "permissions": ["microphone"]
+                })
+                logger.info(f"[{self.meeting_id}] Разрешение на микрофон выдано через CDP (попытка №1)")
+            except Exception as e_grant:
+                logger.warning(f"[{self.meeting_id}] Не удалось выдать CDP-разрешение (попытка №1): {e_grant}")
             
         except Exception as e:
             logger.error(f"[{self.meeting_id}] Попытка №1 не сработала: {e}")
@@ -145,6 +154,14 @@ class MeetListenerBot:
                 
                 self.driver = uc.Chrome(options=opt, version_main=138)
                 logger.info(f"[{self.meeting_id}] ✅ Chrome запущен (Попытка №2)!")
+                try:
+                    self.driver.execute_cdp_cmd("Browser.grantPermissions", {
+                        "origin": "https://meet.google.com",
+                        "permissions": ["microphone"]
+                    })
+                    logger.info(f"[{self.meeting_id}] Разрешение на микрофон выдано через CDP (попытка №2)")
+                except Exception as e_grant2:
+                    logger.warning(f"[{self.meeting_id}] Не удалось выдать CDP-разрешение (попытка №2): {e_grant2}")
                 
             except Exception as e2:
                 logger.critical(f"[{self.meeting_id}] Полный провал запуска Chrome: {e2}", exc_info=True)

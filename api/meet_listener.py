@@ -163,77 +163,51 @@ class MeetListenerBot:
     def _handle_mic_dialog(self):
         """
         Универсальная обработка диалога выбора микрофона.
-        Сначала пытается выбрать вариант с микрофоном (RU/EN) по нескольким шаблонам.
-        Если не удалось найти — пробует вариант без микрофона как фолбэк.
+        Сначала пытается выбрать вариант с микрофоном (рус/англ),
+        если его нет — выбирает вариант без микрофона.
         """
+        # Варианты фраз для кнопок (локализация RU/EN)
         with_mic_variants = [
-            "Use microphone",
-            "Join with microphone",
-            "Use your microphone",
+            "Continue with microphone",
             "Продолжить с микрофоном",
+            "Use microphone",
             "Использовать микрофон",
             "Войти с микрофоном",
         ]
         without_mic_variants = [
             "Continue without microphone",
-            "Join without microphone",
             "Продолжить без микрофона",
-            "Без микрофона",
         ]
 
-        def try_click_by_phrases(phrases, timeout_each=6):
-            for phrase in phrases:
-                xpaths = [
-                    f"//button[normalize-space()='{phrase}']",
-                    f"//button[contains(., '{phrase}')]",
-                    f"//span[normalize-space()='{phrase}']/ancestor::button",
-                    f"//span[contains(., '{phrase}')]/ancestor::button",
-                    f"//div[@role='button' and normalize-space()='{phrase}']",
-                    f"//div[@role='button' and contains(., '{phrase}')]",
-                    f"//*[@role='button' and .//span[normalize-space()='{phrase}']]",
-                ]
-                clicked = False
-                for xp in xpaths:
-                    try:
-                        btn = WebDriverWait(self.driver, timeout_each).until(
-                            EC.element_to_be_clickable((By.XPATH, xp))
-                        )
-                        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
-                        btn.click()
-                        clicked = True
-                        logger.info(f"[{self.meeting_id}] Нажал кнопку по XPath: {xp}")
-                        return True
-                    except Exception:
-                        continue
-                if not clicked:
-                    # JS fallback по innerText
-                    try:
-                        js = """
-                        const phrase = arguments[0].toLowerCase();
-                        const nodes = Array.from(document.querySelectorAll('button, div[role="button"]'));
-                        for (const n of nodes) {
-                          const t = (n.innerText||'').trim().toLowerCase();
-                          if (t.includes(phrase)) { n.scrollIntoView({block:'center'}); n.click(); return true; }
-                        }
-                        return false;
-                        """
-                        ok = self.driver.execute_script(js, phrase)
-                        if ok:
-                            logger.info(f"[{self.meeting_id}] Нажал кнопку через JS: '{phrase}'")
-                            return True
-                    except Exception:
-                        pass
-            return False
+        # Сперва пробуем варианты "с микрофоном"
+        for phrase in with_mic_variants:
+            try:
+                xpath = f'//button[.//span[contains(text(), "{phrase}")]]'
+                button = WebDriverWait(self.driver, 5).until(
+                    EC.element_to_be_clickable((By.XPATH, xpath))
+                )
+                logger.info(f"[{self.meeting_id}] Нахожу и нажимаю кнопку: '{phrase}'")
+                button.click()
+                time.sleep(1)
+                self._save_screenshot("02a_mic_dialog_with_mic")
+                return
+            except Exception:
+                continue
 
-        if try_click_by_phrases(with_mic_variants, timeout_each=3):
-            time.sleep(1)
-            self._save_screenshot("02a_mic_dialog_with_mic")
-            return
-
-        if try_click_by_phrases(without_mic_variants, timeout_each=3):
-            time.sleep(1)
-            self._save_screenshot("02a_mic_dialog_without_mic")
-            return
+        # Если не нашли "с микрофоном", пробуем "без микрофона"
+        for phrase in without_mic_variants:
+            try:
+                xpath = f'//button[.//span[contains(text(), "{phrase}")]]'
+                button = WebDriverWait(self.driver, 5).until(
+                    EC.element_to_be_clickable((By.XPATH, xpath))
+                )
+                logger.info(f"[{self.meeting_id}] Нахожу и нажимаю кнопку: '{phrase}'")
+                button.click()
+                time.sleep(1)
+                self._save_screenshot("02a_mic_dialog_without_mic")
+                return
+            except Exception:
+                continue
 
         logger.info(f"[{self.meeting_id}] Диалог микрофона не найден — продолжаю.")
 

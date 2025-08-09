@@ -68,7 +68,7 @@ class MeetListenerBot:
         # Управление автоозвучкой
         self.enable_auto_tts = True
         # Временная опция: использовать системный default микрофон для озвучки/захвата
-        self.force_default_audio = True
+        self.force_default_audio = False
         # Для троттлинга логов роутинга
         self._last_routing_log_ts = 0.0
 
@@ -363,13 +363,8 @@ class MeetListenerBot:
             if not audio_bytes:
                 return
             import subprocess, os
-            # Определяем куда проигрывать: если используем default-аудио, льём в meet_sink (дефолтный вывод Chrome),
-            # иначе — в per-meeting bot_sink_<id>
-            sink_to_use = None
-            if getattr(self, 'force_default_audio', False):
-                sink_to_use = 'meet_sink'
-            else:
-                sink_to_use = self.bot_sink_name
+            # Проигрываем TTS строго в bot_sink_<id>, который зациклен на bot_mic_<id>
+            sink_to_use = self.bot_sink_name
             logger.info(f"[{self.meeting_id}] [TTS] Целевой sink для озвучки: {sink_to_use}")
             # Пытаемся через paplay (PulseAudio)
             try:
@@ -733,13 +728,15 @@ class MeetListenerBot:
             sf.write(file_path, audio_np, STREAM_SAMPLE_RATE)
             logger.info(f"💾 Фрагмент сохранен: {filename} (длительность: {len(audio_np)/STREAM_SAMPLE_RATE:.2f} сек)")
         except Exception as e:
-            logger.infog(f"❌ Ошибка при сохранении аудиофрагмента: {e}")
+            logger.error(f"❌ Ошибка при сохранении аудиофрагмента: {e}")
 
     # Запуск работы бота
     def run(self):
         """Основной метод, выполняющий всю работу."""
         logger.info(f"[{self.meeting_id}] Бот запускается...")
         try:
+            # 1) Создаём парные виртуальные устройства заранее
+            self._setup_audio_devices()
             self._initialize_driver()
             
             # Попытка присоединиться к встрече
@@ -755,6 +752,19 @@ class MeetListenerBot:
                 monitor_thread = threading.Thread(target=self._monitor_participants)
                 monitor_thread.daemon = True
                 monitor_thread.start()
+
+                # Первичное навязывание маршрутизации сразу после входа
+                try:
+                    moved_sinks, moved_sources = ensure_routing(self.meet_sink_name, self.bot_mic_name)
+                    logger.info(f"[{self.meeting_id}] Первичная маршрутизация: sinks_moved={moved_sinks}, sources_moved={moved_sources}")
+                except Exception as er:
+                    logger.warning(f"[{self.meeting_id}] Ошибка первичной маршрутизации: {er}")
+
+                # Костыльный мгновенный тест озвучки, чтобы убедиться, что тракт работает
+                try:
+                    self._speak_via_meet("Тест связи. Это Мэри. Если вы меня слышите, значит озвучка работает.")
+                except Exception:
+                    pass
 
                 logger.info(f"[{self.meeting_id}] 🎤 Начинаю прослушивание аудио с устройства ID {device_id}...")
                 with sd.RawInputStream(

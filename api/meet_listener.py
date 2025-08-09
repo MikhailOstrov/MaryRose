@@ -15,7 +15,6 @@ import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.keys import Keys
 
 from config.config import (STREAM_SAMPLE_RATE,SILENCE_THRESHOLD_FRAMES, MEET_FRAME_DURATION_MS,
                            MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME, STREAM_TRIGGER_WORD, CHROME_PROFILE_DIR,
@@ -274,16 +273,6 @@ class MeetListenerBot:
                         continue
             return False
 
-        # Быстрая проверка наличия промпта: если элементов-кандидатов нет, сразу выходим (0 ожидания)
-        try:
-            exists = self.driver.execute_script(
-                "return !!document.querySelector('button, div[role=\\'button\\']') && Array.from(document.querySelectorAll('button, div[role=\\'button\\']')).some(el => (el.innerText||'').includes('Разрешить при нахождении') || (el.innerText||'').includes('Allow'));")
-            if not exists:
-                logger.info(f"[{self.meeting_id}] Баннер разрешений не виден — пропускаю обработку.")
-                return
-        except Exception:
-            pass
-
         # Сперва пробуем постоянное разрешение
         if try_click_phrases(allow_site_ru, timeout_each=3) or try_click_phrases(allow_site_en, timeout_each=3):
             time.sleep(0.1)
@@ -405,18 +394,14 @@ class MeetListenerBot:
                         if self.driver.find_element(By.XPATH, xpath).is_displayed():
                             self._save_screenshot("04_joined_successfully")
                             logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
-                            # После входа пытаемся перенаправить новые потоки Chrome. Если ничего не появилось,
-                            # не ждём лишнее время — логируем и идём дальше, обеспечивая фоновое ensure_routing
-                            try:
-                                moved_sinks, moved_sources = wait_and_route_new_streams(
-                                    target_meet_sink=self.meet_sink_name,
-                                    target_bot_mic=self.bot_mic_name,
-                                    timeout_sec=5.0,
-                                    poll_interval_sec=0.5,
-                                )
-                                logger.info(f"[{self.meeting_id}] Перенаправлено потоков Chrome: sinks={moved_sinks}, sources={moved_sources}")
-                            except Exception as ewr:
-                                logger.warning(f"[{self.meeting_id}] Ошибка роутинга потоков: {ewr}")
+                            # После входа перенаправим новые потоки Chrome на наши устройства
+                            moved_sinks, moved_sources = wait_and_route_new_streams(
+                                target_meet_sink=self.meet_sink_name,
+                                target_bot_mic=self.bot_mic_name,
+                                timeout_sec=20.0,
+                                poll_interval_sec=0.5,
+                            )
+                            logger.info(f"[{self.meeting_id}] Перенаправлено потоков Chrome: sinks={moved_sinks}, sources={moved_sources}")
                             self.joined_successfully = True
                             return True
                     except: continue

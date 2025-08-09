@@ -44,10 +44,8 @@ RUN CHROME_VERSION=$(google-chrome --version | cut -d " " -f 3 | cut -d "." -f 1
 
 # --- ШАГ 4: УСТАНОВКА PYTORCH (ОРИГИНАЛЬНАЯ ВЕРСИЯ, НЕ ТРОНУТА) ---
 RUN python3.11 -m pip install --no-cache-dir \
-    torch==2.7.1 \
-    torchaudio==2.7.1 \
-    torchvision==0.22.1 \
-    --index-url https://download.pytorch.org/whl/cu118
+torch==2.3.1+cu121 torchaudio==2.3.1+cu121 torchvision==0.18.1+cu121 \
+--index-url https://download.pytorch.org/whl/cu121
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \

@@ -127,10 +127,11 @@ class MeetListenerBot:
             )
             logger.info(f"[{self.meeting_id}] ✅ Chrome запущен (Попытка №1)!")
             # CDP-грант прав на микрофон для meet.google.com
+            # Пробуем выдать разрешение через CDP (может быть отключено политиками)
             try:
                 self.driver.execute_cdp_cmd("Browser.grantPermissions", {
                     "origin": "https://meet.google.com",
-                    "permissions": ["microphone"]
+                    "permissions": ["audioCapture"]
                 })
                 logger.info(f"[{self.meeting_id}] Разрешение на микрофон выдано через CDP (попытка №1)")
             except Exception as e_grant:
@@ -157,7 +158,7 @@ class MeetListenerBot:
                 try:
                     self.driver.execute_cdp_cmd("Browser.grantPermissions", {
                         "origin": "https://meet.google.com",
-                        "permissions": ["microphone"]
+                        "permissions": ["audioCapture"]
                     })
                     logger.info(f"[{self.meeting_id}] Разрешение на микрофон выдано через CDP (попытка №2)")
                 except Exception as e_grant2:

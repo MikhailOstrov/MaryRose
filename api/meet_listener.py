@@ -65,8 +65,6 @@ class MeetListenerBot:
         self.bot_mic_module_id = None
         # Управление автоозвучкой
         self.enable_auto_tts = True
-        # Временная опция: использовать системный default микрофон для озвучки/захвата
-        self.force_default_audio = True
 
     # Отслеживание кол-ва участников
     def _monitor_participants(self):
@@ -461,28 +459,16 @@ class MeetListenerBot:
 
     # Поиск и определение аудиоустройства
     def _find_device_id(self):
-        logger.info(f"[{self.meeting_id}] Выбор входного устройства...")
+        logger.info(f"[{self.meeting_id}] Поиск аудиоустройства с именем '{MEET_INPUT_DEVICE_NAME}'...")
         try:
             devices = sd.query_devices()
             logger.debug(f"Найденные аудиоустройства: {devices}")
-            # Если форсируем default, берём первое устройство с входными каналами и пометкой default_samplerate
-            if getattr(self, 'force_default_audio', False):
-                for i, device in enumerate(devices):
-                    if device.get('max_input_channels', 0) > 0 and device.get('default_samplerate'):
-                        logger.info(f"[{self.meeting_id}] ✅ Выбран default input: ID {i}, Имя: {device['name']}")
-                        return i
-                # fallback: первый доступный вход
-                for i, device in enumerate(devices):
-                    if device.get('max_input_channels', 0) > 0:
-                        logger.info(f"[{self.meeting_id}] ✅ Выбран первый доступный input: ID {i}, Имя: {device['name']}")
-                        return i
-            # Иначе ищем целевые имена (пер-микрофон или MEET_INPUT_DEVICE_NAME)
             preferred_names = [self.meet_mic_name, MEET_INPUT_DEVICE_NAME]
             for i, device in enumerate(devices):
-                if any(name and name in device['name'] for name in preferred_names) and device.get('max_input_channels', 0) > 0:
+                if any(name and name in device['name'] for name in preferred_names) and device['max_input_channels'] > 0:
                     logger.info(f"[{self.meeting_id}] ✅ Найдено целевое устройство: ID {i}, Имя: {device['name']}")
                     return i
-            raise ValueError("Не удалось найти подходящее входное аудиоустройство")
+            raise ValueError(f"Не удалось найти входное аудиоустройство с именем '{MEET_INPUT_DEVICE_NAME}'")
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка при поиске аудиоустройств: {e}", exc_info=True)
             raise

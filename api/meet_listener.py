@@ -507,6 +507,11 @@ class MeetListenerBot:
                                             logger.info(f"[{self.meeting_id}] Мэри услышала вас")
                                             response = get_mary_response(transcription)
                                             logger.info(f"[{self.meeting_id}] Ответ от Мэри: {response}")
+                                            try:
+                                                if self.enable_auto_tts and response:
+                                                    self._speak_via_meet(response)
+                                            except Exception as tts_err:
+                                                logger.error(f"[{self.meeting_id}] Ошибка при озвучивании ответа: {tts_err}")
             except queue.Empty:
                 if is_speaking and speech_buffer_for_asr:
                     logger.info(f"[{self.meeting_id}] Тайм-аут, обрабатываем оставшуюся речь.")

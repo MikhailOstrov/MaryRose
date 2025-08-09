@@ -168,11 +168,12 @@ class MeetListenerBot:
         except Exception as e:
             logger.warning(f"[{self.meeting_id}] Не удалось сохранить скриншот '{name}': {e}")
 
-    def _handle_mic_dialog(self):
+    def _handle_mic_dialog(self) -> bool:
         """
         Быстрый JS-скан диалога выбора микрофона с общим лимитом ~7-8 секунд.
         1) До 5 сек ищем кнопку "с микрофоном" (RU/EN) и кликаем.
         2) Если не нашли — до 2 сек пробуем "без микрофона".
+        Возвращает True, если был найден и нажат любой вариант (с/без микрофона), иначе False.
         """
         logger.info(f"[{self.meeting_id}] [MicDialog] Старт обработки диалога микрофона")
         with_mic_variants = [
@@ -210,12 +211,13 @@ class MeetListenerBot:
         if js_scan_click(with_mic_variants, total_timeout=5.0):
             self._save_screenshot("02a_mic_dialog_with_mic")
             logger.info(f"[{self.meeting_id}] Кнопка 'с микрофоном' нажата за {time.time()-t0:.2f}s")
-            return
+            return True
         if js_scan_click(without_mic_variants, total_timeout=2.0):
             self._save_screenshot("02a_mic_dialog_without_mic")
             logger.info(f"[{self.meeting_id}] Кнопка 'без микрофона' нажата за {time.time()-t0:.2f}s")
-            return
+            return True
         logger.info(f"[{self.meeting_id}] Диалог микрофона не найден за {time.time()-t0:.2f}s — продолжаю.")
+        return False
 
     def _log_permissions_state(self):
         """Пытается залогировать состояние Permissions API для микрофона."""
@@ -346,8 +348,10 @@ class MeetListenerBot:
 
             # Обработка диалога микрофона и баннера разрешений
             logger.info(f"[{self.meeting_id}] Обработка диалога микрофона...")
-            self._handle_mic_dialog()
-            self._handle_chrome_permission_prompt()
+            mic_dialog_found = self._handle_mic_dialog()
+            # Если диалог микрофона не показывался — сразу идем дальше, пропуская поиск баннера разрешений
+            if mic_dialog_found:
+                self._handle_chrome_permission_prompt()
 
             join_button_xpath = '//button[.//span[contains(text(), "Ask to join") or contains(text(), "Попросить войти")]]'
             logger.info(f"[{self.meeting_id}] Ищу кнопку 'Ask to join'...")
@@ -657,10 +661,6 @@ class MeetListenerBot:
 
                 logger.info(f"[{self.meeting_id}] 🎤 Начинаю прослушивание аудио с устройства ID {device_id}...")
                 # Короткий тест TTS: проверяем, что Meet слышит бота
-                try:
-                    self._speak_via_meet("Тест связи. Это Мэри. Если вы меня слышите, значит озвучка работает.")
-                except Exception:
-                    pass
                 with sd.RawInputStream(
                     samplerate=STREAM_SAMPLE_RATE,
                     blocksize=self.frame_size,

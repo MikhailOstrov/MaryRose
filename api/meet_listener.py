@@ -68,7 +68,7 @@ class MeetListenerBot:
         # Управление автоозвучкой
         self.enable_auto_tts = True
         # Временная опция: использовать системный default микрофон для озвучки/захвата
-        self.force_default_audio = False
+        self.force_default_audio = True
         # Для троттлинга логов роутинга
         self._last_routing_log_ts = 0.0
 
@@ -252,23 +252,7 @@ class MeetListenerBot:
         except Exception as e:
             logger.info(f"[{self.meeting_id}] [Perms] Не удалось получить состояние: {e}")
 
-    def _request_microphone_stream(self, timeout_ms: int = 2000) -> bool:
-        """Асинхронно вызывает getUserMedia({audio:true}) и логирует результат. Возвращает True при успехе."""
-        try:
-            js = """
-            const cb = arguments[0];
-            const to = setTimeout(()=>cb('timeout'), arguments[1]);
-            navigator.mediaDevices.getUserMedia({audio:true})
-              .then(()=>{ clearTimeout(to); cb('ok'); })
-              .catch((e)=>{ clearTimeout(to); cb('fail:'+(e && e.name ? e.name : 'error')); });
-            """
-            res = self.driver.execute_async_script(js, int(timeout_ms))
-            logger.info(f"[{self.meeting_id}] [gUM] getUserMedia result: {res}")
-            return res == 'ok'
-        except Exception as e:
-            logger.info(f"[{self.meeting_id}] [gUM] Ошибка вызова getUserMedia: {e}")
-            return False
-
+   
     def _handle_chrome_permission_prompt(self):
         """
         Обрабатывает всплывающее окно разрешений Chrome:
@@ -363,8 +347,13 @@ class MeetListenerBot:
             if not audio_bytes:
                 return
             import subprocess, os
-            # Проигрываем TTS строго в bot_sink_<id>, который зациклен на bot_mic_<id>
-            sink_to_use = self.bot_sink_name
+            # Определяем куда проигрывать: если используем default-аудио, льём в meet_sink (дефолтный вывод Chrome),
+            # иначе — в per-meeting bot_sink_<id>
+            sink_to_use = None
+            if getattr(self, 'force_default_audio', False):
+                sink_to_use = 'meet_sink'
+            else:
+                sink_to_use = self.bot_sink_name
             logger.info(f"[{self.meeting_id}] [TTS] Целевой sink для озвучки: {sink_to_use}")
             # Пытаемся через paplay (PulseAudio)
             try:
@@ -452,7 +441,6 @@ class MeetListenerBot:
                             logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
                             # Пробуем форсировать создание audio stream и логируем
                             self._log_permissions_state()
-                            self._request_microphone_stream(timeout_ms=2000)
                             # После входа пытаемся перенаправить новые потоки Chrome. Если ничего не появилось,
                             # не ждём лишнее время — логируем и идём дальше, обеспечивая фоновое ensure_routing
                             try:
@@ -499,6 +487,15 @@ class MeetListenerBot:
         try:
             devices = sd.query_devices()
             logger.debug(f"Найденные аудиоустройства: {devices}")
+            # Приоритет: если есть монитор выхода встречи — слушаем именно его
+            try:
+                for i, device in enumerate(devices):
+                    name = (device.get('name') or '')
+                    if device.get('max_input_channels', 0) > 0 and 'meet_sink.monitor' in name:
+                        logger.info(f"[{self.meeting_id}] ✅ Выбран поток встречи (monitor): ID {i}, Имя: {device['name']}")
+                        return i
+            except Exception:
+                pass
             # Если форсируем default, берём первое устройство с входными каналами и пометкой default_samplerate
             if getattr(self, 'force_default_audio', False):
                 for i, device in enumerate(devices):
@@ -735,8 +732,6 @@ class MeetListenerBot:
         """Основной метод, выполняющий всю работу."""
         logger.info(f"[{self.meeting_id}] Бот запускается...")
         try:
-            # 1) Создаём парные виртуальные устройства заранее
-            self._setup_audio_devices()
             self._initialize_driver()
             
             # Попытка присоединиться к встрече
@@ -753,20 +748,12 @@ class MeetListenerBot:
                 monitor_thread.daemon = True
                 monitor_thread.start()
 
-                # Первичное навязывание маршрутизации сразу после входа
-                try:
-                    moved_sinks, moved_sources = ensure_routing(self.meet_sink_name, self.bot_mic_name)
-                    logger.info(f"[{self.meeting_id}] Первичная маршрутизация: sinks_moved={moved_sinks}, sources_moved={moved_sources}")
-                except Exception as er:
-                    logger.warning(f"[{self.meeting_id}] Ошибка первичной маршрутизации: {er}")
-
-                # Костыльный мгновенный тест озвучки, чтобы убедиться, что тракт работает
+                logger.info(f"[{self.meeting_id}] 🎤 Начинаю прослушивание аудио с устройства ID {device_id}...")
+                # Короткий тест TTS остаётся
                 try:
                     self._speak_via_meet("Тест связи. Это Мэри. Если вы меня слышите, значит озвучка работает.")
                 except Exception:
                     pass
-
-                logger.info(f"[{self.meeting_id}] 🎤 Начинаю прослушивание аудио с устройства ID {device_id}...")
                 with sd.RawInputStream(
                     samplerate=STREAM_SAMPLE_RATE,
                     blocksize=self.frame_size,

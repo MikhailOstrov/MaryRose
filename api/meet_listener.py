@@ -182,51 +182,80 @@ class MeetListenerBot:
             
     def _handle_mic_dialog(self):
         """
-        Быстрый JS-скан диалога выбора микрофона с общим лимитом ~7-8 секунд.
-        1) До 5 сек ищем кнопку "с микрофоном" (RU/EN) и кликаем.
-        2) Если не нашли — до 2 сек пробуем "без микрофона".
+        Универсальная обработка диалога выбора микрофона.
+        Сначала пытается выбрать вариант с микрофоном (RU/EN) по нескольким шаблонам.
+        Если не удалось найти — пробует вариант без микрофона как фолбэк.
         """
         with_mic_variants = [
-            "use microphone", "join with microphone", "use your microphone",
-            "продолжить с микрофоном", "использовать микрофон", "войти с микрофоном",
+            "Use microphone",
+            "Join with microphone",
+            "Use your microphone",
+            "Продолжить с микрофоном",
+            "Использовать микрофон",
+            "Войти с микрофоном",
         ]
         without_mic_variants = [
-            "continue without microphone", "join without microphone",
-            "продолжить без микрофона", "без микрофона",
+            "Continue without microphone",
+            "Join without microphone",
+            "Продолжить без микрофона",
+            "Без микрофона",
         ]
 
-        def js_scan_click(phrases: list[str], total_timeout: float) -> bool:
-            deadline = time.time() + total_timeout
-            js = """
-            const phrases = arguments[0];
-            const nodes = Array.from(document.querySelectorAll('button, div[role="button"]'));
-            for (const el of nodes) {
-              const t = (el.innerText||'').trim().toLowerCase();
-              if (!t) continue;
-              if (phrases.some(p => t.includes(p))) { el.scrollIntoView({block:'center'}); el.click(); return true; }
-            }
-            return false;
-            """
-            while time.time() < deadline:
-                try:
-                    ok = self.driver.execute_script(js, phrases)
-                    if ok:
+        def try_click_by_phrases(phrases, timeout_each=6):
+            for phrase in phrases:
+                xpaths = [
+                    f"//button[normalize-space()='{phrase}']",
+                    f"//button[contains(., '{phrase}')]",
+                    f"//span[normalize-space()='{phrase}']/ancestor::button",
+                    f"//span[contains(., '{phrase}')]/ancestor::button",
+                    f"//div[@role='button' and normalize-space()='{phrase}']",
+                    f"//div[@role='button' and contains(., '{phrase}')]",
+                    f"//*[@role='button' and .//span[normalize-space()='{phrase}']]",
+                ]
+                clicked = False
+                for xp in xpaths:
+                    try:
+                        btn = WebDriverWait(self.driver, timeout_each).until(
+                            EC.element_to_be_clickable((By.XPATH, xp))
+                        )
+                        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
+                        btn.click()
+                        clicked = True
+                        logger.info(f"[{self.meeting_id}] Нажал кнопку по XPath: {xp}")
                         return True
-                except Exception:
-                    pass
-                time.sleep(0.25)
+                    except Exception:
+                        continue
+                if not clicked:
+                    # JS fallback по innerText
+                    try:
+                        js = """
+                        const phrase = arguments[0].toLowerCase();
+                        const nodes = Array.from(document.querySelectorAll('button, div[role="button"]'));
+                        for (const n of nodes) {
+                          const t = (n.innerText||'').trim().toLowerCase();
+                          if (t.includes(phrase)) { n.scrollIntoView({block:'center'}); n.click(); return true; }
+                        }
+                        return false;
+                        """
+                        ok = self.driver.execute_script(js, phrase)
+                        if ok:
+                            logger.info(f"[{self.meeting_id}] Нажал кнопку через JS: '{phrase}'")
+                            return True
+                    except Exception:
+                        pass
             return False
 
-        t0 = time.time()
-        if js_scan_click(with_mic_variants, total_timeout=5.0):
+        if try_click_by_phrases(with_mic_variants, timeout_each=3):
+            time.sleep(0.1)
             self._save_screenshot("02a_mic_dialog_with_mic")
-            logger.info(f"[{self.meeting_id}] Кнопка 'с микрофоном' нажата за {time.time()-t0:.2f}s")
             return
-        if js_scan_click(without_mic_variants, total_timeout=2.0):
+
+        if try_click_by_phrases(without_mic_variants, timeout_each=3):
+            time.sleep(0.1)
             self._save_screenshot("02a_mic_dialog_without_mic")
-            logger.info(f"[{self.meeting_id}] Кнопка 'без микрофона' нажата за {time.time()-t0:.2f}s")
             return
-        logger.info(f"[{self.meeting_id}] Диалог микрофона не найден за {time.time()-t0:.2f}s — продолжаю.")
+
+        logger.info(f"[{self.meeting_id}] Диалог микрофона не найден — продолжаю.")
 
     def _handle_chrome_permission_prompt(self):
         """

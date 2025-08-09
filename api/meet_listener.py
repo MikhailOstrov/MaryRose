@@ -35,7 +35,7 @@ class MeetListenerBot:
 
         self.meeting_url = meeting_url # Ссылка на Google Meet
         self.meeting_id = meeting_id # ID для отслеживания сессии
-        self.driver = None
+        self.driver = None 
         self.audio_queue = queue.Queue() # Для аудиопотока
 
         self.is_running = threading.Event()
@@ -167,7 +167,7 @@ class MeetListenerBot:
             except Exception as e2:
                 logger.critical(f"[{self.meeting_id}] Полный провал запуска Chrome: {e2}", exc_info=True)
                 raise
-
+    
     # Скриншот для отладки 
     def _save_screenshot(self, name: str):
         """Сохраняет скриншот для отладки."""
@@ -177,7 +177,7 @@ class MeetListenerBot:
             logger.info(f"[{self.meeting_id}] Скриншот сохранен: {path}")
         except Exception as e:
             logger.warning(f"[{self.meeting_id}] Не удалось сохранить скриншот '{name}': {e}")
-            
+
     def _handle_mic_dialog(self):
         """
         Универсальная обработка диалога выбора микрофона.
@@ -244,12 +244,12 @@ class MeetListenerBot:
             return False
 
         if try_click_by_phrases(with_mic_variants, timeout_each=3):
-            time.sleep(0.1)
+            time.sleep(1)
             self._save_screenshot("02a_mic_dialog_with_mic")
             return
 
         if try_click_by_phrases(without_mic_variants, timeout_each=3):
-            time.sleep(0.1)
+            time.sleep(1)
             self._save_screenshot("02a_mic_dialog_without_mic")
             return
 
@@ -302,12 +302,12 @@ class MeetListenerBot:
 
         # Сперва пробуем постоянное разрешение
         if try_click_phrases(allow_site_ru, timeout_each=3) or try_click_phrases(allow_site_en, timeout_each=3):
-            time.sleep(0.1)
+            time.sleep(0.6)
             self._save_screenshot("02b_permission_allowed_site")
             return
         # Затем — одноразовое
         if try_click_phrases(allow_once_ru, timeout_each=2) or try_click_phrases(allow_once_en, timeout_each=2):
-            time.sleep(0.1)
+            time.sleep(0.6)
             self._save_screenshot("02b_permission_allowed_once")
             return
         # Если промпта нет — просто продолжаем
@@ -338,25 +338,9 @@ class MeetListenerBot:
             audio_bytes = synthesize_speech_to_bytes(text)
             if not audio_bytes:
                 return
-            import subprocess, os
-            # Пытаемся через paplay (PulseAudio)
-            try:
-                proc = subprocess.run(["paplay", f"--device={self.bot_sink_name}", "/dev/stdin"],
-                                      input=audio_bytes, capture_output=True, check=True)
-                logger.info(f"[{self.meeting_id}] Озвучен ответ ассистента через {self.bot_sink_name} (paplay)")
-                return
-            except Exception as e1:
-                logger.warning(f"[{self.meeting_id}] paplay недоступен или ошибка: {e1}")
-                # Фолбэк через ffplay
-                env = os.environ.copy()
-                env["PULSE_SINK"] = self.bot_sink_name
-                try:
-                    proc2 = subprocess.run(["ffplay", "-nodisp", "-autoexit", "-loglevel", "error", "-"],
-                                           input=audio_bytes, capture_output=True, check=True, env=env)
-                    logger.info(f"[{self.meeting_id}] Озвучен ответ ассистента через {self.bot_sink_name} (ffplay)")
-                    return
-                except Exception as e2:
-                    logger.error(f"[{self.meeting_id}] Ошибка при автоозвучке (ffplay): {e2}. stderr={getattr(e2, 'stderr', b'').decode(errors='ignore')}")
+            import subprocess
+            subprocess.run(["paplay", f"--device={self.bot_sink_name}", "/dev/stdin"], input=audio_bytes, check=True)
+            logger.info(f"[{self.meeting_id}] Озвучен ответ ассистента через {self.bot_sink_name}")
         except Exception as e:
             logger.error(f"[{self.meeting_id}] Ошибка при автоозвучке: {e}")
             
@@ -456,7 +440,7 @@ class MeetListenerBot:
             logger.critical(f"[{self.meeting_id}] ❌ Критическая ошибка при присоединении: {e}", exc_info=True)
             self._save_screenshot("99_join_fatal_error")
             return False
-
+    
     # Поиск и определение аудиоустройства
     def _find_device_id(self):
         logger.info(f"[{self.meeting_id}] Поиск аудиоустройства с именем '{MEET_INPUT_DEVICE_NAME}'...")
@@ -490,7 +474,7 @@ class MeetListenerBot:
         speech_buffer_for_asr = []
         is_speaking = False
         silent_frames_after_speech = 0
-        
+
         while self.is_running.is_set():
             # Автоподдержание маршрутизации: если по ходу звонка у Chrome появятся новые потоки,
             # раз в несколько циклов переназначаем их на нужные устройства (идемпотентно).
@@ -668,7 +652,7 @@ class MeetListenerBot:
         except Exception as e:
             print(f"❌ Неожиданная ошибка при отправке результатов: {e}")
             logger.error(f"[{self.meeting_id}] ❌ Неожиданная ошибка: {e}")
-    
+
     # Сохранение аудиочанков
     def _save_chunk(self, audio_np):
         """Сохраняет аудио-чанк в файл WAV."""

@@ -237,64 +237,6 @@ class MeetListenerBot:
 
         logger.info(f"[{self.meeting_id}] Диалог микрофона не найден — продолжаю.")
 
-    def _handle_chrome_permission_prompt(self):
-        """
-        Обрабатывает всплывающее окно разрешений Chrome:
-        нажимает «Разрешить при нахождении на сайте» или английский аналог.
-        Если такой кнопки нет — пробует «Разрешить в этот раз»/EN-аналоги.
-        Безопасно выходим, если промпт отсутствует.
-        """
-        allow_site_ru = [
-            "Разрешить при нахождении на сайте",
-        ]
-        allow_site_en = [
-            "Allow on every visit",
-            "Allow while on site",
-            "Always allow on this site",
-        ]
-        allow_once_ru = [
-            "Разрешить в этот раз",
-        ]
-        allow_once_en = [
-            "Allow this time",
-            "Allow once",
-        ]
-
-        def try_click_phrases(phrases, timeout_each=2):
-            for phrase in phrases:
-                xpaths = [
-                    f"//button[normalize-space()='{phrase}']",
-                    f"//button[contains(., '{phrase}')]",
-                    f"//div[@role='button' and normalize-space()='{phrase}']",
-                    f"//div[@role='button' and contains(., '{phrase}')]",
-                    f"//span[normalize-space()='{phrase}']/ancestor::button",
-                ]
-                for xp in xpaths:
-                    try:
-                        btn = WebDriverWait(self.driver, timeout_each).until(
-                            EC.element_to_be_clickable((By.XPATH, xp))
-                        )
-                        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
-                        btn.click()
-                        logger.info(f"[{self.meeting_id}] Нажал кнопку разрешения: '{phrase}'")
-                        return True
-                    except Exception:
-                        continue
-            return False
-
-        # Сперва пробуем постоянное разрешение
-        if try_click_phrases(allow_site_ru, timeout_each=3) or try_click_phrases(allow_site_en, timeout_each=3):
-            time.sleep(0.6)
-            self._save_screenshot("02b_permission_allowed_site")
-            return
-        # Затем — одноразовое
-        if try_click_phrases(allow_once_ru, timeout_each=2) or try_click_phrases(allow_once_en, timeout_each=2):
-            time.sleep(0.6)
-            self._save_screenshot("02b_permission_allowed_once")
-            return
-        # Если промпта нет — просто продолжаем
-        logger.info(f"[{self.meeting_id}] Всплывающее окно разрешений не обнаружено.")
-
     def _setup_audio_devices(self):
         """Создает пары устройств для текущей встречи (прослушивание и говорение)."""
         if self.meet_sink_name is not None:
@@ -348,8 +290,6 @@ class MeetListenerBot:
 
             logger.info(f"[{self.meeting_id}] Обработка диалога микрофона...")
             self._handle_mic_dialog()
-            # Сразу после выбора варианта с микрофоном пробуем обработать баннер Chrome с разрешениями
-            self._handle_chrome_permission_prompt()
             
             join_button_xpath = '//button[.//span[contains(text(), "Ask to join") or contains(text(), "Попросить войти")]]'
             logger.info(f"[{self.meeting_id}] Ищу кнопку 'Ask to join'...")

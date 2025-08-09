@@ -537,6 +537,13 @@ class MeetListenerBot:
         silent_frames_after_speech = 0
         
         while self.is_running.is_set():
+            # Автоподдержание маршрутизации: если по ходу звонка у Chrome появятся новые потоки,
+            # раз в несколько циклов переназначаем их на нужные устройства (идемпотентно).
+            try:
+                if self.meet_sink_name and self.bot_mic_name:
+                    ensure_routing(self.meet_sink_name, self.bot_mic_name)
+            except Exception:
+                pass
             
             try:
                 audio_frame_bytes = self.audio_queue.get(timeout=1)

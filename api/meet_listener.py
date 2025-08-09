@@ -16,7 +16,6 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.common.keys import Keys
 
 from config.config import (STREAM_SAMPLE_RATE,SILENCE_THRESHOLD_FRAMES, MEET_FRAME_DURATION_MS,
                            MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME, STREAM_TRIGGER_WORD, CHROME_PROFILE_DIR,
@@ -356,38 +355,28 @@ class MeetListenerBot:
 
     def _speak_via_meet(self, text: str):
         """Синтезирует TTS и проигрывает его в bot_sink_<id>, чтобы Meet отправил звук участникам."""
-        if not text:
+        if not text or not self.bot_sink_name:
             return
         try:
             audio_bytes = synthesize_speech_to_bytes(text)
             if not audio_bytes:
                 return
             import subprocess, os
-            # Определяем куда проигрывать: если используем default-аудио, льём в meet_sink (дефолтный вывод Chrome),
-            # иначе — в per-meeting bot_sink_<id>
-            sink_to_use = None
-            if getattr(self, 'force_default_audio', False):
-                sink_to_use = 'meet_sink'
-            else:
-                sink_to_use = self.bot_sink_name
-            logger.info(f"[{self.meeting_id}] [TTS] Целевой sink для озвучки: {sink_to_use}")
             # Пытаемся через paplay (PulseAudio)
             try:
-                paplay_cmd = ["paplay"] + ([f"--device={sink_to_use}"] if sink_to_use else []) + ["/dev/stdin"]
-                proc = subprocess.run(paplay_cmd,
+                proc = subprocess.run(["paplay", f"--device={self.bot_sink_name}", "/dev/stdin"],
                                       input=audio_bytes, capture_output=True, check=True)
-                logger.info(f"[{self.meeting_id}] Озвучен ответ ассистента через {sink_to_use or 'default'} (paplay)")
+                logger.info(f"[{self.meeting_id}] Озвучен ответ ассистента через {self.bot_sink_name} (paplay)")
                 return
             except Exception as e1:
                 logger.warning(f"[{self.meeting_id}] paplay недоступен или ошибка: {e1}")
                 # Фолбэк через ffplay
                 env = os.environ.copy()
-                if sink_to_use:
-                    env["PULSE_SINK"] = sink_to_use
+                env["PULSE_SINK"] = self.bot_sink_name
                 try:
                     proc2 = subprocess.run(["ffplay", "-nodisp", "-autoexit", "-loglevel", "error", "-"],
                                            input=audio_bytes, capture_output=True, check=True, env=env)
-                    logger.info(f"[{self.meeting_id}] Озвучен ответ ассистента через {sink_to_use or 'default'} (ffplay)")
+                    logger.info(f"[{self.meeting_id}] Озвучен ответ ассистента через {self.bot_sink_name} (ffplay)")
                     return
                 except Exception as e2:
                     logger.error(f"[{self.meeting_id}] Ошибка при автоозвучке (ffplay): {e2}. stderr={getattr(e2, 'stderr', b'').decode(errors='ignore')}")

@@ -20,11 +20,9 @@ from config.config import (STREAM_SAMPLE_RATE,SILENCE_THRESHOLD_FRAMES, MEET_FRA
                            MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME, STREAM_TRIGGER_WORD, CHROME_PROFILE_DIR,
                            MEET_GUEST_NAME, SUMMARY_OUTPUT_DIR, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, STREAM_STOP_WORD_3)
 from handlers.ollama_handler import get_mary_response, get_summary_response, get_title_response
-from handlers.tts_handler import synthesize_speech_to_bytes
 from handlers.diarization_handler import run_diarization, process_rttm_and_transcribe
 from config.load_models import vad_model, asr_model
 from api.utils import combine_audio_chunks
-from api.audio_routing import create_virtual_audio_pair, unload_module, wait_and_route_new_streams, ensure_routing
 
 logger = logging.getLogger(__name__)
 
@@ -52,19 +50,6 @@ class MeetListenerBot:
         self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.meeting_id # Папка для сохранения чанков и скриншотов
         os.makedirs(self.output_dir, exist_ok=True)
         logger.info(f"[{self.meeting_id}] Аудиофрагменты будут сохраняться в: '{self.output_dir}'")
-
-        # Per-meeting виртуальные устройства PulseAudio
-        self.meet_sink_name = None
-        self.meet_mic_name = None
-        self.meet_sink_module_id = None
-        self.meet_mic_module_id = None
-
-        self.bot_sink_name = None
-        self.bot_mic_name = None
-        self.bot_sink_module_id = None
-        self.bot_mic_module_id = None
-        # Управление автоозвучкой
-        self.enable_auto_tts = True
 
     # Отслеживание кол-ва участников
     def _monitor_participants(self):
@@ -159,88 +144,6 @@ class MeetListenerBot:
             logger.info(f"[{self.meeting_id}] Скриншот сохранен: {path}")
         except Exception as e:
             logger.warning(f"[{self.meeting_id}] Не удалось сохранить скриншот '{name}': {e}")
-
-    def _handle_mic_dialog(self):
-        """
-        Универсальная обработка диалога выбора микрофона.
-        Сначала пытается выбрать вариант с микрофоном (рус/англ),
-        если его нет — выбирает вариант без микрофона.
-        """
-        # Варианты фраз для кнопок (локализация RU/EN)
-        with_mic_variants = [
-            "Continue with microphone",
-            "Продолжить с микрофоном",
-            "Use microphone",
-            "Использовать микрофон",
-            "Войти с микрофоном",
-        ]
-        without_mic_variants = [
-            "Continue without microphone",
-            "Продолжить без микрофона",
-        ]
-
-        # Сперва пробуем варианты "с микрофоном"
-        for phrase in with_mic_variants:
-            try:
-                xpath = f'//button[.//span[contains(text(), "{phrase}")]]'
-                button = WebDriverWait(self.driver, 5).until(
-                    EC.element_to_be_clickable((By.XPATH, xpath))
-                )
-                logger.info(f"[{self.meeting_id}] Нахожу и нажимаю кнопку: '{phrase}'")
-                button.click()
-                time.sleep(1)
-                self._save_screenshot("02a_mic_dialog_with_mic")
-                return
-            except Exception:
-                continue
-
-        # Если не нашли "с микрофоном", пробуем "без микрофона"
-        for phrase in without_mic_variants:
-            try:
-                xpath = f'//button[.//span[contains(text(), "{phrase}")]]'
-                button = WebDriverWait(self.driver, 5).until(
-                    EC.element_to_be_clickable((By.XPATH, xpath))
-                )
-                logger.info(f"[{self.meeting_id}] Нахожу и нажимаю кнопку: '{phrase}'")
-                button.click()
-                time.sleep(1)
-                self._save_screenshot("02a_mic_dialog_without_mic")
-                return
-            except Exception:
-                continue
-
-        logger.info(f"[{self.meeting_id}] Диалог микрофона не найден — продолжаю.")
-
-    def _setup_audio_devices(self):
-        """Создает пары устройств для текущей встречи (прослушивание и говорение)."""
-        if self.meet_sink_name is not None:
-            return
-        meet_prefix = f"meet_{self.meeting_id}"
-        bot_prefix = f"bot_{self.meeting_id}"
-
-        self.meet_sink_name, self.meet_mic_name, self.meet_sink_module_id, self.meet_mic_module_id = create_virtual_audio_pair(meet_prefix)
-        self.bot_sink_name, self.bot_mic_name, self.bot_sink_module_id, self.bot_mic_module_id = create_virtual_audio_pair(bot_prefix)
-        logger.info(f"[{self.meeting_id}] Созданы устройства: {self.meet_sink_name}/{self.meet_mic_name} и {self.bot_sink_name}/{self.bot_mic_name}")
-
-    def _teardown_audio_devices(self):
-        for mid in [self.meet_sink_module_id, self.meet_mic_module_id, self.bot_sink_module_id, self.bot_mic_module_id]:
-            if mid is not None:
-                unload_module(mid)
-        logger.info(f"[{self.meeting_id}] Виртуальные аудиоустройства выгружены")
-
-    def _speak_via_meet(self, text: str):
-        """Синтезирует TTS и проигрывает его в bot_sink_<id>, чтобы Meet отправил звук участникам."""
-        if not text or not self.bot_sink_name:
-            return
-        try:
-            audio_bytes = synthesize_speech_to_bytes(text)
-            if not audio_bytes:
-                return
-            import subprocess
-            subprocess.run(["paplay", f"--device={self.bot_sink_name}", "/dev/stdin"], input=audio_bytes, check=True)
-            logger.info(f"[{self.meeting_id}] Озвучен ответ ассистента через {self.bot_sink_name}")
-        except Exception as e:
-            logger.error(f"[{self.meeting_id}] Ошибка при автоозвучке: {e}")
             
     # Присоединение в Google Meet
     def join_meet_as_guest(self):
@@ -262,8 +165,18 @@ class MeetListenerBot:
             time.sleep(2)
             self._save_screenshot("02_name_entered")
 
-            logger.info(f"[{self.meeting_id}] Обработка диалога микрофона...")
-            self._handle_mic_dialog()
+            try:
+                logger.info(f"[{self.meeting_id}] Проверяю наличие диалога о микрофоне...")
+                continue_without_mic_xpath = '//button[.//span[contains(text(), "Continue without microphone")]]'
+                continue_button = WebDriverWait(self.driver, 5).until(
+                    EC.element_to_be_clickable((By.XPATH, continue_without_mic_xpath))
+                )
+                logger.info(f"[{self.meeting_id}] Нажимаю 'Продолжить без микрофона'...")
+                continue_button.click()
+                time.sleep(2)
+                self._save_screenshot("02a_mic_dialog_closed")
+            except Exception:
+                logger.info(f"[{self.meeting_id}] Диалог о микрофоне не найден, продолжаю.")
             
             join_button_xpath = '//button[.//span[contains(text(), "Ask to join") or contains(text(), "Попросить войти")]]'
             logger.info(f"[{self.meeting_id}] Ищу кнопку 'Ask to join'...")
@@ -301,14 +214,6 @@ class MeetListenerBot:
                         if self.driver.find_element(By.XPATH, xpath).is_displayed():
                             self._save_screenshot("04_joined_successfully")
                             logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
-                            # После входа перенаправим новые потоки Chrome на наши устройства
-                            moved_sinks, moved_sources = wait_and_route_new_streams(
-                                target_meet_sink=self.meet_sink_name,
-                                target_bot_mic=self.bot_mic_name,
-                                timeout_sec=20.0,
-                                poll_interval_sec=0.5,
-                            )
-                            logger.info(f"[{self.meeting_id}] Перенаправлено потоков Chrome: sinks={moved_sinks}, sources={moved_sources}")
                             self.joined_successfully = True
                             return True
                     except: continue
@@ -343,9 +248,8 @@ class MeetListenerBot:
         try:
             devices = sd.query_devices()
             logger.debug(f"Найденные аудиоустройства: {devices}")
-            preferred_names = [self.meet_mic_name, MEET_INPUT_DEVICE_NAME]
             for i, device in enumerate(devices):
-                if any(name and name in device['name'] for name in preferred_names) and device['max_input_channels'] > 0:
+                if MEET_INPUT_DEVICE_NAME in device['name'] and device['max_input_channels'] > 0:
                     logger.info(f"[{self.meeting_id}] ✅ Найдено целевое устройство: ID {i}, Имя: {device['name']}")
                     return i
             raise ValueError(f"Не удалось найти входное аудиоустройство с именем '{MEET_INPUT_DEVICE_NAME}'")
@@ -372,13 +276,6 @@ class MeetListenerBot:
         silent_frames_after_speech = 0
 
         while self.is_running.is_set():
-            # Автоподдержание маршрутизации: если по ходу звонка у Chrome появятся новые потоки,
-            # раз в несколько циклов переназначаем их на нужные устройства (идемпотентно).
-            try:
-                if self.meet_sink_name and self.bot_mic_name:
-                    ensure_routing(self.meet_sink_name, self.bot_mic_name)
-            except Exception:
-                pass
             
             try:
                 audio_frame_bytes = self.audio_queue.get(timeout=1)
@@ -438,8 +335,6 @@ class MeetListenerBot:
                                             logger.info(f"[{self.meeting_id}] Мэри услышала вас")
                                             response = get_mary_response(transcription)
                                             logger.info(f"[{self.meeting_id}] Ответ от Мэри: {response}")
-                                            if self.enable_auto_tts:
-                                                self._speak_via_meet(response)
             except queue.Empty:
                 if is_speaking and speech_buffer_for_asr:
                     logger.info(f"[{self.meeting_id}] Тайм-аут, обрабатываем оставшуюся речь.")

@@ -325,28 +325,46 @@ class MeetListenerBot:
         logger.info(f"[{self.meeting_id}] Всплывающее окно разрешений не обнаружено.")
 
     def _speak_via_meet(self, text: str):
-        """Синтезирует TTS и проигрывает его в default sink (meet_sink)."""
+        """Синтезирует TTS и проигрывает его в default sink (meet_sink).
+        Перед началом включает микрофон (Ctrl+D), после окончания выключает (Ctrl+D).
+        """
         if not text:
             return
         try:
             audio_bytes = synthesize_speech_to_bytes(text)
             if not audio_bytes:
                 return
-            # Сначала пробуем paplay (PulseAudio)
+
+            toggled_on = False
             try:
-                subprocess.run(["paplay", "/dev/stdin"], input=audio_bytes, capture_output=True, check=True)
-                logger.info(f"[{self.meeting_id}] Озвучен ответ ассистента через default sink (paplay)")
-                return
-            except Exception as e1:
-                logger.warning(f"[{self.meeting_id}] paplay недоступен или ошибка: {e1}")
-                # Фолбэк через ffplay
+                # Включаем микрофон перед началом озвучки
+                self.toggle_mic_hotkey()
+                toggled_on = True
+                time.sleep(0.3)
+
+                # Сначала пробуем paplay (PulseAudio)
                 try:
-                    subprocess.run(["ffplay", "-nodisp", "-autoexit", "-loglevel", "error", "-"],
-                                   input=audio_bytes, capture_output=True, check=True)
-                    logger.info(f"[{self.meeting_id}] Озвучен ответ ассистента через default sink (ffplay)")
+                    subprocess.run(["paplay", "/dev/stdin"], input=audio_bytes, capture_output=True, check=True)
+                    logger.info(f"[{self.meeting_id}] Озвучен ответ ассистента через default sink (paplay)")
                     return
-                except Exception as e2:
-                    logger.error(f"[{self.meeting_id}] Ошибка при автоозвучке (ffplay): {e2}.")
+                except Exception as e1:
+                    logger.warning(f"[{self.meeting_id}] paplay недоступен или ошибка: {e1}")
+                    # Фолбэк через ffplay
+                    try:
+                        subprocess.run(["ffplay", "-nodisp", "-autoexit", "-loglevel", "error", "-"],
+                                       input=audio_bytes, capture_output=True, check=True)
+                        logger.info(f"[{self.meeting_id}] Озвучен ответ ассистента через default sink (ffplay)")
+                        return
+                    except Exception as e2:
+                        logger.error(f"[{self.meeting_id}] Ошибка при автоозвучке (ffplay): {e2}.")
+            finally:
+                if toggled_on:
+                    # Небольшая пауза после окончания воспроизведения и затем выключаем микрофон
+                    time.sleep(0.2)
+                    try:
+                        self.toggle_mic_hotkey()
+                    except Exception:
+                        pass
         except Exception as e:
             logger.error(f"[{self.meeting_id}] Ошибка при автоозвучке: {e}")
 

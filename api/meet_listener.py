@@ -15,6 +15,8 @@ import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
 import subprocess
 
 from config.config import (STREAM_SAMPLE_RATE,SILENCE_THRESHOLD_FRAMES, MEET_FRAME_DURATION_MS,
@@ -167,6 +169,28 @@ class MeetListenerBot:
             logger.info(f"[{self.meeting_id}] Скриншот сохранен: {path}")
         except Exception as e:
             logger.warning(f"[{self.meeting_id}] Не удалось сохранить скриншот '{name}': {e}")
+
+    def toggle_mic_hotkey(self):
+        """Простая эмуляция Ctrl+D для переключения микрофона в Meet.
+        Без дополнительных проверок состояния и наличия кнопки.
+        """
+        try:
+            # Стараемся сфокусировать страницу и убрать возможный фокус с инпутов
+            try:
+                self.driver.execute_script("window.focus();")
+            except Exception:
+                pass
+            try:
+                body = self.driver.find_element(By.TAG_NAME, 'body')
+                body.click()
+            except Exception:
+                pass
+
+            actions = ActionChains(self.driver)
+            actions.key_down(Keys.CONTROL).send_keys('d').key_up(Keys.CONTROL).perform()
+            logger.info(f"[{self.meeting_id}] Отправлено сочетание Ctrl+D (toggle mic)")
+        except Exception as e:
+            logger.warning(f"[{self.meeting_id}] Не удалось отправить Ctrl+D: {e}")
 
     def _handle_mic_dialog(self) -> bool:
         """
@@ -389,6 +413,11 @@ class MeetListenerBot:
                         if self.driver.find_element(By.XPATH, xpath).is_displayed():
                             self._save_screenshot("04_joined_successfully")
                             logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
+                            # По требованию: сразу после входа эмулируем Ctrl+D для включения/выключения микрофона
+                            try:
+                                self.toggle_mic_hotkey()
+                            except Exception as e_toggle:
+                                logger.warning(f"[{self.meeting_id}] Не удалось отправить хоткей Ctrl+D после входа: {e_toggle}")
                             self._log_permissions_state()
                             self.joined_successfully = True
                             return True
@@ -661,6 +690,7 @@ class MeetListenerBot:
 
                 logger.info(f"[{self.meeting_id}] 🎤 Начинаю прослушивание аудио с устройства ID {device_id}...")
                 # Короткий тест TTS: проверяем, что Meet слышит бота
+                
                 with sd.RawInputStream(
                     samplerate=STREAM_SAMPLE_RATE,
                     blocksize=self.frame_size,

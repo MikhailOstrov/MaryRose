@@ -23,28 +23,25 @@ jobs:
           sudo install -m 0755 runpodctl /usr/local/bin/runpodctl
           sudo apt-get update && sudo apt-get install -y jq
 
-      # --- ИСПРАВЛЕННЫЙ ШАГ УДАЛЕНИЯ ---
       - name: Terminate Existing Pods
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         run: |
           echo "Checking for existing pods to terminate..."
-          # Получаем список подов, убираем заголовок (первые ДВЕ строки) и пустую строку в конце
           POD_LIST=$(runpodctl get pod | tail -n +3 | sed '/^$/d')
 
           if [ -z "$POD_LIST" ]; then
             echo "No existing pods found. Proceeding to create a new one."
           else
-            echo "Found existing pods. Terminating them now..."
-            # Извлекаем только ID (первый столбец)
+            echo "Found existing pods. Removing them now..."
             POD_IDS=$(echo "$POD_LIST" | awk '{print $1}')
             
             for ID in $POD_IDS; do
-              echo "Terminating pod with ID: $ID"
+              echo "Removing pod with ID: $ID"
               runpodctl remove pod $ID
             done
             
-            echo "All existing pods have been scheduled for termination. Waiting 15 seconds..."
+            echo "All existing pods have been scheduled for removal. Waiting 15 seconds..."
             sleep 15
           fi
 
@@ -91,26 +88,33 @@ jobs:
           echo "Found pod. New Pod ID: $POD_ID"
           echo "pod_id=$POD_ID" >> $GITHUB_OUTPUT
 
-      - name: Wait for pod to run
-        env:
-          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+      # --- ИЗМЕНЕННЫЙ ШАГ ОЖИДАНИЯ С HEALTH CHECK ---
+      - name: Wait for pod to become healthy
+        id: wait_for_health
         run: |
           POD_ID=${{ steps.create_pod.outputs.pod_id }}
-          echo "Waiting for pod $POD_ID to enter 'Running' state..."
+          HEALTH_URL="https://${POD_ID}-8001.proxy.runpod.net/health"
 
+          echo "Waiting for application to become healthy at: $HEALTH_URL"
+
+          # Ждем до 5 минут, пытаясь получить успешный ответ от /health
           for i in {1..20}; do
-            STATUS_CHECK=$(runpodctl get pod $POD_ID | grep -c "RUNNING")
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" $HEALTH_URL)
             
-            if [ "$STATUS_CHECK" -eq 1 ]; then
-              echo "Pod is running!"
+            if [ "$HTTP_CODE" -eq 200 ]; then
+              echo "Health check successful! Application is ready."
+              AI_URL="https://$(echo $POD_ID)-8001.proxy.runpod.net"
+              WEBSOCKET_URL="wss://$(echo $POD_ID)-8001.proxy.runpod.net/ws/listen/"
+              echo "AI_BACKEND_URL=$AI_URL" >> $GITHUB_OUTPUT
+              echo "AI_WEBSOCKET_URL=$WEBSOCKET_URL" >> $GITHUB_OUTPUT
               exit 0
             fi
             
-            echo "Pod is not running yet. Waiting 15 seconds..."
+            echo "Health check failed with status code $HTTP_CODE. Waiting 15 seconds..."
             sleep 15
           done
 
-          echo "Fatal: Pod did not become ready in time."
+          echo "Fatal: Application did not become healthy in time."
           exit 1
 
       - name: Update main VM with new URLs
@@ -121,9 +125,8 @@ jobs:
           key: ${{ secrets.MAIN_SERVICE_SSH_PRIVATE_KEY }}
           script: |
             set -e
-            POD_ID="${{ steps.create_pod.outputs.pod_id }}"
-            NEW_AI_URL="https://$(echo $POD_ID)-8001.proxy.runpod.net"
-            NEW_WS_URL="wss://$(echo $POD_ID)-8001.proxy.runpod.net/ws/listen/"
+            NEW_AI_URL="${{ steps.wait_for_health.outputs.AI_BACKEND_URL }}"
+            NEW_WS_URL="${{ steps.wait_for_health.outputs.AI_WEBSOCKET_URL }}"
 
             echo "New AI Backend URL: $NEW_AI_URL"
             echo "Updating .env file on the main VM..."

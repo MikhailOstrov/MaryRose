@@ -23,6 +23,15 @@ jobs:
           sudo install -m 0755 runpodctl /usr/local/bin/runpodctl
           sudo apt-get update && sudo apt-get install -y jq
 
+      # --- НОВЫЙ ШАГ: ВЫВОДИМ СПИСОК СУЩЕСТВУЮЩИХ ПОДОВ ---
+      - name: List Existing Pods
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          echo "--- Current Pods on RunPod ---"
+          runpodctl get pod
+          echo "------------------------------"
+      # --- КОНЕЦ НОВОГО ШАГА ---
       - name: Determine GPU Type
         id: get_gpu
         run: |

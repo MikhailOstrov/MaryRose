@@ -43,7 +43,7 @@ jobs:
             # В цикле удаляем каждый найденный под
             for ID in $POD_IDS; do
               echo "Terminating pod with ID: $ID"
-              runpodctl terminate pod $ID
+              runpodctl remove pod $ID
             done
             
             echo "All existing pods have been scheduled for termination. Waiting 15 seconds..."
@@ -55,7 +55,7 @@ jobs:
         run: |
           GPU_FROM_COMMIT=$(git log -1 --pretty=%B | tail -n 1)
           if [[ "$GPU_FROM_COMMIT" == *"RTX"* ]] || [[ "$GPU_FROM_COMMIT" == *"A"* ]]; then
-            echo "Found GPU in commit message: '$GPU_FROM_COMMIT'. Using it."
+            echo "Found GPU in commit message: '$GPU_FROM_COMMIT'. Using it."s
             echo "gpu_type=$GPU_FROM_COMMIT" >> $GITHUB_OUTPUT
           else
             echo "No valid GPU type in commit message. Using default: '${{ env.DEFAULT_GPU_TYPE }}'"

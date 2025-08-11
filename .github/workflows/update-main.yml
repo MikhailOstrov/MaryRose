@@ -29,24 +29,21 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build and push Docker image with cache
-        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: ${{ env.DOCKER_IMAGE_REPO }}:${{ env.DOCKER_IMAGE_TAG }}
-          cache-from: type=gha,scope=${{ github.workflow }}
-          cache-to: type=gha,scope=${{ github.workflow }},mode=max
+          # --- ИСПРАВЛЕНИЕ: ИСПОЛЬЗУЕМ НАДЕЖНЫЙ SCOPE БЕЗ ПРОБЕЛОВ ---
+          cache-from: type=gha,scope=${{ github.repository }}-${{ github.ref_name }}
+          cache-to: type=gha,scope=${{ github.repository }}-${{ github.ref_name }},mode=max
 
-      - name: Prune builder cache and local images
+      - name: Prune builder cache and local images on runner
         if: always()
         run: |
-          echo "Cleaning up builder cache..."
           docker buildx prune -a -f
-          echo "Cleaning up local Docker images..."
           docker image prune -a -f
 
-      # --- НОВЫЙ, НАДЕЖНЫЙ ШАГ ОЧИСТКИ DOCKER HUB ---
       - name: Cleanup old untagged images on Docker Hub via API
         if: success()
         run: |
@@ -54,7 +51,6 @@ jobs:
           USERNAME=${{ secrets.DOCKER_USERNAME }}
           PASSWORD=${{ secrets.DOCKER_PASSWORD }}
 
-          echo "Fetching authentication token from Docker Hub..."
           TOKEN=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "'$USERNAME'", "password": "'$PASSWORD'"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
 
           if [ -z "$TOKEN" ] || [ "$TOKEN" == "null" ]; then
@@ -62,11 +58,7 @@ jobs:
             exit 1
           fi
 
-          echo "Fetching image digests (unique IDs)..."
-          # Получаем список всех манифестов (уникальных версий образа)
           DIGESTS=$(curl -s -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$IMAGE/tags/?page_size=100" | jq -r '.results[].images[] | select(.status == "active") | .digest')
-
-          # Получаем дайджест, на который сейчас указывает наш тег :v3
           CURRENT_DIGEST=$(curl -s -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$IMAGE/tags/${{ env.DOCKER_IMAGE_TAG }}/" | jq -r '.images[] | select(.status == "active") | .digest')
 
           echo "Current digest for tag '${{ env.DOCKER_IMAGE_TAG }}' is $CURRENT_DIGEST"
@@ -74,9 +66,8 @@ jobs:
           for digest in $DIGESTS; do
             if [ "$digest" != "$CURRENT_DIGEST" ]; then
               echo "Deleting old, untagged image with digest: $digest"
-              # --- ЗАЩИТА: СНАЧАЛА ЗАПУСТИТЕ БЕЗ РЕАЛЬНОГО УДАЛЕНИЯ ---
-              # curl -s -X DELETE -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$IMAGE/manifests/$digest"
-              echo "Dry Run: Would have deleted digest $digest"
+              curl -s -X DELETE -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$IMAGE/manifests/$digest"
+              echo "Deletion command sent for digest $digest"
             else
               echo "Keeping current image with digest: $digest"
             fi

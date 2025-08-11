@@ -41,7 +41,7 @@ jobs:
 
           for ID in $POD_IDS; do
             echo "Terminating pod with ID: $ID"
-            runpodctl terminate pod $ID # Используем terminate, как в вашей документации
+            runpodctl remove pod $ID # Используем remove, как в вашей документации
             sleep 5 # Небольшая пауза между запросами на удаление
           done
 

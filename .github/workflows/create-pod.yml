@@ -8,7 +8,6 @@ on:
       - run-runpod
 
 env:
-  # Параметры для создания пода
   DOCKER_IMAGE: "roma3213/maryrose-app:v3"
   DEFAULT_GPU_TYPE: "NVIDIA RTX A5000"
   CONTAINER_DISK_IN_GB: 50
@@ -19,9 +18,13 @@ jobs:
     name: Create Pod and Update Main VM
     runs-on: ubuntu-latest
     steps:
-      - name: Install RunPod CLI and jq
+      # --- ИЗМЕНЕНИЕ: ПРАВИЛЬНАЯ УСТАНОВКА RUNPODCTL ---
+      - name: Install RunPodCTL and jq
         run: |
-          pip install runpod
+          # Устанавливаем официальный CLI-инструмент
+          curl -L https://github.com/runpod/runpodctl/releases/latest/download/runpodctl-linux-amd64 -o runpodctl
+          sudo install -m 0755 runpodctl /usr/local/bin/runpodctl
+          # Устанавливаем jq
           sudo apt-get update && sudo apt-get install -y jq
 
       - name: Determine GPU Type
@@ -45,10 +48,10 @@ jobs:
           POD_NAME="ai-backend-$(date +%s)"
           echo "Attempting to create a new pod named '$POD_NAME' with GPU: '$GPU_TO_CREATE'"
 
-          # --- ИСПРАВЛЕННАЯ КОМАНДА СОГЛАСНО ОФИЦИАЛЬНОЙ ДОКУМЕНТАЦИИ ---
-          POD_JSON=$(runpod pod create \
+          # --- ИЗМЕНЕНИЕ: ПРАВИЛЬНЫЙ СИНТАКСИС ДЛЯ RUNPODCTL ---
+          POD_JSON=$(runpodctl create pod \
             --image "${{ env.DOCKER_IMAGE }}" \
-            --gpu-type "$GPU_TO_CREATE" \
+            --gpuType "$GPU_TO_CREATE" \
             --containerDiskInGb ${{ env.CONTAINER_DISK_IN_GB }} \
             --volumeInGb ${{ env.VOLUME_DISK_IN_GB }} \
             "$POD_NAME")
@@ -68,13 +71,14 @@ jobs:
           echo "Waiting for pod $POD_ID to enter 'Running' state..."
 
           for i in {1..20}; do
-            STATUS=$(runpod pod find --id $POD_ID | jq -r '.desiredStatus')
+            # --- ИЗМЕНЕНИЕ: Используем runpodctl get pod ---
+            STATUS=$(runpodctl get pod $POD_ID --output json | jq -r '.desiredStatus')
             if [ "$STATUS" == "Running" ]; then echo "Pod is running!"; break; fi
             if [ "$STATUS" == "Terminated" ] || [ "$STATUS" == "Failed" ]; then echo "Error: Pod entered '$STATUS' state."; exit 1; fi
             echo "Current status: $STATUS. Waiting 15 seconds..."; sleep 15
           done
 
-          POD_INFO=$(runpod pod find --id $POD_ID)
+          POD_INFO=$(runpodctl get pod $POD_ID --output json)
           AI_URL=$(echo "$POD_INFO" | jq -r '.runtime.ports[] | select(.privatePort == 8001) | .httpsUrl')
           WEBSOCKET_URL=$(echo "$AI_URL" | sed 's|https|wss|')/ws/listen/
 

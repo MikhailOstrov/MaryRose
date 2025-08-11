@@ -1,0 +1,56 @@
+# .github/workflows/build-and-push-ai-backend.yml
+
+name: Build, Push, and Cleanup AI Backend Docker Image
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  DOCKER_IMAGE: roma3213/maryrose-app:v3
+
+jobs:
+  build-push-cleanup:
+    name: Build, Push and Cleanup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push Docker image with cache
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ env.DOCKER_IMAGE }}
+          cache-from: type=gha,scope=${{ github.workflow }}
+          cache-to: type=gha,scope=${{ github.workflow }},mode=max
+
+      # --- НОВЫЙ ШАГ: НЕМЕДЛЕННАЯ ОЧИСТКА ---
+      - name: Cleanup old untagged images
+        # Этот шаг выполняется только после успешного пуша
+        if: success()
+        uses: burnett01/delete-older-docker-images@v3.0.0
+        with:
+          # Указываем имя образа БЕЗ тега
+          image_names: "roma3213/maryrose-app"
+          # Оставляем 0 "висячих" образов. То есть, удаляем ВСЕ образы, на которые не ссылается ни один тег.
+          keep_latest: 0
+          # ВАЖНО: Удаляем ТОЛЬКО образы без тегов.
+          # Ваш тег :v3 не будет затронут.
+          untagged_only: true
+          docker_hub_username: ${{ secrets.DOCKER_USERNAME }}
+          docker_hub_token: ${{ secrets.DOCKER_PASSWORD }}
+          # Установите 'false' для реального удаления.
+          # Рекомендую первый раз запустить с 'true', чтобы убедиться, что все работает как надо.
+          dry_run: true

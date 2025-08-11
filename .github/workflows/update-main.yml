@@ -53,19 +53,23 @@ jobs:
       - name: Cleanup old untagged images on Docker Hub via API
         if: success()
         run: |
-          IMAGE_REPO=$(echo "${{ env.DOCKER_IMAGE_FULL_TAG }}" | cut -d: -f1)
+          IMAGE_REPO=${{ env.DOCKER_IMAGE_REPO_NAME }}
           USERNAME=${{ secrets.DOCKER_USERNAME }}
           PASSWORD=${{ secrets.DOCKER_PASSWORD }}
+
+          # --- ИСПРАВЛЕНИЕ: ИЗВЛЕКАЕМ ТЕГ ВНУТРИ run: БЛОКА ---
+          DOCKER_IMAGE_TAG=$(echo "${{ env.DOCKER_IMAGE_FULL_TAG }}" | cut -d: -f2)
 
           TOKEN=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "'$USERNAME'", "password": "'$PASSWORD'"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
 
           if [ -z "$TOKEN" ] || [ "$TOKEN" == "null" ]; then echo "Error: Failed to get Docker Hub token."; exit 1; fi
 
           DIGESTS=$(curl -s -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$IMAGE_REPO/tags/?page_size=100" | jq -r '.results[].images[] | select(.status == "active") | .digest')
-          CURRENT_DIGEST=$(curl -s -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$IMAGE_REPO/tags/${{ env.DOCKER_IMAGE_FULL_TAG##*:}}/ # Извлекаем только тег
-          " | jq -r '.images[] | select(.status == "active") | .digest')
 
-          echo "Current digest for tag '${{ env.DOCKER_IMAGE_FULL_TAG##*:}}' is $CURRENT_DIGEST"
+          # Используем локальную переменную DOCKER_IMAGE_TAG
+          CURRENT_DIGEST=$(curl -s -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$IMAGE_REPO/tags/$DOCKER_IMAGE_TAG/" | jq -r '.images[] | select(.status == "active") | .digest')
+
+          echo "Current digest for tag '$DOCKER_IMAGE_TAG' is $CURRENT_DIGEST"
 
           for digest in $DIGESTS; do
             if [ "$digest" != "$CURRENT_DIGEST" ]; then
@@ -107,14 +111,12 @@ jobs:
           POD_ID=${{ steps.get_existing_pod.outputs.pod_id }}
           echo "Stopping pod $POD_ID..."
           runpodctl stop pod $POD_ID
-          echo "Pod stop command sent. Waiting for it to enter 'STOPPED' state..."
+          echo "Pod stop command sent. Waiting for it to enter 'Stopped' state..."
 
-          # --- ИСПРАВЛЕНИЕ: НОВЫЙ СПОСОБ ПРОВЕРКИ СТАТУСА ОСТАНОВКИ ---
-          for i in {1..10}; do # Максимум 10 * 10 секунд = 100 секунд
-            # Получаем последнюю строку вывода 'get pod <ID>', затем ее последнее поле (статус)
+          for i in {1..10}; do
             CURRENT_STATUS=$(runpodctl get pod $POD_ID | tail -n 1 | awk '{print $NF}')
             
-            if [ "$CURRENT_STATUS" == "STOPPED" ]; then # Проверяем, что статус СТОПНУТ
+            if [ "$CURRENT_STATUS" == "STOPPED" ]; then
               echo "Pod $POD_ID is now STOPPED."
               exit 0
             fi

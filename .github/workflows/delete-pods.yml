@@ -1,0 +1,49 @@
+# .github/workflows/terminate-all-pods.yml
+
+name: Terminate All RunPod Pods
+
+# Этот workflow запускается ТОЛЬКО вручную из интерфейса GitHub Actions
+on:
+  push:
+    branches:
+      - delete-pods
+
+jobs:
+  terminate:
+    name: Terminate All Pods
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install RunPodCTL
+        run: |
+          curl -L https://github.com/runpod/runpodctl/releases/latest/download/runpodctl-linux-amd64 -o runpodctl
+          sudo install -m 0755 runpodctl /usr/local/bin/runpodctl
+          # jq здесь не нужен, так как мы парсим текстовый вывод
+
+      - name: Terminate All Found Pods
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          echo "Attempting to terminate all existing pods on RunPod..."
+
+          # Получаем список подов (убираем заголовок и пустые строки)
+          POD_LIST=$(runpodctl get pod | tail -n +3 | sed '/^$/d')
+
+          if [ -z "$POD_LIST" ]; then
+            echo "No active pods found. Nothing to terminate."
+            exit 0 # Выходим успешно, если подов нет
+          fi
+
+          echo "Found the following pods to terminate:"
+          echo "$POD_LIST"
+
+          # Извлекаем только ID (первый столбец)
+          POD_IDS=$(echo "$POD_LIST" | awk '{print $1}')
+
+          for ID in $POD_IDS; do
+            echo "Terminating pod with ID: $ID"
+            runpodctl terminate pod $ID # Используем terminate, как в вашей документации
+            sleep 5 # Небольшая пауза между запросами на удаление
+          done
+
+          echo "All identified pods have been scheduled for termination."
+          echo "It may take a moment for RunPod to reflect the changes."

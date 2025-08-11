@@ -11,8 +11,8 @@ env:
   # Параметры для создания пода
   DOCKER_IMAGE: "roma3213/maryrose-app:v3"
   DEFAULT_GPU_TYPE: "NVIDIA RTX A5000"
-  CONTAINER_DISK_GB: 50
-  VOLUME_DISK_GB: 50
+  CONTAINER_DISK_IN_GB: 50
+  VOLUME_DISK_IN_GB: 50
 
 jobs:
   create-pod-and-update:
@@ -42,15 +42,16 @@ jobs:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         run: |
           GPU_TO_CREATE="${{ steps.get_gpu.outputs.gpu_type }}"
-          echo "Attempting to create a new pod with GPU: '$GPU_TO_CREATE'"
+          POD_NAME="ai-backend-$(date +%s)"
+          echo "Attempting to create a new pod named '$POD_NAME' with GPU: '$GPU_TO_CREATE'"
 
-          # ИСПОЛЬЗУЕМ ПРАВИЛЬНЫЙ СИНТАКСИС КОМАНДЫ
+          # --- ИСПРАВЛЕННАЯ КОМАНДА СОГЛАСНО ОФИЦИАЛЬНОЙ ДОКУМЕНТАЦИИ ---
           POD_JSON=$(runpod pod create \
-            --name "ai-backend-$(date +%s)" \
-            --image-name "${{ env.DOCKER_IMAGE }}" \
-            --gpu-type "$GPU_TO_CREATE" \
-            --container-disk ${{ env.CONTAINER_DISK_GB }} \
-            --volume-disk ${{ env.VOLUME_DISK_GB }})
+            --imageName "${{ env.DOCKER_IMAGE }}" \
+            --gpuType "$GPU_TO_CREATE" \
+            --containerDiskInGb ${{ env.CONTAINER_DISK_IN_GB }} \
+            --volumeInGb ${{ env.VOLUME_DISK_IN_GB }} \
+            "$POD_NAME")
             
           echo "Pod creation initiated."
 

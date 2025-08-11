@@ -48,7 +48,7 @@ class StopRequest(BaseModel):
 class WebsiteSessionStartRequest(BaseModel):
     meeting_id: int
 
-logger.info(f"Hi from CI/CD----------------------------------")
+#urraaaa
 
 # Проверка сервера
 @app.get("/health")

@@ -44,26 +44,25 @@ jobs:
           POD_NAME="ai-backend-$(date +%s)"
           echo "Attempting to create a new pod named '$POD_NAME' from template ${{ env.RUNPOD_TEMPLATE_ID }} with GPU: '$GPU_TO_CREATE'"
 
-          # --- ФИНАЛЬНАЯ ИСПРАВЛЕННАЯ КОМАНДА ---
-          runpodctl create pod \
+          # --- ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ: ПАРСИМ ВЫВОД КОМАНДЫ CREATE ---
+          # Выполняем команду и сохраняем ее текстовый вывод
+          CREATE_OUTPUT=$(runpodctl create pod \
             --templateId "${{ env.RUNPOD_TEMPLATE_ID }}" \
             --imageName "${{ env.DOCKER_IMAGE }}" \
             --gpuType "$GPU_TO_CREATE" \
             --name "$POD_NAME" \
-            --secureCloud
+            --secureCloud)
             
-          echo "Pod creation command sent. Waiting 15 seconds before searching for it..."
-          sleep 15
+          echo "Response from RunPod: $CREATE_OUTPUT"
 
-          echo "Searching for pod with name '$POD_NAME'..."
-          POD_JSON=$(runpodctl get pods --json | jq --arg name "$POD_NAME" '.[] | select(.name == $name)')
+          # Извлекаем ID из строки 'pod "ldf7l03qeuy2fv" created...'
+          POD_ID=$(echo "$CREATE_OUTPUT" | grep -o 'pod "[^"]*"' | sed 's/pod "//;s/"//')
 
-          if [ -z "$POD_JSON" ]; then
-            echo "Fatal: Pod '$POD_NAME' not found after waiting."
+          if [ -z "$POD_ID" ]; then
+            echo "Fatal: Could not parse Pod ID from the creation output."
             exit 1
           fi
 
-          POD_ID=$(echo "$POD_JSON" | jq -r '.id')
           echo "Found pod. New Pod ID: $POD_ID"
           echo "pod_id=$POD_ID" >> $GITHUB_OUTPUT
 
@@ -76,18 +75,26 @@ jobs:
           echo "Waiting for pod $POD_ID to enter 'Running' state..."
 
           for i in {1..20}; do
-            STATUS=$(runpodctl get pod $POD_ID --json | jq -r '.desiredStatus')
-            if [ "$STATUS" == "Running" ]; then echo "Pod is running!"; break; fi
-            if [ "$STATUS" == "Terminated" ] || [ "$STATUS" == "Failed" ]; then echo "Error: Pod entered '$STATUS' state."; exit 1; fi
+            # Используем get pod с флагом --json, который должен работать для этой команды
+            POD_INFO=$(runpodctl get pod $POD_ID --json)
+            STATUS=$(echo "$POD_INFO" | jq -r '.desiredStatus')
+            if [ "$STATUS" == "Running" ]; then
+              echo "Pod is running!"
+              AI_URL=$(echo "$POD_INFO" | jq -r '.runtime.ports[] | select(.privatePort == 8001) | .httpsUrl')
+              WEBSOCKET_URL=$(echo "$AI_URL" | sed 's|https|wss|')/ws/listen/
+              echo "AI_BACKEND_URL=$AI_URL" >> $GITHUB_OUTPUT
+              echo "AI_WEBSOCKET_URL=$WEBSOCKET_URL" >> $GITHUB_OUTPUT
+              exit 0 # Успешно выходим из шага
+            fi
+            if [ "$STATUS" == "Terminated" ] || [ "$STATUS" == "Failed" ]; then
+              echo "Error: Pod entered '$STATUS' state. Aborting."
+              exit 1
+            fi
             echo "Current status: $STATUS. Waiting 15 seconds..."; sleep 15
           done
 
-          POD_INFO=$(runpodctl get pod $POD_ID --json)
-          AI_URL=$(echo "$POD_INFO" | jq -r '.runtime.ports[] | select(.privatePort == 8001) | .httpsUrl')
-          WEBSOCKET_URL=$(echo "$AI_URL" | sed 's|https|wss|')/ws/listen/
-
-          echo "AI_BACKEND_URL=$AI_URL" >> $GITHUB_OUTPUT
-          echo "AI_WEBSOCKET_URL=$WEBSOCKET_URL" >> $GITHUB_OUTPUT
+          echo "Fatal: Pod did not become ready in time."
+          exit 1
 
       - name: Update main VM with new URLs
         uses: appleboy/ssh-action@master

@@ -111,13 +111,13 @@ jobs:
           POD_ID=${{ steps.get_existing_pod.outputs.pod_id }}
           echo "Stopping pod $POD_ID..."
           runpodctl stop pod $POD_ID
-          echo "Pod stop command sent. Waiting for it to enter 'Stopped' state..."
+          echo "Pod stop command sent. Waiting for it to enter 'EXITED' state..."
 
           for i in {1..10}; do
             CURRENT_STATUS=$(runpodctl get pod $POD_ID | tail -n 1 | awk '{print $NF}')
             
-            if [ "$CURRENT_STATUS" == "STOPPED" ]; then
-              echo "Pod $POD_ID is now STOPPED."
+            if [ "$CURRENT_STATUS" == "EXITED" ]; then
+              echo "Pod $POD_ID is now EXITED."
               exit 0
             fi
             

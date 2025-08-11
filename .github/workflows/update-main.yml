@@ -33,7 +33,7 @@ jobs:
             echo "--- Starting build on Build VM ---"
             
             # Переходим в директорию проекта
-            cd /path/to/your/MaryRose/repo # <--- ВАЖНО: УКАЖИТЕ ПРАВИЛЬНЫЙ ПУТЬ НА ВАШЕЙ БИЛД-ВМ
+            cd MaryRose # <--- ВАЖНО: УКАЖИТЕ ПРАВИЛЬНЫЙ ПУТЬ НА ВАШЕЙ БИЛД-ВМ
 
             # Обновляем код
             echo "Pulling latest code..."

@@ -8,7 +8,8 @@ on:
       - run-runpod
 
 env:
-  RUNPOD_TEMPLATE_ID: "ydgd23y2f5" # ID вашего темплейта
+  RUNPOD_TEMPLATE_ID: "ydgd23y2f5"
+  DOCKER_IMAGE: "roma3213/maryrose-app:v3"
   DEFAULT_GPU_TYPE: "NVIDIA RTX A5000"
 
 jobs:
@@ -40,29 +41,30 @@ jobs:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         run: |
           GPU_TO_CREATE="${{ steps.get_gpu.outputs.gpu_type }}"
-          echo "Attempting to create a new pod from template ${{ env.RUNPOD_TEMPLATE_ID }} with GPU: '$GPU_TO_CREATE'"
+          POD_NAME="ai-backend-$(date +%s)"
+          echo "Attempting to create a new pod named '$POD_NAME' from template ${{ env.RUNPOD_TEMPLATE_ID }} with GPU: '$GPU_TO_CREATE'"
 
           # --- ФИНАЛЬНАЯ ИСПРАВЛЕННАЯ КОМАНДА ---
-          # Создаем под, указывая ТОЛЬКО темплейт и тип GPU
           runpodctl create pod \
             --templateId "${{ env.RUNPOD_TEMPLATE_ID }}" \
+            --imageName "${{ env.DOCKER_IMAGE }}" \
             --gpuType "$GPU_TO_CREATE" \
+            --name "$POD_NAME" \
             --secureCloud
             
           echo "Pod creation command sent. Waiting 15 seconds before searching for it..."
-          sleep 15 # Даем API больше времени
+          sleep 15
 
-          # Находим ПОСЛЕДНИЙ созданный под, так как имя не задается
-          echo "Searching for the latest created pod..."
-          POD_JSON=$(runpodctl get pods --json | jq 'sort_by(.createTime) | .[-1]')
+          echo "Searching for pod with name '$POD_NAME'..."
+          POD_JSON=$(runpodctl get pods --json | jq --arg name "$POD_NAME" '.[] | select(.name == $name)')
 
-          if [ -z "$POD_JSON" ] || [ "$POD_JSON" == "null" ]; then
-            echo "Fatal: Could not find any pods."
+          if [ -z "$POD_JSON" ]; then
+            echo "Fatal: Pod '$POD_NAME' not found after waiting."
             exit 1
           fi
 
           POD_ID=$(echo "$POD_JSON" | jq -r '.id')
-          echo "Found latest pod. New Pod ID: $POD_ID"
+          echo "Found pod. New Pod ID: $POD_ID"
           echo "pod_id=$POD_ID" >> $GITHUB_OUTPUT
 
       - name: Wait for pod to run and get URLs

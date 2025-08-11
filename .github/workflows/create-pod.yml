@@ -48,7 +48,7 @@ jobs:
           # --- ИСПРАВЛЕННАЯ КОМАНДА СОГЛАСНО ОФИЦИАЛЬНОЙ ДОКУМЕНТАЦИИ ---
           POD_JSON=$(runpod pod create \
             --image "${{ env.DOCKER_IMAGE }}" \
-            --gpuType "$GPU_TO_CREATE" \
+            --gpu-type "$GPU_TO_CREATE" \
             --containerDiskInGb ${{ env.CONTAINER_DISK_IN_GB }} \
             --volumeInGb ${{ env.VOLUME_DISK_IN_GB }} \
             "$POD_NAME")

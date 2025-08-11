@@ -8,7 +8,7 @@ on:
       - run-runpod
 
 env:
-  DOCKER_IMAGE: "roma3213/maryrose-app:v3" # Убедитесь, что имя правильное
+  DOCKER_IMAGE: "roma3213/maryrose-app:v3"
   DEFAULT_GPU_TYPE: "NVIDIA RTX A5000"
   CONTAINER_DISK_IN_GB: 50
   VOLUME_DISK_IN_GB: 50
@@ -36,7 +36,7 @@ jobs:
             echo "gpu_type=${{ env.DEFAULT_GPU_TYPE }}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Create new pod
+      - name: Create new pod and get its ID
         id: create_pod
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
@@ -45,21 +45,34 @@ jobs:
           POD_NAME="ai-backend-$(date +%s)"
           echo "Attempting to create a new pod named '$POD_NAME' with GPU: '$GPU_TO_CREATE'"
 
-          # --- ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ --output json ---
-          POD_JSON=$(runpodctl create pod \
+          # --- ШАГ 1: СОЗДАЕМ ПОД (игнорируем вывод) ---
+          runpodctl create pod \
             --imageName "${{ env.DOCKER_IMAGE }}" \
             --gpuType "$GPU_TO_CREATE" \
             --containerDiskSize ${{ env.CONTAINER_DISK_IN_GB }} \
             --volumeSize ${{ env.VOLUME_DISK_IN_GB }} \
             --name "$POD_NAME" \
-            --secureCloud \
-            --output json) # <--- ВОТ ОНО!
+            --secureCloud
             
-          echo "Pod creation initiated. Response from RunPod:"
-          echo "$POD_JSON" # Выводим JSON в лог для отладки
+          echo "Pod creation command sent. Waiting 5 seconds before searching for it..."
+          sleep 5 # Даем API время обработать запрос
+
+          # --- ШАГ 2: НАХОДИМ ПОД ПО ИМЕНИ И ПОЛУЧАЕМ ЕГО ID ---
+          echo "Searching for pod with name '$POD_NAME'..."
+          POD_JSON=$(runpodctl get pods --output json | jq --arg name "$POD_NAME" '.[] | select(.name == $name)')
+
+          if [ -z "$POD_JSON" ]; then
+            echo "Error: Could not find the newly created pod. Waiting 10 more seconds..."
+            sleep 10
+            POD_JSON=$(runpodctl get pods --output json | jq --arg name "$POD_NAME" '.[] | select(.name == $name)')
+            if [ -z "$POD_JSON" ]; then
+              echo "Fatal: Pod '$POD_NAME' not found after waiting."
+              exit 1
+            fi
+          fi
 
           POD_ID=$(echo "$POD_JSON" | jq -r '.id')
-          echo "New Pod ID: $POD_ID"
+          echo "Found pod. New Pod ID: $POD_ID"
           echo "pod_id=$POD_ID" >> $GITHUB_OUTPUT
 
       - name: Wait for pod to run and get URLs

@@ -5,18 +5,16 @@ name: Build and Push AI Backend on Build VM and Redeploy RunPod
 on:
   push:
     branches:
-      - main # Запускается при пуше в основную ветку
+      - main
 
 env:
-  # Полное имя вашего Docker-образа с тегом (для пуша)
   DOCKER_IMAGE_FULL_TAG: roma3213/maryrose-app:v3
-  # Имя репозитория Docker (для очистки)
   DOCKER_IMAGE_REPO_NAME: roma3213/maryrose-app
 
 jobs:
   build-push-redeploy:
     name: Build, Push, and Redeploy on RunPod
-    runs-on: ubuntu-latest # Этот runner GitHub Actions будет только подключаться по SSH
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -27,63 +25,75 @@ jobs:
           ssh-private-key: ${{ secrets.BUILD_VM_SSH_PRIVATE_KEY }}
 
       - name: Run build and push commands on Build VM
-        id: build_and_push # Даем ID этому шагу, чтобы его вывод можно было использовать
+        id: build_and_push
         run: |
           ssh-keyscan -H ${{ secrets.BUILD_VM_SSH_HOST }} >> ~/.ssh/known_hosts
           ssh -T ${{ secrets.BUILD_VM_SSH_USER }}@${{ secrets.BUILD_VM_SSH_HOST }} 'bash -s' << 'ENDSSH'
-            set -e # Выйти немедленно, если любая команда завершится неудачно
+            set -e
 
             echo "--- Starting build on Build VM ---"
-            
-            # Переходим в директорию проекта
-            # <--- ВАЖНО: УКАЖИТЕ ПРАВИЛЬНЫЙ ПУТЬ НА ВАШЕЙ БИЛД-ВМ
-            cd MaryRose
-
-            # Обновляем код
-            echo "Pulling latest code..."
+            cd /path/to/your/MaryRose/repo # <--- ВАЖНО: УКАЖИТЕ ПРАВИЛЬНЫЙ ПУТЬ
             git pull origin main
 
-            # Логинимся в Docker Hub (чтобы пушить)
-            echo "Logging into Docker Hub..."
             echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
 
-            # Собираем Docker-образ
             echo "Building Docker image: ${{ env.DOCKER_IMAGE_FULL_TAG }}..."
             docker build -t ${{ env.DOCKER_IMAGE_FULL_TAG }} .
 
-            # Отправляем образ в Docker Hub
             echo "Pushing Docker image: ${{ env.DOCKER_IMAGE_FULL_TAG }} to Docker Hub..."
             docker push ${{ env.DOCKER_IMAGE_FULL_TAG }}
 
             echo "--- Docker image build and push completed successfully ---"
           ENDSSH
 
-      # --- НОВЫЕ ШАГИ ДЛЯ RUNPOD: ПОДГОТОВКА ---
+      - name: Cleanup old untagged images on Docker Hub via API
+        if: success()
+        run: |
+          IMAGE_REPO=$(echo "${{ env.DOCKER_IMAGE_FULL_TAG }}" | cut -d: -f1)
+          USERNAME=${{ secrets.DOCKER_USERNAME }}
+          PASSWORD=${{ secrets.DOCKER_PASSWORD }}
+
+          TOKEN=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "'$USERNAME'", "password": "'$PASSWORD'"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
+
+          if [ -z "$TOKEN" ] || [ "$TOKEN" == "null" ]; then echo "Error: Failed to get Docker Hub token."; exit 1; fi
+
+          DIGESTS=$(curl -s -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$IMAGE_REPO/tags/?page_size=100" | jq -r '.results[].images[] | select(.status == "active") | .digest')
+          CURRENT_DIGEST=$(curl -s -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$IMAGE_REPO/tags/${{ env.DOCKER_IMAGE_FULL_TAG##*:}}/ # Извлекаем только тег
+          " | jq -r '.images[] | select(.status == "active") | .digest')
+
+          echo "Current digest for tag '${{ env.DOCKER_IMAGE_FULL_TAG##*:}}' is $CURRENT_DIGEST"
+
+          for digest in $DIGESTS; do
+            if [ "$digest" != "$CURRENT_DIGEST" ]; then
+              echo "Deleting old, untagged image with digest: $digest"
+              # curl -s -X DELETE -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$IMAGE_REPO/manifests/$digest"
+              echo "Dry Run: Would have deleted digest $digest"
+            else
+              echo "Keeping current image with digest: $digest"
+            fi
+          done
+
       - name: Install RunPodCTL and jq for RunPod operations
         run: |
           curl -L https://github.com/runpod/runpodctl/releases/latest/download/runpodctl-linux-amd64 -o runpodctl
           sudo install -m 0755 runpodctl /usr/local/bin/runpodctl
           sudo apt-get update && sudo apt-get install -y jq
 
-      # --- НОВЫЙ ШАГ: НАЙТИ СУЩЕСТВУЮЩИЙ ПОД ---
       - name: Get Existing Pod ID for Redeployment
         id: get_existing_pod
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         run: |
           echo "Searching for existing pods to redeploy..."
-          # Получаем список подов, убираем заголовок и пустые строки, берем только первый ID
           POD_ID=$(runpodctl get pod | tail -n +3 | sed '/^$/d' | head -n 1 | awk '{print $1}')
 
           if [ -z "$POD_ID" ]; then
             echo "Error: No existing pod found to redeploy. This workflow requires an existing pod. Aborting."
             exit 1
           fi
-
           echo "Found existing pod with ID: $POD_ID"
           echo "pod_id=$POD_ID" >> $GITHUB_OUTPUT
 
-      # --- НОВЫЙ ШАГ: ОСТАНОВКА ПОДА ---
       - name: Stop Existing Pod
         id: stop_pod
         env:
@@ -94,19 +104,19 @@ jobs:
           runpodctl stop pod $POD_ID
           echo "Pod stop command sent. Waiting for it to enter 'Stopped' state..."
 
+          # Улучшенная логика ожидания статуса
           for i in {1..10}; do # Максимум 10 * 10 секунд = 100 секунд
-            STATUS=$(runpodctl get pod $POD_ID | grep -o 'STOPPED')
-            if [ -n "$STATUS" ]; then
+            CURRENT_STATUS=$(runpodctl get pod $POD_ID | tail -n 1 | awk '{print $NF}') # Последний столбец последней строки
+            if [ "$CURRENT_STATUS" == "STOPPED" ]; then
               echo "Pod $POD_ID is now STOPPED."
               exit 0
             fi
-            echo "Waiting for pod $POD_ID to stop. Current status: $(runpodctl get pod $POD_ID | grep $POD_ID | awk '{print $NF}')..."
+            echo "Waiting for pod $POD_ID to stop. Current status: $CURRENT_STATUS..."
             sleep 10
           done
           echo "Fatal: Pod $POD_ID did not stop in time."
           exit 1
 
-      # --- НОВЫЙ ШАГ: ЗАПУСК ПОДА ---
       - name: Start Existing Pod
         id: start_pod
         env:
@@ -117,7 +127,6 @@ jobs:
           runpodctl start pod $POD_ID
           echo "Pod start command sent."
 
-      # --- НОВЫЙ ШАГ: ОЖИДАНИЕ HEALTH CHECK ---
       - name: Wait for pod to become healthy
         id: wait_for_health
         run: |
@@ -126,12 +135,11 @@ jobs:
 
           echo "Waiting for application to become healthy at: $HEALTH_URL"
 
-          for i in {1..20}; do # Ждем до 5 минут
+          for i in {1..20}; do
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" $HEALTH_URL)
             
             if [ "$HTTP_CODE" -eq 200 ]; then
               echo "Health check successful! Application is ready."
-              # Передаем URL дальше, хотя в этом workflow они не должны меняться
               AI_URL="https://$(echo $POD_ID)-8001.proxy.runpod.net"
               WEBSOCKET_URL=$(echo "$AI_URL" | sed 's|https|wss|')/ws/listen/
               echo "AI_BACKEND_URL=$AI_URL" >> $GITHUB_OUTPUT
@@ -146,10 +154,8 @@ jobs:
           echo "Fatal: Application did not become healthy in time."
           exit 1
 
-      # --- ФИНАЛЬНЫЙ ШАГ: Обновление основной ВМ (если нужно) ---
-      # В этом workflow URL не должен меняться, но можно добавить его для перестраховки
       - name: Update main VM with URLs (if changed)
-        if: success() # Выполнять только если health check пройден
+        if: success()
         uses: appleboy/ssh-action@master
         with:
           host: ${{ secrets.MAIN_SERVICE_SSH_HOST }}
@@ -157,11 +163,10 @@ jobs:
           key: ${{ secrets.MAIN_SERVICE_SSH_PRIVATE_KEY }}
           script: |
             set -e
-            POD_ID=${{ steps.get_existing_pod.outputs.pod_id }} # Берем ID существующего пода
+            POD_ID=${{ steps.get_existing_pod.outputs.pod_id }}
             NEW_AI_URL="https://$(echo $POD_ID)-8001.proxy.runpod.net"
             NEW_WS_URL="wss://$(echo $POD_ID)-8001.proxy.runpod.net/ws/listen/"
 
-            # Проверяем, изменились ли URL. Если нет, то не перезапускаем FastAPI.
             CURRENT_AI_URL=$(grep "^AI_BACKEND_URL=" /home/jzndjxjcbd/mary-assistant/backend/.env | cut -d'=' -f2)
             if [ "$CURRENT_AI_URL" != "$NEW_AI_URL" ]; then
               echo "AI Backend URL has changed. Updating .env file..."

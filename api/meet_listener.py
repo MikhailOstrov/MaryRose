@@ -304,6 +304,7 @@ class MeetListenerBot:
                         speech_buffer_for_asr.append(chunk_to_process.numpy())
                         silent_frames_after_speech = 0
                     else:
+                        
                         if is_speaking:
                             
                             silent_frames_after_speech += 1
@@ -326,7 +327,6 @@ class MeetListenerBot:
                                     if transcription.lower().lstrip().startswith(STREAM_TRIGGER_WORD):
 
                                         clean_transcription = ''.join(char for char in transcription.lower() if char.isalnum() or char.isspace())
-                                        print(clean_transcription)
 
                                         if STREAM_STOP_WORD_1 in clean_transcription or STREAM_STOP_WORD_2 in clean_transcription or STREAM_STOP_WORD_3 in clean_transcription:
                                             logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")

@@ -1,46 +1,55 @@
-# .github/workflows/build-and-push-ai-backend.yml
+# .github/workflows/build-and-push-on-vm.yml
 
-name: Build, Push, and Cleanup AI Backend Docker Image
+name: Build and Push AI Backend on Build VM
 
 on:
   push:
     branches:
-      - main
+      - main # Запускается при пуше в основную ветку
 
 env:
-  DOCKER_IMAGE_REPO: roma3213/maryrose-app
-  DOCKER_IMAGE_TAG: v3
+  # Полное имя вашего Docker-образа с тегом
+  DOCKER_IMAGE_FULL_TAG: roma3213/maryrose-app:v3
 
 jobs:
-  build-push-cleanup:
-    name: Build, Push and Cleanup
-    runs-on: ubuntu-latest
+  build-and-push:
+    name: Build and Push on dedicated VM
+    runs-on: ubuntu-latest # Этот runner GitHub Actions будет только подключаться по SSH
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
+      - name: Set up SSH connection to Build VM
+        uses: webfactory/ssh-agent@v0.7.0
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          ssh-private-key: ${{ secrets.BUILD_VM_SSH_PRIVATE_KEY }}
 
-      - name: Build and push Docker image with cache
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          # --- ИСПРАВЛЕНИЕ: ВОЗВРАЩАЕМ tags ---
-          tags: ${{ env.DOCKER_IMAGE_REPO }}:${{ env.DOCKER_IMAGE_TAG }}
-          # --- Используем DOCKER HUB КАК КЕШ ---
-          cache-from: type=registry,ref=${{ env.DOCKER_IMAGE_REPO }}:${{ env.DOCKER_IMAGE_TAG }}
-          cache-to: type=registry,ref=${{ env.DOCKER_IMAGE_REPO }}:${{ env.DOCKER_IMAGE_TAG }},mode=max
-
-      - name: Prune builder cache and local images on runner
-        if: always()
+      - name: Run build and push commands on Build VM
         run: |
-          docker buildx prune -a -f
-          docker image prune -a -f
+          ssh-keyscan -H ${{ secrets.BUILD_VM_SSH_HOST }} >> ~/.ssh/known_hosts
+          ssh -T ${{ secrets.BUILD_VM_SSH_USER }}@${{ secrets.BUILD_VM_SSH_HOST }} 'bash -s' << 'ENDSSH'
+            set -e # Выйти немедленно, если любая команда завершится неудачно
+
+            echo "--- Starting build on Build VM ---"
+            
+            # Переходим в директорию проекта
+            cd /path/to/your/MaryRose/repo # <--- ВАЖНО: УКАЖИТЕ ПРАВИЛЬНЫЙ ПУТЬ НА ВАШЕЙ БИЛД-ВМ
+
+            # Обновляем код
+            echo "Pulling latest code..."
+            git pull origin main
+
+            # Логинимся в Docker Hub (чтобы пушить)
+            echo "Logging into Docker Hub..."
+            echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+
+            # Собираем Docker-образ
+            echo "Building Docker image: ${{ env.DOCKER_IMAGE_FULL_TAG }}..."
+            docker build -t ${{ env.DOCKER_IMAGE_FULL_TAG }} .
+
+            # Отправляем образ в Docker Hub
+            echo "Pushing Docker image: ${{ env.DOCKER_IMAGE_FULL_TAG }} to Docker Hub..."
+            docker push ${{ env.DOCKER_IMAGE_FULL_TAG }}
+
+            echo "--- Docker image build and push completed successfully ---"
+          ENDSSH

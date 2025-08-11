@@ -1,55 +1,114 @@
-# .github/workflows/build-and-push-on-vm.yml
+# .github/workflows/create-new-pod-from-branch.yml
 
-name: Build and Push AI Backend on Build VM
+name: Create New RunPod Pod via Branch Push
 
+# Триггер: запускается при любом пуше в ветку 'run-runpod'
 on:
   push:
     branches:
-      - main # Запускается при пуше в основную ветку
+      - run-runpod
 
+# Переменные окружения для легкой настройки
 env:
-  # Полное имя вашего Docker-образа с тегом
-  DOCKER_IMAGE_FULL_TAG: roma3213/maryrose-app:v3
+  # ЗАМЕНИТЕ на ID вашего темплейта
+  RUNPOD_TEMPLATE_ID: ydgd23y2f5
+  # GPU, которая будет использоваться по умолчанию
+  DEFAULT_GPU_TYPE: "NVIDIA RTX A5000"
 
 jobs:
-  build-and-push:
-    name: Build and Push on dedicated VM
-    runs-on: ubuntu-latest # Этот runner GitHub Actions будет только подключаться по SSH
+  create-pod-and-update:
+    name: Create Pod and Update Main VM
+    runs-on: ubuntu-latest
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Set up SSH connection to Build VM
-        uses: webfactory/ssh-agent@v0.7.0
-        with:
-          ssh-private-key: ${{ secrets.BUILD_VM_SSH_PRIVATE_KEY }}
-
-      - name: Run build and push commands on Build VM
+      # Шаг 1: Устанавливаем необходимые утилиты
+      - name: Install RunPod CLI and jq
         run: |
-          ssh-keyscan -H ${{ secrets.BUILD_VM_SSH_HOST }} >> ~/.ssh/known_hosts
-          ssh -T ${{ secrets.BUILD_VM_SSH_USER }}@${{ secrets.BUILD_VM_SSH_HOST }} 'bash -s' << 'ENDSSH'
-            set -e # Выйти немедленно, если любая команда завершится неудачно
+          pip install runpod
+          sudo apt-get update && sudo apt-get install -y jq
 
-            echo "--- Starting build on Build VM ---"
+      # Шаг 2: Определяем, какую GPU использовать
+      - name: Determine GPU Type
+        id: get_gpu
+        run: |
+          # Извлекаем последнюю строку из сообщения коммита
+          GPU_FROM_COMMIT=$(git log -1 --pretty=%B | tail -n 1)
+
+          # Проверяем, указана ли GPU в коммите
+          if [[ "$GPU_FROM_COMMIT" == *"RTX"* ]] || [[ "$GPU_FROM_COMMIT" == *"A100"* ]] || [[ "$GPU_FROM_COMMIT" == *"H100"* ]]; then
+            echo "Found GPU in commit message: '$GPU_FROM_COMMIT'. Using it."
+            echo "gpu_type=$GPU_FROM_COMMIT" >> $GITHUB_OUTPUT
+          else
+            # Если в коммите нет GPU, используем значение по умолчанию
+            echo "No valid GPU type in commit message. Using default: '${{ env.DEFAULT_GPU_TYPE }}'"
+            echo "gpu_type=${{ env.DEFAULT_GPU_TYPE }}" >> $GITHUB_OUTPUT
+          fi
+
+      # Шаг 3: Создаем новый под из темплейта с выбранной GPU
+      - name: Create new pod from template
+        id: create_pod
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          GPU_TO_CREATE="${{ steps.get_gpu.outputs.gpu_type }}"
+          echo "Attempting to create a new pod with GPU: '$GPU_TO_CREATE'"
+
+          # Выполняем команду с указанием и темплейта, и типа GPU
+          POD_JSON=$(runpod pod create \
+            --templateId "${{ env.RUNPOD_TEMPLATE_ID }}" \
+            --gpuType "$GPU_TO_CREATE")
             
-            # Переходим в директорию проекта
-            cd MaryRose # <--- ВАЖНО: УКАЖИТЕ ПРАВИЛЬНЫЙ ПУТЬ НА ВАШЕЙ БИЛД-ВМ
+          echo "Pod creation initiated."
 
-            # Обновляем код
-            echo "Pulling latest code..."
-            git pull origin main
+          POD_ID=$(echo "$POD_JSON" | jq -r '.id')
+          echo "New Pod ID: $POD_ID"
+          echo "pod_id=$POD_ID" >> $GITHUB_OUTPUT
 
-            # Логинимся в Docker Hub (чтобы пушить)
-            echo "Logging into Docker Hub..."
-            echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+      # Шаг 4: Ждем, пока под запустится, и получаем его URL
+      - name: Wait for pod to run and get URLs
+        id: get_url
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          POD_ID=${{ steps.create_pod.outputs.pod_id }}
+          echo "Waiting for pod $POD_ID to enter 'Running' state..."
 
-            # Собираем Docker-образ
-            echo "Building Docker image: ${{ env.DOCKER_IMAGE_FULL_TAG }}..."
-            docker build -t ${{ env.DOCKER_IMAGE_FULL_TAG }} .
+          for i in {1..20}; do # Ждем до 5 минут
+            STATUS=$(runpod pod find --id $POD_ID | jq -r '.desiredStatus')
+            if [ "$STATUS" == "Running" ]; then
+              echo "Pod is running!"
+              break
+            fi
+            if [ "$STATUS" == "Terminated" ] || [ "$STATUS" == "Failed" ]; then
+              echo "Error: Pod entered '$STATUS' state. Aborting."
+              exit 1
+            fi
+            echo "Current status: $STATUS. Waiting 15 seconds..."
+            sleep 15
+          done
 
-            # Отправляем образ в Docker Hub
-            echo "Pushing Docker image: ${{ env.DOCKER_IMAGE_FULL_TAG }} to Docker Hub..."
-            docker push ${{ env.DOCKER_IMAGE_FULL_TAG }}
+          POD_INFO=$(runpod pod find --id $POD_ID)
+          AI_URL=$(echo "$POD_INFO" | jq -r '.runtime.ports[] | select(.privatePort == 8001) | .httpsUrl')
+          WEBSOCKET_URL=$(echo "$AI_URL" | sed 's|https|wss|')/ws/listen/
 
-            echo "--- Docker image build and push completed successfully ---"
-          ENDSSH
+          echo "AI_BACKEND_URL=$AI_URL" >> $GITHUB_OUTPUT
+          echo "AI_WEBSOCKET_URL=$WEBSOCKET_URL" >> $GITHUB_OUTPUT
+
+      # Шаг 5: Обновляем .env файл на основной ВМ
+      - name: Update main VM with new URLs
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.MAIN_SERVICE_SSH_HOST }}
+          username: ${{ secrets.MAIN_SERVICE_SSH_USER }}
+          key: ${{ secrets.MAIN_SERVICE_SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            echo "Updating .env file on the main VM..."
+            NEW_AI_URL="${{ steps.get_url.outputs.AI_BACKEND_URL }}"
+            NEW_WS_URL="${{ steps.get_url.outputs.AI_WEBSOCKET_URL }}"
+
+            sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" /home/jzndjxjcbd/mary-assistant/backend/.env
+            sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" /home/jzndjxjcbd/mary-assistant/backend/.env
+
+            echo ".env file updated. Restarting main service..."
+            sudo /home/jzndjxjcbd/restart-fastapi.sh
+            echo "Main service restarted successfully."

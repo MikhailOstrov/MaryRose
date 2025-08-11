@@ -42,7 +42,7 @@ jobs:
             done
             
             echo "All existing pods have been scheduled for removal. Waiting 15 seconds..."
-            sleep 15
+            sleep 10
           fi
 
       - name: Determine GPU Type
@@ -97,8 +97,8 @@ jobs:
 
           echo "Waiting for application to become healthy at: $HEALTH_URL"
 
-          # Ждем до 5 минут, пытаясь получить успешный ответ от /health
-          for i in {1..20}; do
+          # Ждем до 10 минут, пытаясь получить успешный ответ от /health
+          for i in {1..40}; do
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" $HEALTH_URL)
             
             if [ "$HTTP_CODE" -eq 200 ]; then

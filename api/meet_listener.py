@@ -15,6 +15,9 @@ import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
+import subprocess
 
 from config.config import (STREAM_SAMPLE_RATE,SILENCE_THRESHOLD_FRAMES, MEET_FRAME_DURATION_MS,
                            MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME, STREAM_TRIGGER_WORD, CHROME_PROFILE_DIR,
@@ -23,6 +26,7 @@ from handlers.ollama_handler import get_mary_response, get_summary_response, get
 from handlers.diarization_handler import run_diarization, process_rttm_and_transcribe
 from config.load_models import vad_model, asr_model
 from api.utils import combine_audio_chunks
+from handlers.tts_handler import synthesize_speech_to_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +54,11 @@ class MeetListenerBot:
         self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.meeting_id # Папка для сохранения чанков и скриншотов
         os.makedirs(self.output_dir, exist_ok=True)
         logger.info(f"[{self.meeting_id}] Аудиофрагменты будут сохраняться в: '{self.output_dir}'")
+
+        # Управление автоозвучкой
+        self.enable_auto_tts = True
+        # Используем системный default sink/source (entrypoint.sh создает meet_sink/meet_mic как default)
+        self.force_default_audio = True
 
     # Отслеживание кол-ва участников
     def _monitor_participants(self):
@@ -111,6 +120,14 @@ class MeetListenerBot:
                 version_main=138 # Закрепляем версию для надежности
             )
             logger.info(f"[{self.meeting_id}] ✅ Chrome запущен (Попытка №1)!")
+            try:
+                self.driver.execute_cdp_cmd("Browser.grantPermissions", {
+                    "origin": "https://meet.google.com",
+                    "permissions": ["audioCapture"]
+                })
+                logger.info(f"[{self.meeting_id}] Разрешение на микрофон выдано через CDP (попытка №1)")
+            except Exception as e_grant:
+                logger.warning(f"[{self.meeting_id}] Не удалось выдать CDP-разрешение (попытка №1): {e_grant}")
             
         except Exception as e:
             logger.error(f"[{self.meeting_id}] Попытка №1 не сработала: {e}")
@@ -130,7 +147,15 @@ class MeetListenerBot:
                 
                 self.driver = uc.Chrome(options=opt, version_main=138)
                 logger.info(f"[{self.meeting_id}] ✅ Chrome запущен (Попытка №2)!")
-                
+                try:
+                    self.driver.execute_cdp_cmd("Browser.grantPermissions", {
+                        "origin": "https://meet.google.com",
+                        "permissions": ["audioCapture"]
+                    })
+                    logger.info(f"[{self.meeting_id}] Разрешение на микрофон выдано через CDP (попытка №2)")
+                except Exception as e_grant2:
+                    logger.warning(f"[{self.meeting_id}] Не удалось выдать CDP-разрешение (попытка №2): {e_grant2}")
+            
             except Exception as e2:
                 logger.critical(f"[{self.meeting_id}] Полный провал запуска Chrome: {e2}", exc_info=True)
                 raise
@@ -144,7 +169,205 @@ class MeetListenerBot:
             logger.info(f"[{self.meeting_id}] Скриншот сохранен: {path}")
         except Exception as e:
             logger.warning(f"[{self.meeting_id}] Не удалось сохранить скриншот '{name}': {e}")
-            
+
+    def toggle_mic_hotkey(self):
+        """Простая эмуляция Ctrl+D для переключения микрофона в Meet.
+        Без дополнительных проверок состояния и наличия кнопки.
+        """
+        try:
+            # Стараемся сфокусировать страницу и убрать возможный фокус с инпутов
+            try:
+                self.driver.execute_script("window.focus();")
+            except Exception:
+                pass
+            try:
+                body = self.driver.find_element(By.TAG_NAME, 'body')
+                body.click()
+            except Exception:
+                pass
+
+            actions = ActionChains(self.driver)
+            actions.key_down(Keys.CONTROL).send_keys('d').key_up(Keys.CONTROL).perform()
+            logger.info(f"[{self.meeting_id}] Отправлено сочетание Ctrl+D (toggle mic)")
+        except Exception as e:
+            logger.warning(f"[{self.meeting_id}] Не удалось отправить Ctrl+D: {e}")
+
+    def _handle_mic_dialog(self) -> bool:
+        """
+        Быстрый JS-скан диалога выбора микрофона с общим лимитом ~7-8 секунд.
+        1) До 5 сек ищем кнопку "с микрофоном" (RU/EN) и кликаем.
+        2) Если не нашли — до 2 сек пробуем "без микрофона".
+        Возвращает True, если был найден и нажат любой вариант (с/без микрофона), иначе False.
+        """
+        logger.info(f"[{self.meeting_id}] [MicDialog] Старт обработки диалога микрофона")
+        with_mic_variants = [
+            "use microphone", "join with microphone", "use your microphone",
+            "продолжить с микрофоном", "использовать микрофон", "войти с микрофоном",
+        ]
+        without_mic_variants = [
+            "continue without microphone", "join without microphone",
+            "продолжить без микрофона", "без микрофона",
+        ]
+
+        def js_scan_click(phrases: list[str], total_timeout: float) -> bool:
+            deadline = time.time() + total_timeout
+            js = """
+            const phrases = arguments[0];
+            const nodes = Array.from(document.querySelectorAll('button, div[role="button"]'));
+            for (const el of nodes) {
+              const t = (el.innerText||'').trim().toLowerCase();
+              if (!t) continue;
+              if (phrases.some(p => t.includes(p))) { el.scrollIntoView({block:'center'}); el.click(); return true; }
+            }
+            return false;
+            """
+            while time.time() < deadline:
+                try:
+                    ok = self.driver.execute_script(js, phrases)
+                    if ok:
+                        return True
+                except Exception:
+                    pass
+                time.sleep(0.25)
+            return False
+
+        t0 = time.time()
+        if js_scan_click(with_mic_variants, total_timeout=5.0):
+            self._save_screenshot("02a_mic_dialog_with_mic")
+            logger.info(f"[{self.meeting_id}] Кнопка 'с микрофоном' нажата за {time.time()-t0:.2f}s")
+            return True
+        if js_scan_click(without_mic_variants, total_timeout=2.0):
+            self._save_screenshot("02a_mic_dialog_without_mic")
+            logger.info(f"[{self.meeting_id}] Кнопка 'без микрофона' нажата за {time.time()-t0:.2f}s")
+            return True
+        logger.info(f"[{self.meeting_id}] Диалог микрофона не найден за {time.time()-t0:.2f}s — продолжаю.")
+        return False
+
+    def _log_permissions_state(self):
+        """Пытается залогировать состояние Permissions API для микрофона."""
+        try:
+            state = self.driver.execute_script(
+                "return (navigator.permissions && navigator.permissions.query) ? undefined : 'unsupported';"
+            )
+            if state == 'unsupported':
+                logger.info(f"[{self.meeting_id}] [Perms] Permissions API недоступен")
+                return
+            js = """
+            const cb = arguments[0];
+            navigator.permissions.query({name:'microphone'}).then(r=>cb(r.state)).catch(()=>cb('error'));
+            """
+            result = self.driver.execute_async_script(js)
+            logger.info(f"[{self.meeting_id}] [Perms] microphone permission state: {result}")
+        except Exception as e:
+            logger.info(f"[{self.meeting_id}] [Perms] Не удалось получить состояние: {e}")
+
+    def _handle_chrome_permission_prompt(self):
+        """
+        Обрабатывает всплывающее окно разрешений Chrome: пытается разрешить доступ к микрофону.
+        Безопасно выходим, если промпт отсутствует.
+        """
+        allow_site_ru = [
+            "Разрешить при нахождении на сайте",
+        ]
+        allow_site_en = [
+            "Allow on every visit",
+            "Allow while on site",
+            "Always allow on this site",
+        ]
+        allow_once_ru = [
+            "Разрешить в этот раз",
+        ]
+        allow_once_en = [
+            "Allow this time",
+            "Allow once",
+        ]
+
+        def try_click_phrases(phrases, timeout_each=2):
+            for phrase in phrases:
+                xpaths = [
+                    f"//button[normalize-space()='{phrase}']",
+                    f"//button[contains(., '{phrase}')]",
+                    f"//div[@role='button' and normalize-space()='{phrase}']",
+                    f"//div[@role='button' and contains(., '{phrase}')]",
+                    f"//span[normalize-space()='{phrase}']/ancestor::button",
+                ]
+                for xp in xpaths:
+                    try:
+                        btn = WebDriverWait(self.driver, timeout_each).until(
+                            EC.element_to_be_clickable((By.XPATH, xp))
+                        )
+                        self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
+                        btn.click()
+                        logger.info(f"[{self.meeting_id}] Нажал кнопку разрешения: '{phrase}'")
+                        return True
+                    except Exception:
+                        continue
+            return False
+
+        try:
+            exists = self.driver.execute_script(
+                "return !!document.querySelector('button, div[role\\'button\\']') && Array.from(document.querySelectorAll('button, div[role\\'button\\']')).some(el => (el.innerText||'').includes('Разрешить при нахождении') || (el.innerText||'').includes('Allow'));"
+            )
+            if not exists:
+                logger.info(f"[{self.meeting_id}] Баннер разрешений не виден — пропускаю обработку.")
+                return
+        except Exception:
+            pass
+
+        if try_click_phrases(allow_site_ru, timeout_each=3) or try_click_phrases(allow_site_en, timeout_each=3):
+            time.sleep(0.1)
+            self._save_screenshot("02b_permission_allowed_site")
+            return
+        if try_click_phrases(allow_once_ru, timeout_each=2) or try_click_phrases(allow_once_en, timeout_each=2):
+            time.sleep(0.1)
+            self._save_screenshot("02b_permission_allowed_once")
+            return
+        logger.info(f"[{self.meeting_id}] Всплывающее окно разрешений не обнаружено.")
+
+    def _speak_via_meet(self, text: str):
+        """Синтезирует TTS и проигрывает его в default sink (meet_sink).
+        Перед началом включает микрофон (Ctrl+D), после окончания выключает (Ctrl+D).
+        """
+        if not text:
+            return
+        try:
+            audio_bytes = synthesize_speech_to_bytes(text)
+            if not audio_bytes:
+                return
+
+            toggled_on = False
+            try:
+                # Включаем микрофон перед началом озвучки
+                self.toggle_mic_hotkey()
+                toggled_on = True
+                time.sleep(0.3)
+
+                # Сначала пробуем paplay (PulseAudio)
+                try:
+                    subprocess.run(["paplay", "/dev/stdin"], input=audio_bytes, capture_output=True, check=True)
+                    logger.info(f"[{self.meeting_id}] Озвучен ответ ассистента через default sink (paplay)")
+                    return
+                except Exception as e1:
+                    logger.warning(f"[{self.meeting_id}] paplay недоступен или ошибка: {e1}")
+                    # Фолбэк через ffplay
+                    try:
+                        subprocess.run(["ffplay", "-nodisp", "-autoexit", "-loglevel", "error", "-"],
+                                       input=audio_bytes, capture_output=True, check=True)
+                        logger.info(f"[{self.meeting_id}] Озвучен ответ ассистента через default sink (ffplay)")
+                        return
+                    except Exception as e2:
+                        logger.error(f"[{self.meeting_id}] Ошибка при автоозвучке (ffplay): {e2}.")
+            finally:
+                if toggled_on:
+                    # Небольшая пауза после окончания воспроизведения и затем выключаем микрофон
+                    time.sleep(0.2)
+                    try:
+                        self.toggle_mic_hotkey()
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.error(f"[{self.meeting_id}] Ошибка при автоозвучке: {e}")
+
     # Присоединение в Google Meet
     def join_meet_as_guest(self):
         try:
@@ -165,19 +388,13 @@ class MeetListenerBot:
             time.sleep(2)
             self._save_screenshot("02_name_entered")
 
-            try:
-                logger.info(f"[{self.meeting_id}] Проверяю наличие диалога о микрофоне...")
-                continue_without_mic_xpath = '//button[.//span[contains(text(), "Continue without microphone")]]'
-                continue_button = WebDriverWait(self.driver, 5).until(
-                    EC.element_to_be_clickable((By.XPATH, continue_without_mic_xpath))
-                )
-                logger.info(f"[{self.meeting_id}] Нажимаю 'Продолжить без микрофона'...")
-                continue_button.click()
-                time.sleep(2)
-                self._save_screenshot("02a_mic_dialog_closed")
-            except Exception:
-                logger.info(f"[{self.meeting_id}] Диалог о микрофоне не найден, продолжаю.")
-            
+            # Обработка диалога микрофона и баннера разрешений
+            logger.info(f"[{self.meeting_id}] Обработка диалога микрофона...")
+            mic_dialog_found = self._handle_mic_dialog()
+            # Если диалог микрофона не показывался — сразу идем дальше, пропуская поиск баннера разрешений
+            if mic_dialog_found:
+                self._handle_chrome_permission_prompt()
+
             join_button_xpath = '//button[.//span[contains(text(), "Ask to join") or contains(text(), "Попросить войти")]]'
             logger.info(f"[{self.meeting_id}] Ищу кнопку 'Ask to join'...")
             join_button = WebDriverWait(self.driver, 30).until(
@@ -214,6 +431,12 @@ class MeetListenerBot:
                         if self.driver.find_element(By.XPATH, xpath).is_displayed():
                             self._save_screenshot("04_joined_successfully")
                             logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
+                            # По требованию: сразу после входа эмулируем Ctrl+D для включения/выключения микрофона
+                            try:
+                                self.toggle_mic_hotkey()
+                            except Exception as e_toggle:
+                                logger.warning(f"[{self.meeting_id}] Не удалось отправить хоткей Ctrl+D после входа: {e_toggle}")
+                            self._log_permissions_state()
                             self.joined_successfully = True
                             return True
                     except: continue
@@ -335,6 +558,11 @@ class MeetListenerBot:
                                             logger.info(f"[{self.meeting_id}] Мэри услышала вас")
                                             response = get_mary_response(transcription)
                                             logger.info(f"[{self.meeting_id}] Ответ от Мэри: {response}")
+                                            try:
+                                                if self.enable_auto_tts and response:
+                                                    self._speak_via_meet(response)
+                                            except Exception as tts_err:
+                                                logger.error(f"[{self.meeting_id}] Ошибка при озвучивании ответа: {tts_err}")
             except queue.Empty:
                 if is_speaking and speech_buffer_for_asr:
                     logger.info(f"[{self.meeting_id}] Тайм-аут, обрабатываем оставшуюся речь.")
@@ -455,7 +683,7 @@ class MeetListenerBot:
             sf.write(file_path, audio_np, STREAM_SAMPLE_RATE)
             logger.info(f"💾 Фрагмент сохранен: {filename} (длительность: {len(audio_np)/STREAM_SAMPLE_RATE:.2f} сек)")
         except Exception as e:
-            logger.infog(f"❌ Ошибка при сохранении аудиофрагмента: {e}")
+            logger.error(f"❌ Ошибка при сохранении аудиофрагмента: {e}")
 
     # Запуск работы бота
     def run(self):
@@ -479,6 +707,8 @@ class MeetListenerBot:
                 monitor_thread.start()
 
                 logger.info(f"[{self.meeting_id}] 🎤 Начинаю прослушивание аудио с устройства ID {device_id}...")
+                # Короткий тест TTS: проверяем, что Meet слышит бота
+                
                 with sd.RawInputStream(
                     samplerate=STREAM_SAMPLE_RATE,
                     blocksize=self.frame_size,

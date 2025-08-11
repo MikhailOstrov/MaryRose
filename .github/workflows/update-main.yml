@@ -36,21 +36,29 @@ jobs:
           cache-from: type=gha,scope=${{ github.workflow }}
           cache-to: type=gha,scope=${{ github.workflow }},mode=max
 
-      # --- НОВЫЙ ШАГ: НЕМЕДЛЕННАЯ ОЧИСТКА ---
-      - name: Cleanup old untagged images
-        # Этот шаг выполняется только после успешного пуша
-        if: success()
-        uses: burnett01/delete-older-docker-images@v3.0.0
+      # --- ШАГ 1: ОЧИСТКА RUNNER'А ---
+      - name: Prune builder cache and local images
+        if: always() # Выполнять всегда, даже если предыдущий шаг упал
+        run: |
+          echo "Cleaning up builder cache..."
+          docker buildx prune -a -f
+          echo "Cleaning up local Docker images..."
+          docker image prune -a -f
+
+      # --- ШАГ 2: ОЧИСТКА DOCKER HUB ---
+      - name: Cleanup old untagged images on Docker Hub
+        if: success() # Выполнять только после успешного пуша
+        uses: docker-practice/actions-tag-deleter@v1.1.0
         with:
-          # Указываем имя образа БЕЗ тега
-          image_names: "roma3213/maryrose-app"
-          # Оставляем 0 "висячих" образов. То есть, удаляем ВСЕ образы, на которые не ссылается ни один тег.
-          keep_latest: 0
-          # ВАЖНО: Удаляем ТОЛЬКО образы без тегов.
-          # Ваш тег :v3 не будет затронут.
-          untagged_only: true
-          docker_hub_username: ${{ secrets.DOCKER_USERNAME }}
-          docker_hub_token: ${{ secrets.DOCKER_PASSWORD }}
-          # Установите 'false' для реального удаления.
-          # Рекомендую первый раз запустить с 'true', чтобы убедиться, что все работает как надо.
-          dry_run: true
+          # Указываем репозиторий для очистки
+          repo: "roma3213/maryrose-app"
+          # Удаляем ТОЛЬКО образы без тегов
+          untagged: "true"
+          # Оставляем 0 самых свежих безымянных образов (т.е. удаляем все)
+          retain_last_count: 0
+          # Логин и пароль для доступа к Docker Hub
+          user: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+          # Сначала запустите с 'true', чтобы посмотреть, что он хочет удалить.
+          # Затем поменяйте на 'false' для реального удаления.
+          dry_run: "true"

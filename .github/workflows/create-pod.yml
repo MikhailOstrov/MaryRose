@@ -8,7 +8,7 @@ on:
       - run-runpod
 
 env:
-  DOCKER_IMAGE: "roma3213/maryrose-app:v3"
+  DOCK-ER_IMAGE: "roma3213/maryrose-app:v3"
   DEFAULT_GPU_TYPE: "NVIDIA RTX A5000"
   CONTAINER_DISK_IN_GB: 50
   VOLUME_DISK_IN_GB: 50
@@ -57,20 +57,19 @@ jobs:
           sleep 5
 
           echo "Searching for pod with name '$POD_NAME'..."
-          # --- ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ ПРАВИЛЬНЫЙ ФЛАГ --json ---
-          POD_JSON=$(runpodctl get pods --json | jq --arg name "$POD_NAME" '.[] | select(.name == $name)')
+          # --- ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ: ПАРСИМ ТЕКСТОВУЮ ТАБЛИЦУ ---
+          POD_ID=$(runpodctl get pods | grep "$POD_NAME" | awk '{print $1}')
 
-          if [ -z "$POD_JSON" ]; then
+          if [ -z "$POD_ID" ]; then
             echo "Error: Could not find the newly created pod. Waiting 10 more seconds..."
             sleep 10
-            POD_JSON=$(runpodctl get pods --json | jq --arg name "$POD_NAME" '.[] | select(.name == $name)')
-            if [ -z "$POD_JSON" ]; then
+            POD_ID=$(runpodctl get pods | grep "$POD_NAME" | awk '{print $1}')
+            if [ -z "$POD_ID" ]; then
               echo "Fatal: Pod '$POD_NAME' not found after waiting."
               exit 1
             fi
           fi
 
-          POD_ID=$(echo "$POD_JSON" | jq -r '.id')
           echo "Found pod. New Pod ID: $POD_ID"
           echo "pod_id=$POD_ID" >> $GITHUB_OUTPUT
 
@@ -83,20 +82,24 @@ jobs:
           echo "Waiting for pod $POD_ID to enter 'Running' state..."
 
           for i in {1..20}; do
-            # --- ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ ПРАВИЛЬНЫЙ ФЛАГ --json ---
-            STATUS=$(runpodctl get pod $POD_ID --json | jq -r '.desiredStatus')
-            if [ "$STATUS" == "Running" ]; then echo "Pod is running!"; break; fi
-            if [ "$STATUS" == "Terminated" ] || [ "$STATUS" == "Failed" ]; then echo "Error: Pod entered '$STATUS' state."; exit 1; fi
-            echo "Current status: $STATUS. Waiting 15 seconds..."; sleep 15
+            # Мы не можем получить статус из текстовой таблицы, поэтому будем проверять наличие URL
+            # Получаем JSON для КОНКРЕТНОГО пода, здесь JSON должен работать
+            POD_INFO=$(runpodctl get pod $POD_ID)
+            AI_URL=$(echo "$POD_INFO" | jq -r '.runtime.ports[] | select(.privatePort == 8001) | .httpsUrl')
+            
+            if [ -n "$AI_URL" ] && [ "$AI_URL" != "null" ]; then
+              echo "Pod is running and URL is available!"
+              WEBSOCKET_URL=$(echo "$AI_URL" | sed 's|https|wss|')/ws/listen/
+              echo "AI_BACKEND_URL=$AI_URL" >> $GITHUB_OUTPUT
+              echo "AI_WEBSOCKET_URL=$WEBSOCKET_URL" >> $GITHUB_OUTPUT
+              exit 0 # Успешно выходим из шага
+            fi
+            echo "Pod is not ready yet. Waiting 15 seconds..."
+            sleep 15
           done
 
-          # --- ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ ПРАВИЛЬНЫЙ ФЛАГ --json ---
-          POD_INFO=$(runpodctl get pod $POD_ID --json)
-          AI_URL=$(echo "$POD_INFO" | jq -r '.runtime.ports[] | select(.privatePort == 8001) | .httpsUrl')
-          WEBSOCKET_URL=$(echo "$AI_URL" | sed 's|https|wss|')/ws/listen/
-
-          echo "AI_BACKEND_URL=$AI_URL" >> $GITHUB_OUTPUT
-          echo "AI_WEBSOCKET_URL=$WEBSOCKET_URL" >> $GITHUB_OUTPUT
+          echo "Fatal: Pod did not become ready in time."
+          exit 1
 
       - name: Update main VM with new URLs
         uses: appleboy/ssh-action@master

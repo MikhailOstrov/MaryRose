@@ -23,16 +23,15 @@ jobs:
           sudo install -m 0755 runpodctl /usr/local/bin/runpodctl
           sudo apt-get update && sudo apt-get install -y jq
 
-      # --- НОВЫЙ ШАГ: НАХОДИМ И УДАЛЯЕМ СТАРЫЕ ПОДЫ ---
+      # --- ИСПРАВЛЕННЫЙ ШАГ УДАЛЕНИЯ ---
       - name: Terminate Existing Pods
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         run: |
           echo "Checking for existing pods to terminate..."
-          # Получаем список подов, убираем заголовок (первую строку)
-          POD_LIST=$(runpodctl get pod | tail -n +2)
+          # Получаем список подов, убираем заголовок (первые ДВЕ строки) и пустую строку в конце
+          POD_LIST=$(runpodctl get pod | tail -n +3 | sed '/^$/d')
 
-          # Проверяем, пустой ли список
           if [ -z "$POD_LIST" ]; then
             echo "No existing pods found. Proceeding to create a new one."
           else
@@ -40,14 +39,13 @@ jobs:
             # Извлекаем только ID (первый столбец)
             POD_IDS=$(echo "$POD_LIST" | awk '{print $1}')
             
-            # В цикле удаляем каждый найденный под
             for ID in $POD_IDS; do
               echo "Terminating pod with ID: $ID"
               runpodctl remove pod $ID
             done
             
             echo "All existing pods have been scheduled for termination. Waiting 15 seconds..."
-            sleep 15 # Даем API время на обработку запросов на удаление
+            sleep 15
           fi
 
       - name: Determine GPU Type
@@ -55,7 +53,7 @@ jobs:
         run: |
           GPU_FROM_COMMIT=$(git log -1 --pretty=%B | tail -n 1)
           if [[ "$GPU_FROM_COMMIT" == *"RTX"* ]] || [[ "$GPU_FROM_COMMIT" == *"A"* ]]; then
-            echo "Found GPU in commit message: '$GPU_FROM_COMMIT'. Using it."s
+            echo "Found GPU in commit message: '$GPU_FROM_COMMIT'. Using it."
             echo "gpu_type=$GPU_FROM_COMMIT" >> $GITHUB_OUTPUT
           else
             echo "No valid GPU type in commit message. Using default: '${{ env.DEFAULT_GPU_TYPE }}'"

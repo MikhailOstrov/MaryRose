@@ -33,10 +33,13 @@ jobs:
         with:
           context: .
           push: true
-          tags: ${{ env.DOCKER_IMAGE_REPO }}:${{ env.DOCKER_IMAGE_TAG }}
-          # --- ИСПРАВЛЕНИЕ: ИСПОЛЬЗУЕМ НАДЕЖНЫЙ SCOPE БЕЗ ПРОБЕЛОВ ---
-          cache-from: type=gha,scope=${{ github.repository }}-${{ github.ref_name }}
-          cache-to: type=gha,scope=${{ github.repository }}-${{ github.ref_name }},mode=max
+          tags: ${{ env.DOCKER_IMAGE }}
+          # --- ИЗМЕНЕНИЕ: ИСПОЛЬЗУЕМ DOCKER HUB КАК КЕШ ---
+          # type=registry - тип кеша
+          # ref=${{ env.DOCKER_IMAGE }} - ссылка на образ, который использовать как кеш
+          cache-from: type=registry,ref=${{ env.DOCKER_IMAGE }}
+          # Сохраняем кеш обратно в образ. mode=max нужен для этого.
+          cache-to: type=registry,ref=${{ env.DOCKER_IMAGE }},mode=max
 
       - name: Prune builder cache and local images on runner
         if: always()

@@ -31,7 +31,7 @@ STREAM_SAMPLE_RATE = 16000 # Частота для аудиочанков
 MEET_FRAME_DURATION_MS = 30 # Размер чанка
 MEET_PAUSE_THRESHOLD_S = 1  # Пауза в секундах перед завершением записи
 SILENCE_THRESHOLD_FRAMES = 16 # Для определения пауз в речи
-#долго?
+#пжлста
 LLM_NAME = "meta-llama/Meta-Llama-3.1-8B-Instruct" # Модель Llama 
 STREAM_TRIGGER_WORD = "мэри" # Триггер для работы Мэри
 

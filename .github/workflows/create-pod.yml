@@ -57,13 +57,13 @@ jobs:
           sleep 5
 
           echo "Searching for pod with name '$POD_NAME'..."
-          # --- ИЗМЕНЕНИЕ: УБИРАЕМ --output json ---
-          POD_JSON=$(runpodctl get pods | jq --arg name "$POD_NAME" '.[] | select(.name == $name)')
+          # --- ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ ПРАВИЛЬНЫЙ ФЛАГ --json ---
+          POD_JSON=$(runpodctl get pods --json | jq --arg name "$POD_NAME" '.[] | select(.name == $name)')
 
           if [ -z "$POD_JSON" ]; then
             echo "Error: Could not find the newly created pod. Waiting 10 more seconds..."
             sleep 10
-            POD_JSON=$(runpodctl get pods | jq --arg name "$POD_NAME" '.[] | select(.name == $name)')
+            POD_JSON=$(runpodctl get pods --json | jq --arg name "$POD_NAME" '.[] | select(.name == $name)')
             if [ -z "$POD_JSON" ]; then
               echo "Fatal: Pod '$POD_NAME' not found after waiting."
               exit 1
@@ -83,12 +83,34 @@ jobs:
           echo "Waiting for pod $POD_ID to enter 'Running' state..."
 
           for i in {1..20}; do
-            # --- ИЗМЕНЕНИЕ: УБИРАЕМ --output json ---
-            STATUS=$(runpodctl get pod $POD_ID | jq -r '.desiredStatus')
+            # --- ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ ПРАВИЛЬНЫЙ ФЛАГ --json ---
+            STATUS=$(runpodctl get pod $POD_ID --json | jq -r '.desiredStatus')
             if [ "$STATUS" == "Running" ]; then echo "Pod is running!"; break; fi
             if [ "$STATUS" == "Terminated" ] || [ "$STATUS" == "Failed" ]; then echo "Error: Pod entered '$STATUS' state."; exit 1; fi
             echo "Current status: $STATUS. Waiting 15 seconds..."; sleep 15
           done
 
-          # --- ИЗМЕНЕНИЕ: УБИРАЕМ --output json ---
-          POD_INFO=$(runpodctl ge
+          # --- ИСПРАВЛЕНИЕ: ДОБАВЛЯЕМ ПРАВИЛЬНЫЙ ФЛАГ --json ---
+          POD_INFO=$(runpodctl get pod $POD_ID --json)
+          AI_URL=$(echo "$POD_INFO" | jq -r '.runtime.ports[] | select(.privatePort == 8001) | .httpsUrl')
+          WEBSOCKET_URL=$(echo "$AI_URL" | sed 's|https|wss|')/ws/listen/
+
+          echo "AI_BACKEND_URL=$AI_URL" >> $GITHUB_OUTPUT
+          echo "AI_WEBSOCKET_URL=$WEBSOCKET_URL" >> $GITHUB_OUTPUT
+
+      - name: Update main VM with new URLs
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.MAIN_SERVICE_SSH_HOST }}
+          username: ${{ secrets.MAIN_SERVICE_SSH_USER }}
+          key: ${{ secrets.MAIN_SERVICE_SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            NEW_AI_URL="${{ steps.get_url.outputs.AI_BACKEND_URL }}"
+            NEW_WS_URL="${{ steps.get_url.outputs.AI_WEBSOCKET_URL }}"
+
+            sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" /home/jzndjxjcbd/mary-assistant/backend/.env
+            sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" /home/jzndjxjcbd/mary-assistant/backend/.env
+
+            sudo /home/jzndjxjcbd/restart-fastapi.sh
+            echo "Main service restarted successfully."

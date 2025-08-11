@@ -44,8 +44,6 @@ jobs:
           POD_NAME="ai-backend-$(date +%s)"
           echo "Attempting to create a new pod named '$POD_NAME' from template ${{ env.RUNPOD_TEMPLATE_ID }} with GPU: '$GPU_TO_CREATE'"
 
-          # --- ФИНАЛЬНОЕ ИСПРАВЛЕНИЕ: ПАРСИМ ВЫВОД КОМАНДЫ CREATE ---
-          # Выполняем команду и сохраняем ее текстовый вывод
           CREATE_OUTPUT=$(runpodctl create pod \
             --templateId "${{ env.RUNPOD_TEMPLATE_ID }}" \
             --imageName "${{ env.DOCKER_IMAGE }}" \
@@ -55,7 +53,6 @@ jobs:
             
           echo "Response from RunPod: $CREATE_OUTPUT"
 
-          # Извлекаем ID из строки 'pod "ldf7l03qeuy2fv" created...'
           POD_ID=$(echo "$CREATE_OUTPUT" | grep -o 'pod "[^"]*"' | sed 's/pod "//;s/"//')
 
           if [ -z "$POD_ID" ]; then
@@ -75,8 +72,8 @@ jobs:
           echo "Waiting for pod $POD_ID to enter 'Running' state..."
 
           for i in {1..20}; do
-            # Используем get pod с флагом --json, который должен работать для этой команды
-            POD_INFO=$(runpodctl get pod $POD_ID --json)
+            # --- ИСПРАВЛЕНИЕ: УБИРАЕМ --json ---
+            POD_INFO=$(runpodctl get pod $POD_ID)
             STATUS=$(echo "$POD_INFO" | jq -r '.desiredStatus')
             if [ "$STATUS" == "Running" ]; then
               echo "Pod is running!"
@@ -84,7 +81,7 @@ jobs:
               WEBSOCKET_URL=$(echo "$AI_URL" | sed 's|https|wss|')/ws/listen/
               echo "AI_BACKEND_URL=$AI_URL" >> $GITHUB_OUTPUT
               echo "AI_WEBSOCKET_URL=$WEBSOCKET_URL" >> $GITHUB_OUTPUT
-              exit 0 # Успешно выходим из шага
+              exit 0
             fi
             if [ "$STATUS" == "Terminated" ] || [ "$STATUS" == "Failed" ]; then
               echo "Error: Pod entered '$STATUS' state. Aborting."

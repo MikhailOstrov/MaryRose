@@ -8,7 +8,8 @@ on:
       - main
 
 env:
-  DOCKER_IMAGE: roma3213/maryrose-app:v3
+  DOCKER_IMAGE_REPO: roma3213/maryrose-app
+  DOCKER_IMAGE_TAG: v3
 
 jobs:
   build-push-cleanup:
@@ -28,37 +29,55 @@ jobs:
           password: ${{ secrets.DOCKER_PASSWORD }}
 
       - name: Build and push Docker image with cache
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
-          tags: ${{ env.DOCKER_IMAGE }}
+          tags: ${{ env.DOCKER_IMAGE_REPO }}:${{ env.DOCKER_IMAGE_TAG }}
           cache-from: type=gha,scope=${{ github.workflow }}
           cache-to: type=gha,scope=${{ github.workflow }},mode=max
 
-      # --- ШАГ 1: ОЧИСТКА RUNNER'А ---
       - name: Prune builder cache and local images
-        if: always() # Выполнять всегда, даже если предыдущий шаг упал
+        if: always()
         run: |
           echo "Cleaning up builder cache..."
           docker buildx prune -a -f
           echo "Cleaning up local Docker images..."
           docker image prune -a -f
 
-      # --- ШАГ 2: ОЧИСТКА DOCKER HUB ---
-      - name: Cleanup old untagged images on Docker Hub
-        if: success() # Выполнять только после успешного пуша
-        uses: docker-practice/actions-tag-deleter@v1.1.0
-        with:
-          # Указываем репозиторий для очистки
-          repo: "roma3213/maryrose-app"
-          # Удаляем ТОЛЬКО образы без тегов
-          untagged: "true"
-          # Оставляем 0 самых свежих безымянных образов (т.е. удаляем все)
-          retain_last_count: 0
-          # Логин и пароль для доступа к Docker Hub
-          user: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-          # Сначала запустите с 'true', чтобы посмотреть, что он хочет удалить.
-          # Затем поменяйте на 'false' для реального удаления.
-          dry_run: "true"
+      # --- НОВЫЙ, НАДЕЖНЫЙ ШАГ ОЧИСТКИ DOCKER HUB ---
+      - name: Cleanup old untagged images on Docker Hub via API
+        if: success()
+        run: |
+          IMAGE=${{ env.DOCKER_IMAGE_REPO }}
+          USERNAME=${{ secrets.DOCKER_USERNAME }}
+          PASSWORD=${{ secrets.DOCKER_PASSWORD }}
+
+          echo "Fetching authentication token from Docker Hub..."
+          TOKEN=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "'$USERNAME'", "password": "'$PASSWORD'"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
+
+          if [ -z "$TOKEN" ] || [ "$TOKEN" == "null" ]; then
+            echo "Error: Failed to get Docker Hub token."
+            exit 1
+          fi
+
+          echo "Fetching image digests (unique IDs)..."
+          # Получаем список всех манифестов (уникальных версий образа)
+          DIGESTS=$(curl -s -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$IMAGE/tags/?page_size=100" | jq -r '.results[].images[] | select(.status == "active") | .digest')
+
+          # Получаем дайджест, на который сейчас указывает наш тег :v3
+          CURRENT_DIGEST=$(curl -s -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$IMAGE/tags/${{ env.DOCKER_IMAGE_TAG }}/" | jq -r '.images[] | select(.status == "active") | .digest')
+
+          echo "Current digest for tag '${{ env.DOCKER_IMAGE_TAG }}' is $CURRENT_DIGEST"
+
+          for digest in $DIGESTS; do
+            if [ "$digest" != "$CURRENT_DIGEST" ]; then
+              echo "Deleting old, untagged image with digest: $digest"
+              # --- ЗАЩИТА: СНАЧАЛА ЗАПУСТИТЕ БЕЗ РЕАЛЬНОГО УДАЛЕНИЯ ---
+              # curl -s -X DELETE -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$IMAGE/manifests/$digest"
+              echo "Dry Run: Would have deleted digest $digest"
+            else
+              echo "Keeping current image with digest: $digest"
+            fi
+          done

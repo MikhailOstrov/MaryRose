@@ -2,49 +2,41 @@
 
 name: Create New RunPod Pod via Branch Push
 
-# Триггер: запускается при любом пуше в ветку 'run-runpod'
 on:
   push:
     branches:
       - run-runpod
 
-# Переменные окружения для легкой настройки
 env:
-  # ЗАМЕНИТЕ на ID вашего темплейта
-  RUNPOD_TEMPLATE_ID: ydgd23y2f5
-  # GPU, которая будет использоваться по умолчанию
+  # Параметры для создания пода
+  DOCKER_IMAGE: "roma3213/maryrose-app:v3"
   DEFAULT_GPU_TYPE: "NVIDIA RTX A5000"
+  CONTAINER_DISK_GB: 50
+  VOLUME_DISK_GB: 50
 
 jobs:
   create-pod-and-update:
     name: Create Pod and Update Main VM
     runs-on: ubuntu-latest
     steps:
-      # Шаг 1: Устанавливаем необходимые утилиты
       - name: Install RunPod CLI and jq
         run: |
           pip install runpod
           sudo apt-get update && sudo apt-get install -y jq
 
-      # Шаг 2: Определяем, какую GPU использовать
       - name: Determine GPU Type
         id: get_gpu
         run: |
-          # Извлекаем последнюю строку из сообщения коммита
           GPU_FROM_COMMIT=$(git log -1 --pretty=%B | tail -n 1)
-
-          # Проверяем, указана ли GPU в коммите
-          if [[ "$GPU_FROM_COMMIT" == *"RTX"* ]] || [[ "$GPU_FROM_COMMIT" == *"A100"* ]] || [[ "$GPU_FROM_COMMIT" == *"H100"* ]]; then
+          if [[ "$GPU_FROM_COMMIT" == *"RTX"* ]] || [[ "$GPU_FROM_COMMIT" == *"A"* ]]; then
             echo "Found GPU in commit message: '$GPU_FROM_COMMIT'. Using it."
             echo "gpu_type=$GPU_FROM_COMMIT" >> $GITHUB_OUTPUT
           else
-            # Если в коммите нет GPU, используем значение по умолчанию
             echo "No valid GPU type in commit message. Using default: '${{ env.DEFAULT_GPU_TYPE }}'"
             echo "gpu_type=${{ env.DEFAULT_GPU_TYPE }}" >> $GITHUB_OUTPUT
           fi
 
-      # Шаг 3: Создаем новый под из темплейта с выбранной GPU
-      - name: Create new pod from template
+      - name: Create new pod
         id: create_pod
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
@@ -52,10 +44,13 @@ jobs:
           GPU_TO_CREATE="${{ steps.get_gpu.outputs.gpu_type }}"
           echo "Attempting to create a new pod with GPU: '$GPU_TO_CREATE'"
 
-          # Выполняем команду с указанием и темплейта, и типа GPU
+          # ИСПОЛЬЗУЕМ ПРАВИЛЬНЫЙ СИНТАКСИС КОМАНДЫ
           POD_JSON=$(runpod pod create \
-            --templateId "${{ env.RUNPOD_TEMPLATE_ID }}" \
-            --gpuType "$GPU_TO_CREATE")
+            --name "ai-backend-$(date +%s)" \
+            --image-name "${{ env.DOCKER_IMAGE }}" \
+            --gpu-type "$GPU_TO_CREATE" \
+            --container-disk ${{ env.CONTAINER_DISK_GB }} \
+            --volume-disk ${{ env.VOLUME_DISK_GB }})
             
           echo "Pod creation initiated."
 
@@ -63,7 +58,6 @@ jobs:
           echo "New Pod ID: $POD_ID"
           echo "pod_id=$POD_ID" >> $GITHUB_OUTPUT
 
-      # Шаг 4: Ждем, пока под запустится, и получаем его URL
       - name: Wait for pod to run and get URLs
         id: get_url
         env:
@@ -72,18 +66,11 @@ jobs:
           POD_ID=${{ steps.create_pod.outputs.pod_id }}
           echo "Waiting for pod $POD_ID to enter 'Running' state..."
 
-          for i in {1..20}; do # Ждем до 5 минут
+          for i in {1..20}; do
             STATUS=$(runpod pod find --id $POD_ID | jq -r '.desiredStatus')
-            if [ "$STATUS" == "Running" ]; then
-              echo "Pod is running!"
-              break
-            fi
-            if [ "$STATUS" == "Terminated" ] || [ "$STATUS" == "Failed" ]; then
-              echo "Error: Pod entered '$STATUS' state. Aborting."
-              exit 1
-            fi
-            echo "Current status: $STATUS. Waiting 15 seconds..."
-            sleep 15
+            if [ "$STATUS" == "Running" ]; then echo "Pod is running!"; break; fi
+            if [ "$STATUS" == "Terminated" ] || [ "$STATUS" == "Failed" ]; then echo "Error: Pod entered '$STATUS' state."; exit 1; fi
+            echo "Current status: $STATUS. Waiting 15 seconds..."; sleep 15
           done
 
           POD_INFO=$(runpod pod find --id $POD_ID)
@@ -93,7 +80,6 @@ jobs:
           echo "AI_BACKEND_URL=$AI_URL" >> $GITHUB_OUTPUT
           echo "AI_WEBSOCKET_URL=$WEBSOCKET_URL" >> $GITHUB_OUTPUT
 
-      # Шаг 5: Обновляем .env файл на основной ВМ
       - name: Update main VM with new URLs
         uses: appleboy/ssh-action@master
         with:
@@ -102,13 +88,11 @@ jobs:
           key: ${{ secrets.MAIN_SERVICE_SSH_PRIVATE_KEY }}
           script: |
             set -e
-            echo "Updating .env file on the main VM..."
             NEW_AI_URL="${{ steps.get_url.outputs.AI_BACKEND_URL }}"
             NEW_WS_URL="${{ steps.get_url.outputs.AI_WEBSOCKET_URL }}"
 
             sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" /home/jzndjxjcbd/mary-assistant/backend/.env
             sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" /home/jzndjxjcbd/mary-assistant/backend/.env
 
-            echo ".env file updated. Restarting main service..."
             sudo /home/jzndjxjcbd/restart-fastapi.sh
             echo "Main service restarted successfully."

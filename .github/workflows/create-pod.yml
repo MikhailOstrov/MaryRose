@@ -50,8 +50,8 @@ jobs:
             --gpuType "$GPU_TO_CREATE" \
             --name "$POD_NAME" \
             --volumePath "/workspace" \
-            --volumeSize int 50 \
-            --containerDiskSize int 50 \
+            --volumeSize 50 \
+            --containerDiskSize 50 \
             --secureCloud)
             
           echo "Response from RunPod: $CREATE_OUTPUT"

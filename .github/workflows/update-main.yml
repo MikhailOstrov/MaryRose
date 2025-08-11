@@ -32,7 +32,7 @@ jobs:
             set -e
 
             echo "--- Starting build on Build VM ---"
-            cd /path/to/your/MaryRose/repo # <--- ВАЖНО: УКАЖИТЕ ПРАВИЛЬНЫЙ ПУТЬ
+            cd MaryRose # <--- ВАЖНО: УКАЖИТЕ ПРАВИЛЬНЫЙ ПУТЬ
             git pull origin main
 
             echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin

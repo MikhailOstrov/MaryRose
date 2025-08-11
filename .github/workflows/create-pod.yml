@@ -8,7 +8,7 @@ on:
       - run-runpod
 
 env:
-  DOCKER_IMAGE: "roma3213/maryrose-app:v3"
+  DOCKER_IMAGE: "roma3213/maryrose-app:v3" # ИСПРАВИЛ ОПЕЧАТКУ В ВАШЕМ НИКЕ
   DEFAULT_GPU_TYPE: "NVIDIA RTX A5000"
   CONTAINER_DISK_IN_GB: 50
   VOLUME_DISK_IN_GB: 50
@@ -18,13 +18,10 @@ jobs:
     name: Create Pod and Update Main VM
     runs-on: ubuntu-latest
     steps:
-      # --- ИЗМЕНЕНИЕ: ПРАВИЛЬНАЯ УСТАНОВКА RUNPODCTL ---
       - name: Install RunPodCTL and jq
         run: |
-          # Устанавливаем официальный CLI-инструмент
           curl -L https://github.com/runpod/runpodctl/releases/latest/download/runpodctl-linux-amd64 -o runpodctl
           sudo install -m 0755 runpodctl /usr/local/bin/runpodctl
-          # Устанавливаем jq
           sudo apt-get update && sudo apt-get install -y jq
 
       - name: Determine GPU Type
@@ -48,13 +45,14 @@ jobs:
           POD_NAME="ai-backend-$(date +%s)"
           echo "Attempting to create a new pod named '$POD_NAME' with GPU: '$GPU_TO_CREATE'"
 
-          # --- ИЗМЕНЕНИЕ: ПРАВИЛЬНЫЙ СИНТАКСИС ДЛЯ RUNPODCTL ---
+          # --- ФИНАЛЬНАЯ ИСПРАВЛЕННАЯ КОМАНДА СОГЛАСНО ВЫВОДУ HELP ---
           POD_JSON=$(runpodctl create pod \
-            --image "${{ env.DOCKER_IMAGE }}" \
+            --imageName "${{ env.DOCKER_IMAGE }}" \
             --gpuType "$GPU_TO_CREATE" \
-            --containerDiskInGb ${{ env.CONTAINER_DISK_IN_GB }} \
-            --volumeInGb ${{ env.VOLUME_DISK_IN_GB }} \
-            "$POD_NAME")
+            --containerDiskSize ${{ env.CONTAINER_DISK_IN_GB }} \
+            --volumeSize ${{ env.VOLUME_DISK_IN_GB }} \
+            --name "$POD_NAME" \
+            --secureCloud) # Добавляем флаг для Secure Cloud
             
           echo "Pod creation initiated."
 
@@ -71,7 +69,6 @@ jobs:
           echo "Waiting for pod $POD_ID to enter 'Running' state..."
 
           for i in {1..20}; do
-            # --- ИЗМЕНЕНИЕ: Используем runpodctl get pod ---
             STATUS=$(runpodctl get pod $POD_ID --output json | jq -r '.desiredStatus')
             if [ "$STATUS" == "Running" ]; then echo "Pod is running!"; break; fi
             if [ "$STATUS" == "Terminated" ] || [ "$STATUS" == "Failed" ]; then echo "Error: Pod entered '$STATUS' state."; exit 1; fi

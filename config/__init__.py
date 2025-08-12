@@ -10,7 +10,6 @@ from .config import (
     TTS_MODEL_ID,
     TTS_SPEAKER,
     TTS_SAMPLE_RATE,
-    LLM_NAME,
     DIAR_CONFIG_URL,
     DIAR_SPEAKER_MODEL,
     STREAM_SAMPLE_RATE,

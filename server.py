@@ -48,6 +48,8 @@ class StopRequest(BaseModel):
 class WebsiteSessionStartRequest(BaseModel):
     meeting_id: int
 
+#urraaaa
+
 # Проверка сервера
 @app.get("/health")
 async def health_check():

@@ -19,8 +19,8 @@ for dir_path in workspace_dirs:
     print(f"Создана директория: {dir_path}")
 
 from faster_whisper import WhisperModel
-import transformers
-from huggingface_hub import login
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+from huggingface_hub import login, snapshot_download
 from omegaconf import OmegaConf
 import torch
 import wget
@@ -59,13 +59,26 @@ def check_model_exists(model_identifier, model_type="whisper"):
 
 # Проверка и загрузка Whisper
 def load_asr_model():
-
-    if check_model_exists(ASR_MODEL_NAME, "whisper"):
-        print(f"ASR модель {ASR_MODEL_NAME} найдена в /workspace, загружаем...")
-    else:
-        print(f"ASR модель {ASR_MODEL_NAME} не найдена, загружаем в /workspace...")
-    
-    asr_model = WhisperModel(ASR_MODEL_NAME)
+    # Пытаемся найти локально, иначе скачиваем и кэшируем
+    print(f"Проверка локального кэша для ASR модели: {ASR_MODEL_NAME}")
+    try:
+        local_path = snapshot_download(
+            repo_id=ASR_MODEL_NAME,
+            cache_dir="/workspace/.cache/huggingface",
+            local_files_only=True,
+            token=hf_token
+        )
+        print(f"Найден локальный путь ASR модели: {local_path}")
+    except Exception as e:
+        print(f"Локальный кэш ASR не найден, скачиваю из сети: {e}")
+        local_path = snapshot_download(
+            repo_id=ASR_MODEL_NAME,
+            cache_dir="/workspace/.cache/huggingface",
+            local_files_only=False,
+            token=hf_token
+        )
+        print(f"ASR модель скачана в: {local_path}")
+    asr_model = WhisperModel(local_path)
     print("ASR model loaded.")
     return asr_model
 
@@ -112,20 +125,42 @@ def load_diarizer_config():
 
 # Проверка и загрузка Llama
 def load_llm():
-    if check_model_exists(LLM_NAME, "huggingface"):
-        print(f"LLM модель {LLM_NAME} найдена в /workspace, загружаем...")
-    else:
-        print(f"LLM модель {LLM_NAME} не найдена, загружаем в /workspace...")
-    
-    hf_token = os.getenv("HUGGING_FACE_HUB_TOKEN")
-    pipeline = transformers.pipeline(
+    # Сначала пытаемся локально, иначе разрешаем загрузку из сети (с токеном)
+    try:
+        print(f"Пробую загрузить LLM локально: {LLM_NAME}")
+        tokenizer = AutoTokenizer.from_pretrained(
+            LLM_NAME,
+            local_files_only=True,
+            token=hf_token
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            LLM_NAME,
+            local_files_only=True,
+            torch_dtype=torch.bfloat16,
+            device_map="cuda",
+            token=hf_token
+        )
+    except Exception as e:
+        print(f"Локальный кэш LLM не найден, скачиваю из сети: {e}")
+        tokenizer = AutoTokenizer.from_pretrained(
+            LLM_NAME,
+            local_files_only=False,
+            token=hf_token
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            LLM_NAME,
+            local_files_only=False,
+            torch_dtype=torch.bfloat16,
+            device_map="cuda",
+            token=hf_token
+        )
+    text_gen = pipeline(
         "text-generation",
-        model=LLM_NAME,
-        model_kwargs={"torch_dtype": torch.bfloat16},
+        model=model,
+        tokenizer=tokenizer,
         device_map="cuda",
-        token=hf_token
     )
-    return pipeline
+    return text_gen
 
 # Загрузка моделей при импорте модуля
 print("=== Начинаем загрузку моделей в /workspace ===")

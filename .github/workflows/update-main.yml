@@ -1,20 +1,20 @@
 # .github/workflows/build-and-push-on-vm.yml
 
-name: Build and Push AI Backend on Build VM
+name: Build and Push AI Backend on Build VM and Redeploy RunPod
 
 on:
   push:
     branches:
-      - main # Запускается при пуше в основную ветку
+      - main
 
 env:
-  # Полное имя вашего Docker-образа с тегом
   DOCKER_IMAGE_FULL_TAG: roma3213/maryrose-app:v3
+  DOCKER_IMAGE_REPO_NAME: roma3213/maryrose-app
 
 jobs:
-  build-and-push:
-    name: Build and Push on dedicated VM
-    runs-on: ubuntu-latest # Этот runner GitHub Actions будет только подключаться по SSH
+  build-push-redeploy:
+    name: Build, Push, and Redeploy on RunPod
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -25,31 +25,165 @@ jobs:
           ssh-private-key: ${{ secrets.BUILD_VM_SSH_PRIVATE_KEY }}
 
       - name: Run build and push commands on Build VM
+        id: build_and_push
         run: |
           ssh-keyscan -H ${{ secrets.BUILD_VM_SSH_HOST }} >> ~/.ssh/known_hosts
           ssh -T ${{ secrets.BUILD_VM_SSH_USER }}@${{ secrets.BUILD_VM_SSH_HOST }} 'bash -s' << 'ENDSSH'
-            set -e # Выйти немедленно, если любая команда завершится неудачно
+            set -e
 
             echo "--- Starting build on Build VM ---"
             
-            # Переходим в директорию проекта
             cd MaryRose # <--- ВАЖНО: УКАЖИТЕ ПРАВИЛЬНЫЙ ПУТЬ НА ВАШЕЙ БИЛД-ВМ
 
-            # Обновляем код
             echo "Pulling latest code..."
             git pull origin main
 
-            # Логинимся в Docker Hub (чтобы пушить)
             echo "Logging into Docker Hub..."
             echo ${{ secrets.DOCKER_PASSWORD }} | docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
 
-            # Собираем Docker-образ
             echo "Building Docker image: ${{ env.DOCKER_IMAGE_FULL_TAG }}..."
             docker build -t ${{ env.DOCKER_IMAGE_FULL_TAG }} .
 
-            # Отправляем образ в Docker Hub
             echo "Pushing Docker image: ${{ env.DOCKER_IMAGE_FULL_TAG }} to Docker Hub..."
             docker push ${{ env.DOCKER_IMAGE_FULL_TAG }}
 
             echo "--- Docker image build and push completed successfully ---"
           ENDSSH
+
+      - name: Cleanup old untagged images on Docker Hub via API
+        if: success()
+        run: |
+          IMAGE_REPO=${{ env.DOCKER_IMAGE_REPO_NAME }}
+          USERNAME=${{ secrets.DOCKER_USERNAME }}
+          PASSWORD=${{ secrets.DOCKER_PASSWORD }}
+
+          # --- ИСПРАВЛЕНИЕ: ИЗВЛЕКАЕМ ТЕГ ВНУТРИ run: БЛОКА ---
+          DOCKER_IMAGE_TAG=$(echo "${{ env.DOCKER_IMAGE_FULL_TAG }}" | cut -d: -f2)
+
+          TOKEN=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "'$USERNAME'", "password": "'$PASSWORD'"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
+
+          if [ -z "$TOKEN" ] || [ "$TOKEN" == "null" ]; then echo "Error: Failed to get Docker Hub token."; exit 1; fi
+
+          DIGESTS=$(curl -s -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$IMAGE_REPO/tags/?page_size=100" | jq -r '.results[].images[] | select(.status == "active") | .digest')
+
+          # Используем локальную переменную DOCKER_IMAGE_TAG
+          CURRENT_DIGEST=$(curl -s -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$IMAGE_REPO/tags/$DOCKER_IMAGE_TAG/" | jq -r '.images[] | select(.status == "active") | .digest')
+
+          echo "Current digest for tag '$DOCKER_IMAGE_TAG' is $CURRENT_DIGEST"
+
+          for digest in $DIGESTS; do
+            if [ "$digest" != "$CURRENT_DIGEST" ]; then
+              echo "Deleting old, untagged image with digest: $digest"
+              # curl -s -X DELETE -H "Authorization: JWT $TOKEN" "https://hub.docker.com/v2/repositories/$IMAGE_REPO/manifests/$digest"
+              echo "Dry Run: Would have deleted digest $digest"
+            else
+              echo "Keeping current image with digest: $digest"
+            fi
+          done
+
+      - name: Install RunPodCTL and jq for RunPod operations
+        run: |
+          curl -L https://github.com/runpod/runpodctl/releases/latest/download/runpodctl-linux-amd64 -o runpodctl
+          sudo install -m 0755 runpodctl /usr/local/bin/runpodctl
+          sudo apt-get update && sudo apt-get install -y jq
+
+      - name: Get Existing Pod ID for Redeployment
+        id: get_existing_pod
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          echo "Searching for existing pods to redeploy..."
+          POD_ID=$(runpodctl get pod | tail -n +3 | sed '/^$/d' | head -n 1 | awk '{print $1}')
+
+          if [ -z "$POD_ID" ]; then
+            echo "Error: No existing pod found to redeploy. This workflow requires an existing pod. Aborting."
+            exit 1
+          fi
+
+          echo "Found existing pod with ID: $POD_ID"
+          echo "pod_id=$POD_ID" >> $GITHUB_OUTPUT
+
+      - name: Stop Existing Pod
+        id: stop_pod
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          POD_ID=${{ steps.get_existing_pod.outputs.pod_id }}
+          echo "Stopping pod $POD_ID..."
+          runpodctl stop pod $POD_ID
+          echo "Pod stop command sent. Waiting for it to enter 'EXITED' state..."
+
+          for i in {1..10}; do
+            CURRENT_STATUS=$(runpodctl get pod $POD_ID | tail -n 1 | awk '{print $NF}')
+            
+            if [ "$CURRENT_STATUS" == "EXITED" ]; then
+              echo "Pod $POD_ID is now EXITED."
+              exit 0
+            fi
+            
+            echo "Waiting for pod $POD_ID to stop. Current status: $CURRENT_STATUS..."
+            sleep 10
+          done
+          echo "Fatal: Pod $POD_ID did not stop in time."
+          exit 1
+
+      - name: Start Existing Pod
+        id: start_pod
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          POD_ID=${{ steps.get_existing_pod.outputs.pod_id }}
+          echo "Starting pod $POD_ID..."
+          runpodctl start pod $POD_ID
+          echo "Pod start command sent."
+
+      - name: Wait for pod to become healthy
+        id: wait_for_health
+        run: |
+          POD_ID=${{ steps.get_existing_pod.outputs.pod_id }}
+          HEALTH_URL="https://${POD_ID}-8001.proxy.runpod.net/health"
+
+          echo "Waiting for application to become healthy at: $HEALTH_URL"
+
+          for i in {1..20}; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" $HEALTH_URL)
+            
+            if [ "$HTTP_CODE" -eq 200 ]; then
+              echo "Health check successful! Application is ready."
+              AI_URL="https://$(echo $POD_ID)-8001.proxy.runpod.net"
+              WEBSOCKET_URL=$(echo "$AI_URL" | sed 's|https|wss|')/ws/listen/
+              echo "AI_BACKEND_URL=$AI_URL" >> $GITHUB_OUTPUT
+              echo "AI_WEBSOCKET_URL=$WEBSOCKET_URL" >> $GITHUB_OUTPUT
+              exit 0
+            fi
+            
+            echo "Health check failed with status code $HTTP_CODE. Waiting 15 seconds..."
+            sleep 15
+          done
+
+          echo "Fatal: Application did not become healthy in time."
+          exit 1
+
+      - name: Update main VM with URLs (if changed)
+        if: success()
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.MAIN_SERVICE_SSH_HOST }}
+          username: ${{ secrets.MAIN_SERVICE_SSH_USER }}
+          key: ${{ secrets.MAIN_SERVICE_SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            POD_ID=${{ steps.get_existing_pod.outputs.pod_id }}
+            NEW_AI_URL="https://$(echo $POD_ID)-8001.proxy.runpod.net"
+            NEW_WS_URL="wss://$(echo $POD_ID)-8001.proxy.runpod.net/ws/listen/"
+
+            CURRENT_AI_URL=$(grep "^AI_BACKEND_URL=" /home/jzndjxjcbd/mary-assistant/backend/.env | cut -d'=' -f2)
+            if [ "$CURRENT_AI_URL" != "$NEW_AI_URL" ]; then
+              echo "AI Backend URL has changed. Updating .env file..."
+              sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" /home/jzndjxjcbd/mary-assistant/backend/.env
+              sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" /home/jzndjxjcbd/mary-assistant/backend/.env
+              sudo /home/jzndjxjcbd/restart-fastapi.sh
+              echo "Main service restarted successfully."
+            else
+              echo "AI Backend URL is unchanged. Skipping .env update and FastAPI restart."
+            fi

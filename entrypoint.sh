@@ -77,30 +77,35 @@ else
     echo "⚠️ [Entrypoint] PulseAudio не отвечает. Захват звука не будет работать."
 fi
 
-# --- 3. Загрузка моделей (ПЕРВЫМ ДЕЛОМ!) ---
-echo "=== [Entrypoint] Загрузка моделей в /workspace ==="
-echo "[Entrypoint] Загрузка моделей при первом запуске может занять несколько минут..."
-
-python3 -c "
+# --- 3. Предзагрузка кэша моделей (без инициализации GPU) ---
+# Если переменная PREWARM=download_only, то заранее скачиваем веса в /workspace,
+# чтобы приложение при старте не ходило в сеть.
+if [ "${PREWARM:-off}" = "download_only" ]; then
+  echo "=== [Entrypoint] Предзагрузка весов моделей (pre-cache) ==="
+  python3 - <<'PY'
+import os
 import sys
-sys.path.append('/app')
-try:
-    print('[Model Load] Начинаем проверку и загрузку моделей...')
-    from config.load_models import llm_model, asr_model, vad_model, tts_model, diarizer_config
-    print('[Model Load] ✅ Все модели успешно загружены и готовы к использованию')
-except Exception as e:
-    print(f'[Model Load] ❌ Ошибка загрузки моделей: {e}')
-    import traceback
-    traceback.print_exc()
-    sys.exit(1)
-"
+from huggingface_hub import snapshot_download
 
-if [ $? -ne 0 ]; then
-    echo "❌ [Entrypoint] CRITICAL: Загрузка моделей не удалась. Прерывание."
-    exit 1
+HF_TOKEN = os.getenv("HUGGING_FACE_HUB_TOKEN") or os.getenv("HF_TOKEN")
+
+targets = [
+    "meta-llama/Meta-Llama-3.1-8B-Instruct",
+    "deepdml/faster-whisper-large-v3-turbo-ct2",
+]
+
+for repo in targets:
+    print(f"[PreCache] Скачивание {repo} в локальный кэш...")
+    snapshot_download(
+        repo_id=repo,
+        cache_dir="/workspace/.cache/huggingface",
+        local_files_only=False,
+        token=HF_TOKEN,
+        ignore_patterns=["*.safetensors.index.json", "*.h5"],
+    )
+print("[PreCache] ✅ Завершено")
+PY
 fi
-
-echo "✅ [Entrypoint] Все модели загружены и готовы!"
 
 # --- 4. Проверки системы ---
 echo "=== [Entrypoint] Проверка системы ==="

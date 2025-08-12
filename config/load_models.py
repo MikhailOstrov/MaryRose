@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from openai import OpenAI
 
 # Настройка путей для RunPod (модели сохраняются в персистентный /workspace)
 os.environ['HOME'] = '/app'
@@ -19,18 +20,23 @@ for dir_path in workspace_dirs:
     print(f"Создана директория: {dir_path}")
 
 from faster_whisper import WhisperModel
-from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
 from huggingface_hub import login, snapshot_download
 from omegaconf import OmegaConf
 import torch
 import wget
-from config import ASR_MODEL_NAME, TTS_MODEL_ID, DIAR_SPEAKER_MODEL, DIAR_CONFIG_URL, LLM_NAME
+from config import ASR_MODEL_NAME, TTS_MODEL_ID, DIAR_SPEAKER_MODEL, DIAR_CONFIG_URL
 from dotenv import load_dotenv
 
 load_dotenv() 
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 hf_token = os.getenv("HUGGING_FACE_HUB_TOKEN")
+
+# Клиент от OpenAI моделей
+CLIENT = OpenAI(
+    api_key=os.getenv("PROXY_API"),
+    base_url=os.getenv("BASE_OPENAI_URL"),
+)
 
 if hf_token:
     login(token=hf_token)
@@ -123,48 +129,8 @@ def load_diarizer_config():
     config.diarizer.speaker_embeddings.model_path = DIAR_SPEAKER_MODEL
     return config
 
-# Проверка и загрузка Llama
-def load_llm():
-    # Сначала пытаемся локально, иначе разрешаем загрузку из сети (с токеном)
-    try:
-        print(f"Пробую загрузить LLM локально: {LLM_NAME}")
-        tokenizer = AutoTokenizer.from_pretrained(
-            LLM_NAME,
-            local_files_only=True,
-            token=hf_token
-        )
-        model = AutoModelForCausalLM.from_pretrained(
-            LLM_NAME,
-            local_files_only=True,
-            torch_dtype=torch.bfloat16,
-            device_map="cuda",
-            token=hf_token
-        )
-    except Exception as e:
-        print(f"Локальный кэш LLM не найден, скачиваю из сети: {e}")
-        tokenizer = AutoTokenizer.from_pretrained(
-            LLM_NAME,
-            local_files_only=False,
-            token=hf_token
-        )
-        model = AutoModelForCausalLM.from_pretrained(
-            LLM_NAME,
-            local_files_only=False,
-            torch_dtype=torch.bfloat16,
-            device_map="cuda",
-            token=hf_token
-        )
-    text_gen = pipeline(
-        "text-generation",
-        model=model,
-        tokenizer=tokenizer,
-        device_map="cuda",
-    )
-    return text_gen
-
 # Загрузка моделей при импорте модуля
 print("=== Начинаем загрузку моделей в /workspace ===")
-llm_model = load_llm()
 asr_model = load_asr_model()
 (vad_model, vad_utils, vad_iterator) = load_silero_vad_model()
 tts_model = load_tts_model()

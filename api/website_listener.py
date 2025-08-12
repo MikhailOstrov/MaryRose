@@ -17,7 +17,7 @@ from config.config import (
     SUMMARY_OUTPUT_DIR,
 )
 
-from handlers.ollama_handler import get_mary_response, get_summary_response, get_title_response
+from handlers.llm_handler import get_mary_response, get_summary_response, get_title_response
 from handlers.diarization_handler import run_diarization, process_rttm_and_transcribe
 from api.utils import combine_audio_chunks
 from config.load_models import vad_model, asr_model

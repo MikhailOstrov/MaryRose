@@ -19,8 +19,8 @@ for dir_path in workspace_dirs:
     print(f"Создана директория: {dir_path}")
 
 from faster_whisper import WhisperModel
-import transformers
-from huggingface_hub import login
+from transformers import AutoModelForCausalLM, AutoTokenizer, pipeline
+from huggingface_hub import login, snapshot_download
 from omegaconf import OmegaConf
 import torch
 import wget
@@ -59,13 +59,16 @@ def check_model_exists(model_identifier, model_type="whisper"):
 
 # Проверка и загрузка Whisper
 def load_asr_model():
-
-    if check_model_exists(ASR_MODEL_NAME, "whisper"):
-        print(f"ASR модель {ASR_MODEL_NAME} найдена в /workspace, загружаем...")
-    else:
-        print(f"ASR модель {ASR_MODEL_NAME} не найдена, загружаем в /workspace...")
-    
-    asr_model = WhisperModel(ASR_MODEL_NAME)
+    # Загружаем локальный путь к модели из кэша HF. Если кэш не найден — упадем, чтобы не ходить в сеть.
+    print(f"Проверка локального кэша для ASR модели: {ASR_MODEL_NAME}")
+    local_path = snapshot_download(
+        repo_id=ASR_MODEL_NAME,
+        cache_dir="/workspace/.cache/huggingface",
+        local_files_only=True,
+        token=hf_token
+    )
+    print(f"Найден локальный путь ASR модели: {local_path}")
+    asr_model = WhisperModel(local_path)
     print("ASR model loaded.")
     return asr_model
 
@@ -113,19 +116,29 @@ def load_diarizer_config():
 # Проверка и загрузка Llama
 def load_llm():
     if check_model_exists(LLM_NAME, "huggingface"):
-        print(f"LLM модель {LLM_NAME} найдена в /workspace, загружаем...")
+        print(f"LLM модель {LLM_NAME} найдена в локальном кэше, загружаем из него...")
     else:
-        print(f"LLM модель {LLM_NAME} не найдена, загружаем в /workspace...")
-    
-    hf_token = os.getenv("HUGGING_FACE_HUB_TOKEN")
-    pipeline = transformers.pipeline(
-        "text-generation",
-        model=LLM_NAME,
-        model_kwargs={"torch_dtype": torch.bfloat16},
+        print(f"LLM модель {LLM_NAME} не найдена в локальном кэше. Убедитесь, что выполнен pre-cache.")
+
+    tokenizer = AutoTokenizer.from_pretrained(
+        LLM_NAME,
+        local_files_only=True,
+        token=hf_token
+    )
+    model = AutoModelForCausalLM.from_pretrained(
+        LLM_NAME,
+        local_files_only=True,
+        torch_dtype=torch.bfloat16,
         device_map="cuda",
         token=hf_token
     )
-    return pipeline
+    text_gen = pipeline(
+        "text-generation",
+        model=model,
+        tokenizer=tokenizer,
+        device_map="cuda",
+    )
+    return text_gen
 
 # Загрузка моделей при импорте модуля
 print("=== Начинаем загрузку моделей в /workspace ===")

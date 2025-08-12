@@ -59,15 +59,25 @@ def check_model_exists(model_identifier, model_type="whisper"):
 
 # Проверка и загрузка Whisper
 def load_asr_model():
-    # Загружаем локальный путь к модели из кэша HF. Если кэш не найден — упадем, чтобы не ходить в сеть.
+    # Пытаемся найти локально, иначе скачиваем и кэшируем
     print(f"Проверка локального кэша для ASR модели: {ASR_MODEL_NAME}")
-    local_path = snapshot_download(
-        repo_id=ASR_MODEL_NAME,
-        cache_dir="/workspace/.cache/huggingface",
-        local_files_only=True,
-        token=hf_token
-    )
-    print(f"Найден локальный путь ASR модели: {local_path}")
+    try:
+        local_path = snapshot_download(
+            repo_id=ASR_MODEL_NAME,
+            cache_dir="/workspace/.cache/huggingface",
+            local_files_only=True,
+            token=hf_token
+        )
+        print(f"Найден локальный путь ASR модели: {local_path}")
+    except Exception as e:
+        print(f"Локальный кэш ASR не найден, скачиваю из сети: {e}")
+        local_path = snapshot_download(
+            repo_id=ASR_MODEL_NAME,
+            cache_dir="/workspace/.cache/huggingface",
+            local_files_only=False,
+            token=hf_token
+        )
+        print(f"ASR модель скачана в: {local_path}")
     asr_model = WhisperModel(local_path)
     print("ASR model loaded.")
     return asr_model
@@ -115,23 +125,35 @@ def load_diarizer_config():
 
 # Проверка и загрузка Llama
 def load_llm():
-    if check_model_exists(LLM_NAME, "huggingface"):
-        print(f"LLM модель {LLM_NAME} найдена в локальном кэше, загружаем из него...")
-    else:
-        print(f"LLM модель {LLM_NAME} не найдена в локальном кэше. Убедитесь, что выполнен pre-cache.")
-
-    tokenizer = AutoTokenizer.from_pretrained(
-        LLM_NAME,
-        local_files_only=True,
-        token=hf_token
-    )
-    model = AutoModelForCausalLM.from_pretrained(
-        LLM_NAME,
-        local_files_only=True,
-        torch_dtype=torch.bfloat16,
-        device_map="cuda",
-        token=hf_token
-    )
+    # Сначала пытаемся локально, иначе разрешаем загрузку из сети (с токеном)
+    try:
+        print(f"Пробую загрузить LLM локально: {LLM_NAME}")
+        tokenizer = AutoTokenizer.from_pretrained(
+            LLM_NAME,
+            local_files_only=True,
+            token=hf_token
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            LLM_NAME,
+            local_files_only=True,
+            torch_dtype=torch.bfloat16,
+            device_map="cuda",
+            token=hf_token
+        )
+    except Exception as e:
+        print(f"Локальный кэш LLM не найден, скачиваю из сети: {e}")
+        tokenizer = AutoTokenizer.from_pretrained(
+            LLM_NAME,
+            local_files_only=False,
+            token=hf_token
+        )
+        model = AutoModelForCausalLM.from_pretrained(
+            LLM_NAME,
+            local_files_only=False,
+            torch_dtype=torch.bfloat16,
+            device_map="cuda",
+            token=hf_token
+        )
     text_gen = pipeline(
         "text-generation",
         model=model,

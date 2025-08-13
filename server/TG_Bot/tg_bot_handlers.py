@@ -3,7 +3,7 @@ import logging
 
 from server.dependencies import get_api_key
 from server.request_models import TextPayload
-from asr_handler import transcribe_audio_async, TRANSCRIBE_SEMAPHORE
+from server.TG_Bot.asr_handler import transcribe_audio_async, TRANSCRIBE_SEMAPHORE
 
 router = APIRouter(prefix="/api/v1/internal", dependencies=[Depends(get_api_key)])
 

@@ -18,8 +18,6 @@ app = FastAPI(
 
 active_bots = {}
 
-TRANSCRIBE_SEMAPHORE = asyncio.Semaphore(6)
-
 # API ключи
 API_KEY = 'key' 
 API_KEY_NAME = "X-Internal-Api-Key"

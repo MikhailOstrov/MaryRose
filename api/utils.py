@@ -7,15 +7,6 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 def combine_audio_chunks(output_dir, stream_sample_rate, meeting_id, output_filename, pattern="chunk_*.wav"):
-    """
-    Соединяет все аудиофрагменты из указанной директории в один WAV-файл.
-
-    Args:
-        output_dir (pathlib.Path или str): Путь к директории, где хранятся аудиофрагменты.
-        stream_sample_rate (int): Частота дискретизации аудиофрагментов.
-        meeting_id (str): ID встречи, используется для логирования.
-        output_filename (str): Имя файла для сохранения объединенного аудио.
-    """
 
     output_filepath = output_dir / output_filename
     all_chunks = sorted(glob.glob(os.path.join(output_dir, "*.wav")))

@@ -1,22 +1,13 @@
 from fastapi.security import APIKeyHeader
 from typing import Dict
 from api.meet_listener import MeetListenerBot
-from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
-import asyncio
+from fastapi import Depends, HTTPException
 
 import logging
 
 logger = logging.getLogger(__name__)
 
 active_meetings: Dict[str, MeetListenerBot] = {}
-
-app = FastAPI(
-    title="MaryRose API",
-    description="API для управления ботом MaryRose и получения результатов встреч.",
-    version="1.0.0"
-)
-
-active_bots = {}
 
 # API ключи
 API_KEY = 'key' 

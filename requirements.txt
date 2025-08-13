@@ -45,3 +45,4 @@ packaging
 Cython
 simpleaudio
 huggingface_hub
+openai

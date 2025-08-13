@@ -3,9 +3,9 @@ from uuid import uuid4
 import logging
 import threading
 
-from dependencies import get_api_key
-from request_models import StartRequest, StopRequest, WebsiteSessionStartRequest
-from server.Google_Meet.meet_bot_manager import active_bots, run_bot_thread
+from server.dependencies import get_api_key
+from server.request_models import StartRequest, StopRequest, WebsiteSessionStartRequest
+from meet_bot_manager import active_bots, run_bot_thread
 from api.session_store import session_to_meeting_map
 
 logger = logging.getLogger(__name__)

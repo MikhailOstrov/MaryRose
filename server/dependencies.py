@@ -1,7 +1,8 @@
 from fastapi.security import APIKeyHeader
 from typing import Dict
-from api.meet_listener import MeetListenerBot
 from fastapi import Depends, HTTPException
+
+from api.meet_listener import MeetListenerBot
 
 import logging
 

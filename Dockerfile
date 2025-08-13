@@ -81,4 +81,4 @@ RUN mkdir -p /app/chrome_profile && chmod 755 /app/chrome_profile
 # --- ШАГ 8: ЗАПУСК (НЕ ТРОНУТО) ---
 EXPOSE 8001
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["uvicorn", "server.server:app", "--host", "0.0.0.0", "--port", "8001"]

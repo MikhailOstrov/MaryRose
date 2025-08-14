@@ -58,42 +58,33 @@ WORKDIR /app
 COPY requirements.txt .
 RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
 
-# --- ШАГ 6: КОПИРОВАНИЕ КОНФИГУРАЦИИ И ЗАГРУЗКА МОДЕЛЕЙ ---
-# Сначала копируем только файлы, необходимые для загрузки моделей
-COPY config/ /app/config/
+# --- ШАГ 6: КОПИРОВАНИЕ КОДА И НАСТРОЙКА ПРАВ ---
+# Копируем ВЕСЬ код приложения ОДИН РАЗ
+COPY . /app/
 
-# Настройка переменных окружения для моделей (используем /workspace для RunPod)
+# Создаем пользователя, которым будем все запускать
+RUN groupadd -r appuser && useradd --no-log-init -r -g appuser appuser
+
+# Выполняем действия, требующие прав root
+RUN dos2unix /app/entrypoint.sh && \
+    chmod +x /app/entrypoint.sh && \
+    mkdir -p /workspace && \
+    mkdir -p /app/chrome_profile && \
+    # Рекурсивно меняем владельца всех файлов приложения и workspace на 'appuser'
+    chown -R appuser:appuser /app /workspace
+
+# --- ШАГ 7: ПЕРЕКЛЮЧЕНИЕ НА НЕПРИВИЛЕГИРОВАННОГО ПОЛЬЗОВАТЕЛЯ ---
+# Все последующие команды будут выполняться от имени 'appuser'
+USER appuser
+
+# Настройка переменных окружения (можно делать и до USER, но так логичнее)
 ENV HOME=/app
 ENV TORCH_HOME=/workspace/.cache/torch
 ENV NEMO_CACHE_DIR=/workspace/.cache/nemo
 ENV HF_HOME=/workspace/.cache/huggingface
 ENV PYTHONPATH=/app
 
-# НЕ загружаем модели на этапе сборки - они будут загружены при первом запуске в /workspace
-
-# --- ШАГ 6.5: СОЗДАНИЕ ПОЛЬЗОВАТЕЛЯ И НАСТРОЙКА ПРАВ ---
-# Создаем пользователя 'appuser' и даем ему права на рабочую директорию
-RUN groupadd -r appuser && useradd --no-log-init -r -g appuser appuser
-WORKDIR /app
-COPY . /app/
-# Даем права на /app и на /workspace (критически важно для моделей)
-RUN chown -R appuser:appuser /app && \
-    mkdir -p /workspace && \
-    chown -R appuser:appuser /workspace
-RUN chmod +x /app/entrypoint.sh && dos2unix /app/entrypoint.sh
-
-# Переключаемся на нашего нового пользователя
-USER appuser
-
-# --- ШАГ 7: КОПИРОВАНИЕ ОСТАЛЬНОГО КОДА И НАСТРОЙКА ENTRYPOINT ---
-# Только потом копируем весь остальной код
-COPY . /app/
-RUN chmod +x /app/entrypoint.sh && dos2unix /app/entrypoint.sh
-COPY .asoundrc /root/.asoundrc
-# ВАЖНО: Создаем папку профиля, как в join_meet
-RUN mkdir -p /app/chrome_profile && chmod 755 /app/chrome_profile
-
-# --- ШАГ 8: ЗАПУСК (НЕ ТРОНУТО) ---
+# --- ШАГ 8: ЗАПУСК ---
 EXPOSE 8001
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["uvicorn", "server.server:app", "--host", "0.0.0.0", "--port", "8001"]

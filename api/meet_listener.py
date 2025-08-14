@@ -469,31 +469,43 @@ class MeetListenerBot:
     def _find_device_id(self):
         """
         Ищет ID нашего уникального монитора (виртуального микрофона),
-        который прослушивает sink этого бота.
+        который прослушивает sink этого бота. Делает несколько попыток,
+        чтобы дождаться появления устройства в системе.
         """
         device_to_find = self.monitor_name
         logger.info(f"[{self.meeting_id}] Поиск аудиоустройства для прослушивания: '{device_to_find}'...")
-        try:
-            devices = sd.query_devices()
-            logger.debug(f"Найденные аудиоустройства: {devices}")
+        
+        max_retries = 10  # Максимум попыток
+        retry_delay = 0.5 # Задержка в секундах между попытками
+        
+        for attempt in range(max_retries):
+            try:
+                devices = sd.query_devices()
+                logger.debug(f"Попытка {attempt + 1}/{max_retries}. Найденные устройства: {devices}")
 
-            # 1. Попытка найти по точному имени
-            for i, device in enumerate(devices):
-                if device_to_find == device['name'] and device['max_input_channels'] > 0:
-                    logger.info(f"[{self.meeting_id}] ✅ Найдено целевое устройство (по имени): ID {i}, Имя: {device['name']}")
-                    return i
-            
-            # 2. Фолбэк: попытка найти по описанию (более надежно)
-            description_to_find = f"Monitor of Virtual_Sink_for_Meet_{self.meeting_id}"
-            for i, device in enumerate(devices):
-                if description_to_find in device['name'] and device['max_input_channels'] > 0:
-                     logger.info(f"[{self.meeting_id}] ✅ Найдено целевое устройство (по описанию): ID {i}, Имя: {device['name']}")
-                     return i
+                # 1. Попытка найти по точному имени
+                for i, device in enumerate(devices):
+                    if device_to_find == device['name'] and device['max_input_channels'] > 0:
+                        logger.info(f"[{self.meeting_id}] ✅ Найдено целевое устройство (по имени): ID {i}, Имя: {device['name']}")
+                        return i
+                
+                # 2. Фолбэк: попытка найти по описанию (более надежно)
+                description_to_find = f"Monitor of Virtual_Sink_for_Meet_{self.meeting_id}"
+                for i, device in enumerate(devices):
+                    if description_to_find in device['name'] and device['max_input_channels'] > 0:
+                        logger.info(f"[{self.meeting_id}] ✅ Найдено целевое устройство (по описанию): ID {i}, Имя: {device['name']}")
+                        return i
 
-            raise ValueError(f"Не удалось найти входное аудиоустройство с именем '{device_to_find}'")
-        except Exception as e:
-            logger.error(f"[{self.meeting_id}] ❌ Ошибка при поиске аудиоустройств: {e}", exc_info=True)
-            raise
+                # Если не нашли, ждем и пробуем снова
+                logger.warning(f"[{self.meeting_id}] Устройство '{device_to_find}' пока не найдено. Попытка {attempt + 1}/{max_retries}...")
+                time.sleep(retry_delay)
+
+            except Exception as e:
+                logger.error(f"[{self.meeting_id}] Ошибка при запросе устройств на попытке {attempt + 1}: {e}")
+                time.sleep(retry_delay)
+
+        # Если после всех попыток устройство не найдено
+        raise ValueError(f"Не удалось найти входное аудиоустройство с именем '{device_to_find}' после {max_retries} попыток.")
 
     # Callback функция
     def _audio_capture_callback(self, indata, frames, time, status):

@@ -31,6 +31,8 @@ from api.audio_manager import VirtualAudioManager
 
 logger = logging.getLogger(__name__)
 
+os.environ['SOUNDDEVICE_HOSTAPI'] = 'PulseAudio'
+
 class MeetListenerBot:
 
     # Определение атрибутов класса
@@ -468,43 +470,42 @@ class MeetListenerBot:
     # Поиск и определение аудиоустройства
     def _find_device_id(self):
         """
-        Ищет ID нашего уникального монитора (виртуального микрофона),
-        который прослушивает sink этого бота. Делает несколько попыток,
-        чтобы дождаться появления устройства в системе.
+        Ищет ID нашего уникального монитора. Теперь выводит полный список
+        устройств при каждой попытке для отладки.
         """
         device_to_find = self.monitor_name
         logger.info(f"[{self.meeting_id}] Поиск аудиоустройства для прослушивания: '{device_to_find}'...")
         
-        max_retries = 10  # Максимум попыток
-        retry_delay = 0.5 # Задержка в секундах между попытками
+        max_retries = 10
+        retry_delay = 0.5
         
         for attempt in range(max_retries):
             try:
+                # Прямо перед запросом устройств, даем системе "вздохнуть"
+                time.sleep(retry_delay)
                 devices = sd.query_devices()
-                logger.debug(f"Попытка {attempt + 1}/{max_retries}. Найденные устройства: {devices}")
-
-                # 1. Попытка найти по точному имени
-                for i, device in enumerate(devices):
-                    if device_to_find == device['name'] and device['max_input_channels'] > 0:
-                        logger.info(f"[{self.meeting_id}] ✅ Найдено целевое устройство (по имени): ID {i}, Имя: {device['name']}")
-                        return i
                 
-                # 2. Фолбэк: попытка найти по описанию (более надежно)
+                # --- ЛОГИРОВАНИЕ ДЛЯ ОТЛАДКИ ---
+                device_names = [d['name'] for d in devices]
+                logger.info(f"[{self.meeting_id}] Попытка {attempt + 1}: найдено {len(devices)} устройств: {device_names}")
+                # -------------------------------
+
+                # Поиск по имени или описанию
                 description_to_find = f"Monitor of Virtual_Sink_for_Meet_{self.meeting_id}"
                 for i, device in enumerate(devices):
-                    if description_to_find in device['name'] and device['max_input_channels'] > 0:
-                        logger.info(f"[{self.meeting_id}] ✅ Найдено целевое устройство (по описанию): ID {i}, Имя: {device['name']}")
+                    if (device_to_find == device['name'] or description_to_find in device['name']) and device['max_input_channels'] > 0:
+                        logger.info(f"[{self.meeting_id}] ✅ Найдено целевое устройство: ID {i}, Имя: {device['name']}")
                         return i
-
-                # Если не нашли, ждем и пробуем снова
-                logger.warning(f"[{self.meeting_id}] Устройство '{device_to_find}' пока не найдено. Попытка {attempt + 1}/{max_retries}...")
-                time.sleep(retry_delay)
+                
+                # Если не нашли, логгируем и ждем следующей попытки
+                # (сообщение о неудаче теперь будет после списка устройств)
 
             except Exception as e:
                 logger.error(f"[{self.meeting_id}] Ошибка при запросе устройств на попытке {attempt + 1}: {e}")
-                time.sleep(retry_delay)
 
         # Если после всех попыток устройство не найдено
+        # Перед падением выведем финальный список устройств
+        logger.error(f"[{self.meeting_id}] Финальный список устройств: {[d['name'] for d in sd.query_devices()]}")
         raise ValueError(f"Не удалось найти входное аудиоустройство с именем '{device_to_find}' после {max_retries} попыток.")
 
     # Callback функция

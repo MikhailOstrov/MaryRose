@@ -27,6 +27,7 @@ from handlers.diarization_handler import run_diarization, process_rttm_and_trans
 from config.load_models import vad_model, asr_model
 from api.utils import combine_audio_chunks
 from handlers.tts_handler import synthesize_speech_to_bytes
+from api.audio_manager import VirtualAudioManager
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +60,12 @@ class MeetListenerBot:
         self.enable_auto_tts = True
         # Используем системный default sink/source (entrypoint.sh создает meet_sink/meet_mic как default)
         self.force_default_audio = True
+
+        self.audio_manager = VirtualAudioManager(self.meeting_id)
+        # Эти имена будут использоваться в других методах
+        self.sink_name = self.audio_manager.sink_name
+        self.source_name = self.audio_manager.source_name
+        self.monitor_name = self.audio_manager.monitor_name
 
     # Отслеживание кол-ва участников
     def _monitor_participants(self):
@@ -105,60 +112,54 @@ class MeetListenerBot:
     
     # Инициализация драйвера для подключения
     def _initialize_driver(self):
-        logger.info(f"[{self.meeting_id}] Запуск undetected_chromedriver с настройками из join_meet...")
+        """
+        Инициализирует драйвер, явно указывая ему, какие виртуальные 
+        аудиоустройства PulseAudio использовать для этого конкретного бота.
+        """
+        logger.info(f"[{self.meeting_id}] Запуск undetected_chromedriver с аудио-настройками...")
         try:
-            logger.info(f"[{self.meeting_id}] Попытка №1: с user-data-dir и use_subprocess=True")
             opt = uc.ChromeOptions()
             opt.add_argument('--no-sandbox')
             opt.add_argument('--disable-dev-shm-usage')
-            opt.add_argument(f'--user-data-dir={CHROME_PROFILE_DIR}') 
+            opt.add_argument(f'--user-data-dir={CHROME_PROFILE_DIR}')
+            opt.add_argument('--window-size=1280,720')
+            
+            # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ПРИВЯЗКА CHROME К УНИКАЛЬНЫМ УСТРОЙСТВАМ ---
+            # Явно указываем Chrome, какой sink (выход) и source (вход) использовать.
+            # PulseAudio понимает эти аргументы и перенаправит аудио именно для этого процесса.
+            logger.info(f"[{self.meeting_id}] Привязка Chrome к sink='{self.sink_name}' и source='{self.source_name}'")
+            opt.add_argument(f'--alsa-output-device=pulse/%s' % self.sink_name)
+            opt.add_argument(f'--alsa-input-device=pulse/%s' % self.source_name)
+            # --------------------------------------------------------------------
+            
+            # Разрешения на микрофон, установленные через experimental option
+            opt.add_experimental_option("prefs", {
+                "profile.default_content_setting_values.media_stream_mic": 1,
+                "profile.default_content_setting_values.notifications": 2
+            })
             
             self.driver = uc.Chrome(
                 options=opt,
-                headless=False, # Важно для работы в Xvfb
-                use_subprocess=True, # Важно для стабильности
-                version_main=138 # Закрепляем версию для надежности
+                headless=False,       # Обязательно для работы в Xvfb
+                use_subprocess=True,  # Важно для стабильности
+                version_main=138      # Закрепленная версия - это хорошо
             )
-            logger.info(f"[{self.meeting_id}] ✅ Chrome запущен (Попытка №1)!")
+            
+            logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен и привязан к своим виртуальным аудиоустройствам.")
+            
+            # Попытка выдать разрешение через CDP остается как дополнительная мера
             try:
                 self.driver.execute_cdp_cmd("Browser.grantPermissions", {
                     "origin": "https://meet.google.com",
                     "permissions": ["audioCapture"]
                 })
-                logger.info(f"[{self.meeting_id}] Разрешение на микрофон выдано через CDP (попытка №1)")
+                logger.info(f"[{self.meeting_id}] Разрешение на микрофон выдано через CDP.")
             except Exception as e_grant:
-                logger.warning(f"[{self.meeting_id}] Не удалось выдать CDP-разрешение (попытка №1): {e_grant}")
+                logger.warning(f"[{self.meeting_id}] Не удалось выдать CDP-разрешение: {e_grant}")
             
         except Exception as e:
-            logger.error(f"[{self.meeting_id}] Попытка №1 не сработала: {e}")
-            logger.info(f"[{self.meeting_id}] Попытка №2: с базовыми опциями...")
-            try:
-                opt = uc.ChromeOptions()
-                opt.add_argument('--no-sandbox')
-                opt.add_argument('--disable-dev-shm-usage')
-                opt.add_argument('--disable-gpu')
-                opt.add_argument(f'--user-data-dir={CHROME_PROFILE_DIR}')
-                opt.add_argument('--window-size=1280,720')
-                
-                opt.add_experimental_option("prefs", {
-                    "profile.default_content_setting_values.media_stream_mic": 1,
-                    "profile.default_content_setting_values.notifications": 2
-                })
-                
-                self.driver = uc.Chrome(options=opt, version_main=138)
-                logger.info(f"[{self.meeting_id}] ✅ Chrome запущен (Попытка №2)!")
-                try:
-                    self.driver.execute_cdp_cmd("Browser.grantPermissions", {
-                        "origin": "https://meet.google.com",
-                        "permissions": ["audioCapture"]
-                    })
-                    logger.info(f"[{self.meeting_id}] Разрешение на микрофон выдано через CDP (попытка №2)")
-                except Exception as e_grant2:
-                    logger.warning(f"[{self.meeting_id}] Не удалось выдать CDP-разрешение (попытка №2): {e_grant2}")
-            
-            except Exception as e2:
-                logger.critical(f"[{self.meeting_id}] Полный провал запуска Chrome: {e2}", exc_info=True)
-                raise
+            logger.critical(f"[{self.meeting_id}] ❌ Полный провал запуска Chrome: {e}", exc_info=True)
+            raise
     
     # Скриншот для отладки 
     def _save_screenshot(self, name: str):
@@ -325,8 +326,10 @@ class MeetListenerBot:
         logger.info(f"[{self.meeting_id}] Всплывающее окно разрешений не обнаружено.")
 
     def _speak_via_meet(self, text: str):
-        """Синтезирует TTS и проигрывает его в default sink (meet_sink).
-        Перед началом включает микрофон (Ctrl+D), после окончания выключает (Ctrl+D).
+        """
+        Синтезирует TTS и проигрывает его в уникальный sink этого бота.
+        Звук из этого sink'а через loopback-модуль попадает в микрофон,
+        который "слышит" Google Meet.
         """
         if not text:
             return
@@ -337,36 +340,33 @@ class MeetListenerBot:
 
             toggled_on = False
             try:
-                # Включаем микрофон перед началом озвучки
+                # Включаем микрофон в Meet перед началом озвучки
                 self.toggle_mic_hotkey()
                 toggled_on = True
                 time.sleep(0.3)
 
-                # Сначала пробуем paplay (PulseAudio)
-                try:
-                    subprocess.run(["paplay", "/dev/stdin"], input=audio_bytes, capture_output=True, check=True)
-                    logger.info(f"[{self.meeting_id}] Озвучен ответ ассистента через default sink (paplay)")
-                    return
-                except Exception as e1:
-                    logger.warning(f"[{self.meeting_id}] paplay недоступен или ошибка: {e1}")
-                    # Фолбэк через ffplay
-                    try:
-                        subprocess.run(["ffplay", "-nodisp", "-autoexit", "-loglevel", "error", "-"],
-                                       input=audio_bytes, capture_output=True, check=True)
-                        logger.info(f"[{self.meeting_id}] Озвучен ответ ассистента через default sink (ffplay)")
-                        return
-                    except Exception as e2:
-                        logger.error(f"[{self.meeting_id}] Ошибка при автоозвучке (ffplay): {e2}.")
+                # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ВОСПРОИЗВЕДЕНИЕ В КОНКРЕТНЫЙ SINK ---
+                # Используем paplay с флагом -d (--device), чтобы указать наш sink_name
+                logger.info(f"[{self.meeting_id}] Воспроизвожу TTS в sink: {self.sink_name}")
+                subprocess.run(
+                    ["paplay", "-d", self.sink_name, "/dev/stdin"],
+                    input=audio_bytes,
+                    capture_output=True,
+                    check=True
+                )
+                logger.info(f"[{self.meeting_id}] ✅ Ответ ассистента озвучен.")
+                # -----------------------------------------------------------
+
+            except Exception as e:
+                logger.error(f"[{self.meeting_id}] ❌ Ошибка при автоозвучке (paplay): {e}.")
             finally:
                 if toggled_on:
-                    # Небольшая пауза после окончания воспроизведения и затем выключаем микрофон
+                    # Небольшая пауза и выключаем микрофон
                     time.sleep(0.2)
-                    try:
-                        self.toggle_mic_hotkey()
-                    except Exception:
-                        pass
+                    self.toggle_mic_hotkey()
+
         except Exception as e:
-            logger.error(f"[{self.meeting_id}] Ошибка при автоозвучке: {e}")
+            logger.error(f"[{self.meeting_id}] ❌ Критическая ошибка в _speak_via_meet: {e}")
 
     # Присоединение в Google Meet
     def join_meet_as_guest(self):
@@ -467,15 +467,30 @@ class MeetListenerBot:
     
     # Поиск и определение аудиоустройства
     def _find_device_id(self):
-        logger.info(f"[{self.meeting_id}] Поиск аудиоустройства с именем '{MEET_INPUT_DEVICE_NAME}'...")
+        """
+        Ищет ID нашего уникального монитора (виртуального микрофона),
+        который прослушивает sink этого бота.
+        """
+        device_to_find = self.monitor_name
+        logger.info(f"[{self.meeting_id}] Поиск аудиоустройства для прослушивания: '{device_to_find}'...")
         try:
             devices = sd.query_devices()
             logger.debug(f"Найденные аудиоустройства: {devices}")
+
+            # 1. Попытка найти по точному имени
             for i, device in enumerate(devices):
-                if MEET_INPUT_DEVICE_NAME in device['name'] and device['max_input_channels'] > 0:
-                    logger.info(f"[{self.meeting_id}] ✅ Найдено целевое устройство: ID {i}, Имя: {device['name']}")
+                if device_to_find == device['name'] and device['max_input_channels'] > 0:
+                    logger.info(f"[{self.meeting_id}] ✅ Найдено целевое устройство (по имени): ID {i}, Имя: {device['name']}")
                     return i
-            raise ValueError(f"Не удалось найти входное аудиоустройство с именем '{MEET_INPUT_DEVICE_NAME}'")
+            
+            # 2. Фолбэк: попытка найти по описанию (более надежно)
+            description_to_find = f"Monitor of Virtual_Sink_for_Meet_{self.meeting_id}"
+            for i, device in enumerate(devices):
+                if description_to_find in device['name'] and device['max_input_channels'] > 0:
+                     logger.info(f"[{self.meeting_id}] ✅ Найдено целевое устройство (по описанию): ID {i}, Имя: {device['name']}")
+                     return i
+
+            raise ValueError(f"Не удалось найти входное аудиоустройство с именем '{device_to_find}'")
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка при поиске аудиоустройств: {e}", exc_info=True)
             raise
@@ -690,13 +705,20 @@ class MeetListenerBot:
         """Основной метод, выполняющий всю работу."""
         logger.info(f"[{self.meeting_id}] Бот запускается...")
         try:
+            # 1. Создаем уникальные виртуальные аудиоустройства для этого бота
+            if not self.audio_manager.create_devices():
+                logger.error(f"[{self.meeting_id}] ❌ Не удалось создать аудиоустройства. Завершение работы.")
+                return # Выходим, если аудио не создалось
+
+            # 2. Инициализируем драйвер, который привяжется к этим устройствам
             self._initialize_driver()
             
-            # Попытка присоединиться к встрече
+            # 3. Попытка присоединиться к встрече
             joined_successfully = self.join_meet_as_guest()
             
             if joined_successfully:
                 logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")
+                # 4. Находим ID нашего уникального микрофона для прослушивания
                 device_id = self._find_device_id()
 
                 processor_thread = threading.Thread(target=self._process_audio_stream)
@@ -706,8 +728,7 @@ class MeetListenerBot:
                 monitor_thread.daemon = True
                 monitor_thread.start()
 
-                logger.info(f"[{self.meeting_id}] 🎤 Начинаю прослушивание аудио с устройства ID {device_id}...")
-                # Короткий тест TTS: проверяем, что Meet слышит бота
+                logger.info(f"[{self.meeting_id}] 🎤 Начинаю прослушивание аудио с устройства ID {device_id} ({self.monitor_name})...")
                 
                 with sd.RawInputStream(
                     samplerate=STREAM_SAMPLE_RATE,
@@ -717,7 +738,7 @@ class MeetListenerBot:
                     channels=1,
                     callback=self._audio_capture_callback
                 ):
-                    processor_thread.join()
+                    processor_thread.join() # Поток будет жить, пока is_running=True
                 
                 logger.info(f"[{self.meeting_id}] Поток прослушивания остановлен.")
             else:
@@ -726,8 +747,9 @@ class MeetListenerBot:
         except Exception as e:
             logger.critical(f"[{self.meeting_id}] ❌ Критическая ошибка в работе бота: {e}", exc_info=True)
         finally:
+            # 5. Гарантированно вызываем stop(), который очистит все ресурсы
             self.stop()
-            logger.info(f"[{self.meeting_id}] Бот полностью остановлен.")
+            logger.info(f"[{self.meeting_id}] Основной метод run завершен.")
 
     # Остановка бота
     def stop(self):
@@ -739,11 +761,11 @@ class MeetListenerBot:
         self.is_running.clear()
         
         if self.joined_successfully:
+            # Запускаем постобработку в отдельном потоке, чтобы не блокировать завершение
             post_processing_thread = threading.Thread(target=self._perform_post_processing)
-            post_processing_thread.daemon = False
             post_processing_thread.start()
         else:
-            logger.info(f"[{self.meeting_id}] Пропускаю постобработку, так как вход в конференцию не был успешно завершен.")
+            logger.info(f"[{self.meeting_id}] Пропускаю постобработку, так как вход в конференцию не был успешен.")
 
         if self.driver:
             try:
@@ -752,4 +774,10 @@ class MeetListenerBot:
             except Exception as e:
                 logger.error(f"[{self.meeting_id}] Ошибка при закрытии WebDriver: {e}")
         
-        logger.info(f"[{self.meeting_id}] Сессия завершена.")
+        # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ОЧИСТКА АУДИОРЕСУРСОВ ---
+        # Уничтожаем виртуальные устройства, созданные для этого бота
+        if self.audio_manager:
+            self.audio_manager.destroy_devices()
+        # ----------------------------------------------------
+
+        logger.info(f"[{self.meeting_id}] Сессия полностью завершена.")

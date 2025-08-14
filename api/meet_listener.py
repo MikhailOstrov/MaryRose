@@ -342,7 +342,7 @@ class MeetListenerBot:
             return
         logger.info(f"[{self.meeting_id}] Всплывающее окно разрешений не обнаружено.")
 
-   def _speak_via_meet(self, text: str):
+    def _speak_via_meet(self, text: str):
         """
         Синтезирует TTS и проигрывает его в УНИКАЛЬНЫЙ sink этого бота.
         Звук из этого sink'а через remap-source попадает в микрофон,

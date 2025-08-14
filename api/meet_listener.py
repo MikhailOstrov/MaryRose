@@ -119,30 +119,36 @@ class MeetListenerBot:
     
     # Инициализация драйвера для подключения
     def _initialize_driver(self):
-        """Инициализирует драйвер, используя уникальный профиль для каждого бота."""
-        logger.info(f"[{self.meeting_id}] Запуск undetected_chromedriver с аудио-настройками...")
+        """
+        Инициализирует драйвер, запуская каждый Chrome в своем собственном
+        изолированном X-сервере с помощью xvfb-run.
+        """
+        logger.info(f"[{self.meeting_id}] Запуск undetected_chromedriver в изолированном X-сервере...")
         try:
-            opt = uc.ChromeOptions()
-            opt.add_argument('--no-sandbox')
-            opt.add_argument('--disable-dev-shm-usage')
-            
-            # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ИСПОЛЬЗУЕМ УНИКАЛЬНЫЙ ПРОФИЛЬ ---
-            opt.add_argument(f'--user-data-dir={self.chrome_profile_path}')
-            # ---------------------------------------------------------
-
-            opt.add_argument('--window-size=1280,720')
-            
-            logger.info(f"[{self.meeting_id}] Привязка Chrome к sink='{self.sink_name}' и source='{self.source_name}'")
-            opt.add_argument(f'--alsa-output-device=pulse/%s' % self.sink_name)
-            opt.add_argument(f'--alsa-input-device=pulse/%s' % self.source_name)
-            
-            opt.add_experimental_option("prefs", {
+            options = uc.ChromeOptions()
+            options.add_argument('--no-sandbox')
+            options.add_argument('--disable-dev-shm-usage')
+            options.add_argument(f'--user-data-dir={self.chrome_profile_path}')
+            options.add_argument('--window-size=1280,720')
+            options.add_argument(f'--alsa-output-device=pulse/%s' % self.sink_name)
+            options.add_argument(f'--alsa-input-device=pulse/%s' % self.source_name)
+            options.add_experimental_option("prefs", {
                 "profile.default_content_setting_values.media_stream_mic": 1,
                 "profile.default_content_setting_values.notifications": 2
             })
+
+            # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ЗАПУСК ЧЕРЕЗ XVFB-RUN ---
+            # Мы используем browser_executable_path, чтобы указать, как именно
+            # запускать браузер. xvfb-run автоматически найдет свободный дисплей.
+            self.driver = uc.Chrome(
+                options=options,
+                headless=False, # headless=False обязательно для xvfb-run
+                browser_executable_path="/usr/bin/xvfb-run",
+                driver_executable_path=None # uc сам найдет chromedriver
+            )
+            # ---------------------------------------------------
             
-            self.driver = uc.Chrome(options=opt, headless=False, use_subprocess=True, version_main=138)
-            logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен и привязан к своим виртуальным аудиоустройствам.")
+            logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен в xvfb-run.")
             
             try:
                 self.driver.execute_cdp_cmd("Browser.grantPermissions", {"origin": "https://meet.google.com", "permissions": ["audioCapture"]})

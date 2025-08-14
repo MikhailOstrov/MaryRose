@@ -128,60 +128,62 @@ class MeetListenerBot:
     # Инициализация драйвера для подключения
     def _initialize_driver(self):
         """
-        Инициализирует драйвер, ПРИНУДИТЕЛЬНО устанавливая целевые sink и source
-        как устройства по умолчанию перед запуском Chrome для полной изоляции.
+        Инициализирует драйвер, используя переменную окружения PULSE_SINK
+        для точной и изолированной маршрутизации аудиопотока Chrome.
+        Запуск защищен блокировкой для предотвращения состояний гонки.
         """
-        logger.info(f"[{self.meeting_id}] Запуск undetected_chromedriver...")
-        try:
-            # --- ШАГ 1: Принудительно меняем устройства по умолчанию ---
-            logger.info(f"[{self.meeting_id}] PULSE_ROUTE: Устанавливаю '{self.sink_name}' как sink по умолчанию...")
-            cmd_set_default_sink = ["pactl", "set-default-sink", self.sink_name]
-            subprocess.run(cmd_set_default_sink, check=True, capture_output=True, text=True)
+        logger.info(f"[{self.meeting_id}] Ожидание блокировки для запуска Chrome...")
+        
+        with CHROME_LAUNCH_LOCK:
+            logger.info(f"[{self.meeting_id}] Блокировка получена. Запуск Chrome с PULSE_SINK='{self.sink_name}'...")
             
-            logger.info(f"[{self.meeting_id}] PULSE_ROUTE: Устанавливаю '{self.source_name}' как source по умолчанию...")
-            cmd_set_default_source = ["pactl", "set-default-source", self.source_name]
-            subprocess.run(cmd_set_default_source, check=True, capture_output=True, text=True)
+            original_pulse_sink = os.environ.get('PULSE_SINK')
+            os.environ['PULSE_SINK'] = self.sink_name
             
-            logger.info(f"[{self.meeting_id}] PULSE_ROUTE: ✅ Sink и Source по умолчанию успешно изменены.")
-            # --------------------------------------------------------
-
-            # --- ШАГ 2: Запускаем Chrome, который теперь подключится к новым default'ам ---
-            opt = uc.ChromeOptions()
-            opt.add_argument('--no-sandbox')
-            opt.add_argument('--disable-dev-shm-usage')
-            opt.add_argument('--window-size=1280,720')
-            opt.add_argument(f'--user-data-dir={self.chrome_profile_path}')
-            
-            opt.add_experimental_option("prefs", {
-                "profile.default_content_setting_values.media_stream_mic": 1,
-                "profile.default_content_setting_values.notifications": 2
-            })
-            
-            self.driver = uc.Chrome(
-                options=opt,
-                headless=False,
-                use_subprocess=True,
-                version_main=138
-            )
-            
-            logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен. Он должен был подключиться к sink='{self.sink_name}' и source='{self.source_name}'.")
-            
-            # ... (блок с execute_cdp_cmd остается без изменений) ...
             try:
-                self.driver.execute_cdp_cmd("Browser.grantPermissions", {
-                    "origin": "https://meet.google.com",
-                    "permissions": ["audioCapture"]
+                # --- Запускаем Chrome, пока установлена переменная окружения ---
+                opt = uc.ChromeOptions()
+                opt.add_argument('--no-sandbox')
+                opt.add_argument('--disable-dev-shm-usage')
+                opt.add_argument('--window-size=1280,720')
+                opt.add_argument(f'--user-data-dir={self.chrome_profile_path}')
+                
+                opt.add_experimental_option("prefs", {
+                    "profile.default_content_setting_values.media_stream_mic": 1,
+                    "profile.default_content_setting_values.notifications": 2
                 })
-                logger.info(f"[{self.meeting_id}] Разрешение на микрофон выдано через CDP.")
-            except Exception as e_grant:
-                logger.warning(f"[{self.meeting_id}] Не удалось выдать CDP-разрешение: {e_grant}")
+                
+                self.driver = uc.Chrome(
+                    options=opt,
+                    headless=False,
+                    use_subprocess=True,
+                    version_main=138
+                )
+                
+                logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен. Аудиопоток должен быть направлен в '{self.sink_name}'.")
+                
+                # ... (блок с execute_cdp_cmd остается без изменений) ...
+                try:
+                    self.driver.execute_cdp_cmd("Browser.grantPermissions", {
+                        "origin": "https://meet.google.com",
+                        "permissions": ["audioCapture"]
+                    })
+                    logger.info(f"[{self.meeting_id}] Разрешение на микрофон выдано через CDP.")
+                except Exception as e_grant:
+                    logger.warning(f"[{self.meeting_id}] Не удалось выдать CDP-разрешение: {e_grant}")
 
-        except subprocess.CalledProcessError as e:
-             logger.critical(f"[{self.meeting_id}] PULSE_ROUTE: ❌ КРИТИЧЕСКАЯ ОШИБКА: Не удалось изменить устройства по умолчанию! Stderr: {e.stderr.strip()}", exc_info=True)
-             raise
-        except Exception as e:
-            logger.critical(f"[{self.meeting_id}] ❌ Полный провал запуска Chrome: {e}", exc_info=True)
-            raise
+            except Exception as e:
+                logger.critical(f"[{self.meeting_id}] ❌ Полный провал запуска Chrome: {e}", exc_info=True)
+                raise
+            finally:
+                # --- Гарантированно очищаем переменную окружения ---
+                logger.info(f"[{self.meeting_id}] Очистка переменной окружения PULSE_SINK.")
+                if original_pulse_sink is None:
+                    del os.environ['PULSE_SINK']
+                else:
+                    os.environ['PULSE_SINK'] = original_pulse_sink
+        
+        logger.info(f"[{self.meeting_id}] Блокировка запуска Chrome освобождена.")
 
     # Скриншот для отладки 
     def _save_screenshot(self, name: str):

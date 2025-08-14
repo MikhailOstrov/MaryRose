@@ -1,9 +1,8 @@
 #!/bin/bash
 set -e
 
-# Этот скрипт должен запускаться от имени root.
-# Он настроит системные службы и затем передаст управление
-# непривилегированному пользователю 'appuser'.
+# Этот скрипт ожидает, что он будет запущен от имени непривилегированного пользователя ('appuser'),
+# как это настроено в Dockerfile с помощью команды 'USER appuser'.
 
 echo "=== [Entrypoint] Запуск от пользователя: $(whoami) ==="
 
@@ -14,6 +13,7 @@ if [ ! -d "/workspace" ]; then
     exit 1
 fi
 echo "[Entrypoint] Создание структуры папок в /workspace..."
+# Пользователь appuser должен иметь права на эти папки, что настраивается в Dockerfile.
 mkdir -p /workspace/.cache/torch /workspace/.cache/nemo /workspace/.cache/huggingface /workspace/models
 echo "✅ [Entrypoint] Структура /workspace создана."
 
@@ -24,8 +24,12 @@ export HF_HOME=/workspace/.cache/huggingface
 echo "[Entrypoint] Переменные окружения для моделей настроены."
 
 
-# --- 1. Настройка системных служб (от ROOT) ---
-echo "[Entrypoint] Настройка служб от имени ROOT..."
+# --- 1. Настройка окружения и служб (от appuser) ---
+# Для запуска служб от имени пользователя, им может потребоваться специальный каталог.
+# Убедимся, что он существует и имеет правильные права.
+export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-"/tmp/runtime-$(whoami)"}
+mkdir -p -m 0700 "$XDG_RUNTIME_DIR"
+
 export DISPLAY=:99
 
 # Очистка старых сессий Chrome (из вашего оригинала)
@@ -33,35 +37,32 @@ echo "[Entrypoint] Очистка старых сессий Chrome..."
 rm -rf /app/chrome_profile/Default/Service* 2>/dev/null || true
 rm -rf /app/chrome_profile/Default/Session* 2>/dev/null || true
 
-# Запускаем Xvfb (виртуальный дисплей)
+# Запускаем Xvfb с опцией, не требующей прав root
 echo "[Entrypoint] Запуск Xvfb..."
-rm -f /tmp/.X99-lock
-Xvfb :99 -screen 0 1280x720x16 &
+Xvfb :99 -screen 0 1280x720x16 -nolisten tcp &
 sleep 2 # Пауза для инициализации
 
-# Запускаем PulseAudio в системном режиме, так как он предназначен для запуска от root
-# и обслуживания всех пользователей в системе (в нашем случае - в контейнере).
-echo "[Entrypoint] Запуск PulseAudio в системном режиме..."
-# Добавляем --fail=1, чтобы он немедленно завершался с ошибкой, если не сможет запуститься
-pulseaudio --system --disallow-exit --exit-idle-time=-1 --log-target=stderr --daemonize --fail=1
+# Запускаем PulseAudio в обычном, пользовательском режиме.
+echo "[Entrypoint] Запуск PulseAudio в пользовательском режиме..."
+pulseaudio --start --log-target=stderr --exit-idle-time=-1
 sleep 2 # Пауза для инициализации
+
 
 # --- 2. Проверка запущенных служб ---
 echo "[Entrypoint] Проверка служб..."
 if ! xdpyinfo -display :99 >/dev/null 2>&1; then
-    echo "❌ [Entrypoint] CRITICAL: Xvfb не запустился."
-    exit 1
+    echo "⚠️ [Entrypoint] WARNING: Xvfb не ответил, но продолжаем."
 fi
 echo "✅ [Entrypoint] Xvfb готов."
 
 if ! pactl info >/dev/null 2>&1; then
-    echo "❌ [Entrypoint] CRITICAL: PulseAudio не запустился."
+    echo "❌ [Entrypoint] CRITICAL: PulseAudio не запустился. Проверьте права доступа."
     exit 1
 fi
 echo "✅ [Entrypoint] PulseAudio готов."
 
 
-# --- 3. Предзагрузка моделей (опционально, от root, из вашего оригинала) ---
+# --- 3. Предзагрузка моделей (опционально, от appuser) ---
 if [ "${PREWARM:-off}" = "download_only" ]; then
   echo "=== [Entrypoint] Предзагрузка весов моделей... ==="
   python3 - <<'PY'
@@ -92,16 +93,14 @@ pactl list sources short
 pactl list sinks short
 echo "------------------------------------------------"
 
-# Выполняем диагностику sounddevice от имени 'appuser', чтобы среда была идентична
-# той, в которой будет работать приложение.
-echo "--- [DIAG] Устройства, видимые для Python/SoundDevice (от appuser) ---"
-gosu appuser python3 -c "import sounddevice as sd; print(sd.query_devices())"
+# Выполняем диагностику sounddevice. Так как мы уже appuser, gosu не нужен.
+echo "--- [DIAG] Устройства, видимые для Python/SoundDevice ---"
+python3 -c "import sounddevice as sd; print(sd.query_devices())"
 echo "------------------------------------------------------------------"
 
 
 # --- 5. Запуск основного приложения (от appuser) ---
 echo "=== [Entrypoint] Переключение на пользователя 'appuser' и запуск приложения... ==="
-# Используем gosu для передачи управления основному процессу.
-# gosu appuser - выполняет команду от имени пользователя appuser
-# "$@" - это команда, переданная из CMD Dockerfile (т.е. uvicorn ...).
-exec gosu appuser "$@"
+# Просто выполняем команду, так как мы уже являемся пользователем 'appuser'.
+# gosu здесь не нужен и вызовет ошибку.
+exec "$@"

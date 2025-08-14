@@ -6,69 +6,51 @@ set -e
 
 echo "=== [Entrypoint] Запуск от пользователя: $(whoami) ==="
 
-# --- 0. Проверка и настройка /workspace (из вашего оригинала) ---
+# --- 0. Проверка и настройка /workspace ---
 echo "[Entrypoint] Проверка Volume диска /workspace..."
 if [ ! -d "/workspace" ]; then
     echo "❌ [Entrypoint] CRITICAL: /workspace не найден. Убедитесь, что Volume диск подключен."
     exit 1
 fi
 echo "[Entrypoint] Создание структуры папок в /workspace..."
-# Пользователь appuser должен иметь права на эти папки, что настраивается в Dockerfile.
 mkdir -p /workspace/.cache/torch /workspace/.cache/nemo /workspace/.cache/huggingface /workspace/models
 echo "✅ [Entrypoint] Структура /workspace создана."
 
-# Настройка переменных окружения для моделей (из вашего оригинала)
+# Настройка переменных окружения для моделей
 export TORCH_HOME=/workspace/.cache/torch
 export NEMO_CACHE_DIR=/workspace/.cache/nemo
 export HF_HOME=/workspace/.cache/huggingface
 echo "[Entrypoint] Переменные окружения для моделей настроены."
 
 
-# --- 1. Настройка окружения и служб (от appuser) ---
-# Для запуска служб от имени пользователя, им может потребоваться специальный каталог.
-# Убедимся, что он существует и имеет правильные права.
+# --- 1. Настройка окружения и PulseAudio (от appuser) ---
+# Для PulseAudio нужен этот каталог с правильными правами.
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-"/tmp/runtime-$(whoami)"}
 mkdir -p -m 0700 "$XDG_RUNTIME_DIR"
 
-export DISPLAY=:99
-
-# Очистка старых сессий Chrome (из вашего оригинала)
-echo "[Entrypoint] Очистка старых сессий Chrome..."
-rm -rf /app/chrome_profile/Default/Service* 2>/dev/null || true
-rm -rf /app/chrome_profile/Default/Session* 2>/dev/null || true
-
-# Запускаем Xvfb с опцией, не требующей прав root
-echo "[Entrypoint] Запуск Xvfb..."
-Xvfb :99 -screen 0 1280x720x16 -nolisten tcp &
-sleep 2 # Пауза для инициализации
+# --- ГЛОБАЛЬНЫЙ XVFB БОЛЬШЕ НЕ ЗАПУСКАЕТСЯ ЗДЕСЬ ---
+# Python-код будет запускать xvfb-run для каждого экземпляра Chrome.
+echo "[Entrypoint] Глобальный Xvfb пропущен. Будет использоваться xvfb-run."
 
 # Запускаем PulseAudio в обычном, пользовательском режиме.
 echo "[Entrypoint] Запуск PulseAudio в пользовательском режиме..."
 pulseaudio --start --log-target=stderr --exit-idle-time=-1
 sleep 2 # Пауза для инициализации
 
-
-# --- 2. Проверка запущенных служб ---
-echo "[Entrypoint] Проверка служб..."
-if ! xdpyinfo -display :99 >/dev/null 2>&1; then
-    echo "⚠️ [Entrypoint] WARNING: Xvfb не ответил, но продолжаем."
-fi
-echo "✅ [Entrypoint] Xvfb готов."
-
+# Проверяем, что PulseAudio запустился
 if ! pactl info >/dev/null 2>&1; then
     echo "❌ [Entrypoint] CRITICAL: PulseAudio не запустился. Проверьте права доступа."
     exit 1
 fi
 echo "✅ [Entrypoint] PulseAudio готов."
 
-# --- ВАЖНОЕ ДОБАВЛЕНИЕ ---
 # Находим путь к сокету PulseAudio и экспортируем его.
-# Все дочерние процессы, включая paplay, будут использовать эту переменную.
+# Это нужно для paplay в Python-коде, чтобы он точно нашел сервер.
 export PULSE_SERVER=$(pactl info | grep 'Server String' | awk '{print $3}')
 echo "[Entrypoint] PulseAudio сокет экспортирован: $PULSE_SERVER"
 
 
-# --- 3. Предзагрузка моделей (опционально, от appuser) ---
+# --- 2. Предзагрузка моделей (опционально, от appuser) ---
 if [ "${PREWARM:-off}" = "download_only" ]; then
   echo "=== [Entrypoint] Предзагрузка весов моделей... ==="
   python3 - <<'PY'
@@ -87,11 +69,8 @@ PY
 fi
 
 
-# --- 4. Финальная диагностика и проверки (из вашего оригинала) ---
+# --- 3. Финальная диагностика и проверки ---
 echo "=== [Entrypoint] Проверка системы ==="
-echo "DISPLAY=$DISPLAY"
-echo "Chrome version: $(google-chrome --version 2>/dev/null || echo 'Chrome не найден')"
-echo "ChromeDriver: $(chromedriver --version 2>/dev/null || echo 'ChromeDriver не найден')"
 echo "Python version: $(python3 --version)"
 echo "Available memory: $(free -h | grep Mem)"
 echo "--- [DIAG] Доступные аудиоустройства (pactl) ---"
@@ -99,14 +78,8 @@ pactl list sources short
 pactl list sinks short
 echo "------------------------------------------------"
 
-# Выполняем диагностику sounddevice. Так как мы уже appuser, gosu не нужен.
-echo "--- [DIAG] Устройства, видимые для Python/SoundDevice ---"
-python3 -c "import sounddevice as sd; print(sd.query_devices())"
-echo "------------------------------------------------------------------"
 
-
-# --- 5. Запуск основного приложения (от appuser) ---
-echo "=== [Entrypoint] Переключение на пользователя 'appuser' и запуск приложения... ==="
+# --- 4. Запуск основного приложения (от appuser) ---
+echo "=== [Entrypoint] Запуск приложения... ==="
 # Просто выполняем команду, так как мы уже являемся пользователем 'appuser'.
-# gosu здесь не нужен и вызовет ошибку.
 exec "$@"

@@ -61,6 +61,12 @@ if ! pactl info >/dev/null 2>&1; then
 fi
 echo "✅ [Entrypoint] PulseAudio готов."
 
+# --- ВАЖНОЕ ДОБАВЛЕНИЕ ---
+# Находим путь к сокету PulseAudio и экспортируем его.
+# Все дочерние процессы, включая paplay, будут использовать эту переменную.
+export PULSE_SERVER=$(pactl info | grep 'Server String' | awk '{print $3}')
+echo "[Entrypoint] PulseAudio сокет экспортирован: $PULSE_SERVER"
+
 
 # --- 3. Предзагрузка моделей (опционально, от appuser) ---
 if [ "${PREWARM:-off}" = "download_only" ]; then

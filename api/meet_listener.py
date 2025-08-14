@@ -321,7 +321,7 @@ class MeetListenerBot:
     def _speak_via_meet(self, text: str):
         """
         Синтезирует TTS и проигрывает его в уникальный sink этого бота,
-        явно указывая путь к сокету PulseAudio.
+        гарантируя подключение к правильному PulseAudio серверу.
         """
         if not text:
             return
@@ -338,31 +338,27 @@ class MeetListenerBot:
 
                 logger.info(f"[{self.meeting_id}] Воспроизвожу TTS в sink: {self.sink_name}")
                 
-                # --- ИЗМЕНЕНИЕ: ЯВНАЯ ПЕРЕДАЧА PULSE_SERVER ИЗ ОКРУЖЕНИЯ ---
-                # Получаем путь к сокету из переменной окружения, установленной в entrypoint.sh
-                pulse_server_socket = os.getenv('PULSE_SERVER')
-                
-                command = ["paplay", "-d", self.sink_name, "/dev/stdin"]
-                if pulse_server_socket:
-                    # Если переменная установлена, добавляем флаг --server
-                    command.extend(["--server", pulse_server_socket])
-                    logger.info(f"[{self.meeting_id}] Использую PulseAudio сервер: {pulse_server_socket}")
+                # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ЯВНАЯ ПЕРЕДАЧА PULSE_SERVER ---
+                # Создаем копию текущего окружения
+                env = os.environ.copy()
+                # Устанавливаем (или перезаписываем) PULSE_SERVER, чтобы paplay
+                # гарантированно подключился к нашему TCP-серверу.
+                env['PULSE_SERVER'] = '127.0.0.1'
 
                 subprocess.run(
-                    command,
+                    ["paplay", "-d", self.sink_name, "/dev/stdin"],
                     input=audio_bytes,
                     capture_output=True,
-                    check=True
+                    check=True,
+                    env=env  # Передаем модифицированное окружение
                 )
-                # -------------------------------------------------------------
+                # -----------------------------------------------------------
                 
                 logger.info(f"[{self.meeting_id}] ✅ Ответ ассистента озвучен.")
 
-            except subprocess.CalledProcessError as e:
-                stderr_output = e.stderr.decode('utf-8', errors='ignore').strip()
-                logger.error(f"[{self.meeting_id}] ❌ Ошибка при автоозвучке (paplay): {stderr_output}.")
             except Exception as e:
-                logger.error(f"[{self.meeting_id}] ❌ Неожиданная ошибка в _speak_via_meet: {e}", exc_info=True)
+                stderr_output = e.stderr.decode('utf-8', errors='ignore').strip() if hasattr(e, 'stderr') and e.stderr else str(e)
+                logger.error(f"[{self.meeting_id}] ❌ Ошибка при автоозвучке (paplay): {stderr_output}.")
             finally:
                 if toggled_on:
                     time.sleep(0.2)

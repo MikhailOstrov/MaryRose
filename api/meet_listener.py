@@ -468,52 +468,73 @@ class MeetListenerBot:
             return False
     
     # Поиск и определение аудиоустройства
-    def _find_device_id(self):
-        """
-        Ищет ID нашего уникального монитора. Принудительно пересканирует
-        устройства перед каждой попыткой для максимальной надежности.
-        """
-        device_to_find = self.monitor_name
-        logger.info(f"[{self.meeting_id}] Поиск аудиоустройства для прослушивания: '{device_to_find}'...")
-        
-        max_retries = 15  # Увеличим на всякий случай
-        retry_delay = 0.5
-        
-        for attempt in range(max_retries):
-            try:
-                # --- ВАЖНО: ПРИНУДИТЕЛЬНОЕ ПЕРЕСКАНИРОВАНИЕ УСТРОЙСТВ ---
-                # Этот "хак" заставляет PortAudio/sounddevice сбросить свой кэш
-                # и заново прочитать список доступных аудио-API и устройств.
-                sd._terminate()
-                sd._initialize()
-                # --------------------------------------------------------
+    
 
-                time.sleep(retry_delay) # Небольшая пауза после переинициализации
-                devices = sd.query_devices()
-                
-                device_names = [d['name'] for d in devices]
-                logger.info(f"[{self.meeting_id}] Попытка {attempt + 1}/{max_retries}: найдено {len(devices)} устройств: {device_names}")
-
-                # Поиск по имени или описанию. Поиск по описанию более надежен.
-                description_to_find = f"Monitor of Virtual_Sink_for_Meet_{self.meeting_id}"
-                for i, device in enumerate(devices):
-                    if (device_to_find == device['name'] or description_to_find in device['name']) and device['max_input_channels'] > 0:
-                        logger.info(f"[{self.meeting_id}] ✅ Найдено целевое устройство: ID {i}, Имя: '{device['name']}'")
-                        return i
+    def _audio_capture_thread(self):
+        """
+        Запускает `parec` в подпроцессе и читает из него аудиопоток.
+        Это надежная замена для sounddevice.
+        """
+        threading.current_thread().name = f'AudioCapture-{self.meeting_id}'
+        
+        # Команда для запуска PulseAudio Recorder (parec)
+        # Он будет записывать с нашего виртуального монитора в сыром формате
+        command = [
+            'parec',
+            '--device', self.monitor_name,
+            '--format=s16le',             # 16-bit signed integer, little-endian
+            f'--rate={STREAM_SAMPLE_RATE}',
+            '--channels=1',
+            '--raw'                       # Вывод сырых PCM данных без заголовков
+        ]
+        
+        logger.info(f"[{self.meeting_id}] 🎤 Запуск аудиозахвата с помощью parec: {' '.join(command)}")
+        
+        process = None
+        try:
+            # Запускаем подпроцесс
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             
-            except Exception as e:
-                logger.error(f"[{self.meeting_id}] Ошибка при запросе/переинициализации устройств на попытке {attempt + 1}: {e}", exc_info=False)
+            # Размер чанка в байтах (int16 = 2 байта на семпл)
+            chunk_size_bytes = self.frame_size * 2 
 
-        # Если после всех попыток устройство не найдено
-        logger.error(f"[{self.meeting_id}] Финальный список устройств: {[d['name'] for d in sd.query_devices()]}")
-        raise ValueError(f"Не удалось найти входное аудиоустройство '{device_to_find}' после {max_retries} попыток.")
-
-    # Callback функция
-    def _audio_capture_callback(self, indata, frames, time, status):
-        if status:
-            logger.warning(f"[{self.meeting_id}] Статус аудиоустройства: {status}")
-        if self.is_running.is_set():
-            self.audio_queue.put(bytes(indata))
+            while self.is_running.is_set():
+                # Читаем ровно один фрейм данных из stdout процесса
+                audio_chunk_bytes = process.stdout.read(chunk_size_bytes)
+                
+                if not audio_chunk_bytes:
+                    # Проверяем, не завершился ли процесс
+                    if process.poll() is not None:
+                        logger.warning(f"[{self.meeting_id}] Поток аудио из parec прервался, процесс завершился.")
+                        break
+                    # Если процесс жив, но данных нет, просто продолжаем цикл
+                    continue
+                
+                # Помещаем сырые байты в очередь для дальнейшей обработки
+                self.audio_queue.put(audio_chunk_bytes)
+        
+        except FileNotFoundError:
+            logger.critical(f"[{self.meeting_id}] ❌ КОМАНДА 'parec' НЕ НАЙДЕНА! Установите пакет 'pulseaudio-utils'.")
+            self.stop() # Останавливаем бота, если инструмент не найден
+        except Exception as e:
+            logger.error(f"[{self.meeting_id}] ❌ Ошибка в потоке аудиозахвата: {e}", exc_info=True)
+            self.stop()
+        finally:
+            logger.info(f"[{self.meeting_id}] Завершение потока аудиозахвата...")
+            if process:
+                # Мягко завершаем процесс
+                process.terminate()
+                try:
+                    # Ждем недолго и принудительно убиваем, если он завис
+                    process.wait(timeout=2)
+                    logger.info(f"[{self.meeting_id}] Процесс parec успешно завершен.")
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"[{self.meeting_id}] Процесс parec не завершился, убиваем принудительно.")
+                    process.kill()
+                # Читаем остатки из stderr для отладки, если там что-то было
+                stderr_output = process.stderr.read().decode('utf-8', errors='ignore').strip()
+                if stderr_output:
+                    logger.warning(f"[{self.meeting_id}] stderr от parec: {stderr_output}")
 
     # Обработка аудиопотока -- транскрибация -- ответ (если обнаружен триггер)
     def _process_audio_stream(self):
@@ -721,7 +742,7 @@ class MeetListenerBot:
             # 1. Создаем уникальные виртуальные аудиоустройства для этого бота
             if not self.audio_manager.create_devices():
                 logger.error(f"[{self.meeting_id}] ❌ Не удалось создать аудиоустройства. Завершение работы.")
-                return # Выходим, если аудио не создалось
+                return
 
             # 2. Инициализируем драйвер, который привяжется к этим устройствам
             self._initialize_driver()
@@ -731,36 +752,34 @@ class MeetListenerBot:
             
             if joined_successfully:
                 logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")
-                # 4. Находим ID нашего уникального микрофона для прослушивания
-                device_id = self._find_device_id()
-
-                processor_thread = threading.Thread(target=self._process_audio_stream)
+                
+                # Поток обработки аудио (VAD, ASR) - он остается без изменений
+                processor_thread = threading.Thread(target=self._process_audio_stream, name=f'VADProcessor-{self.meeting_id}')
                 processor_thread.start()
                 
-                monitor_thread = threading.Thread(target=self._monitor_participants)
+                # Поток мониторинга участников - также без изменений
+                monitor_thread = threading.Thread(target=self._monitor_participants, name=f'ParticipantMonitor-{self.meeting_id}')
                 monitor_thread.daemon = True
                 monitor_thread.start()
 
-                logger.info(f"[{self.meeting_id}] 🎤 Начинаю прослушивание аудио с устройства ID {device_id} ({self.monitor_name})...")
+                # --- НОВАЯ ЛОГИКА ЗАПУСКА ЗАХВАТА ---
+                # Запускаем наш новый поток захвата аудио через parec
+                capture_thread = threading.Thread(target=self._audio_capture_thread, name=f'AudioCapture-{self.meeting_id}')
+                capture_thread.start()
                 
-                with sd.RawInputStream(
-                    samplerate=STREAM_SAMPLE_RATE,
-                    blocksize=self.frame_size,
-                    device=device_id,
-                    dtype='int16',
-                    channels=1,
-                    callback=self._audio_capture_callback
-                ):
-                    processor_thread.join() # Поток будет жить, пока is_running=True
+                # Ожидаем завершения потоков. Они остановятся, когда будет вызван self.stop()
+                # (когда is_running станет False)
+                capture_thread.join()
+                processor_thread.join()
                 
-                logger.info(f"[{self.meeting_id}] Поток прослушивания остановлен.")
+                logger.info(f"[{self.meeting_id}] Основные потоки (обработка и захват) завершены.")
             else:
                 logger.warning(f"[{self.meeting_id}] Не удалось присоединиться к встрече. Завершаю работу.")
 
         except Exception as e:
             logger.critical(f"[{self.meeting_id}] ❌ Критическая ошибка в работе бота: {e}", exc_info=True)
         finally:
-            # 5. Гарантированно вызываем stop(), который очистит все ресурсы
+            # Гарантированно вызываем stop(), который очистит все ресурсы
             self.stop()
             logger.info(f"[{self.meeting_id}] Основной метод run завершен.")
 

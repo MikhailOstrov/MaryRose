@@ -8,7 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Основные утилиты, необходимые для проекта
     software-properties-common build-essential wget curl git ca-certificates jq unzip dos2unix gosu \
     # ЗАВИСИМОСТИ CHROME/AUDIO ИЗ JOIN_MEET (полный список для надежности)
-    gnupg procps xvfb pulseaudio dbus-x11 x11-utils \
+    gnupg procps xvfb pulseaudio dbus-x11 x11-utils pulseaudio-utils \
     fonts-liberation libnss3 libgdk-pixbuf-2.0-0 libgtk-3-0 libxss1 libgbm1 \
     libxrandr2 libpangocairo-1.0-0 libatk1.0-0 libcairo-gobject2 \
     libxcomposite1 libxcursor1 libxdamage1 libxfixes3 libxinerama1 \

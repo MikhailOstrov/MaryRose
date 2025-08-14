@@ -20,7 +20,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 import subprocess
 
 from config.config import (STREAM_SAMPLE_RATE,SILENCE_THRESHOLD_FRAMES, MEET_FRAME_DURATION_MS,
-                           MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME, STREAM_TRIGGER_WORD, CHROME_PROFILE_DIR,
+                           MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME, STREAM_TRIGGER_WORD, CHROME_BASE_PROFILE_DIR,
                            MEET_GUEST_NAME, SUMMARY_OUTPUT_DIR, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, STREAM_STOP_WORD_3)
 from handlers.llm_handler import get_mary_response, get_summary_response, get_title_response
 from handlers.diarization_handler import run_diarization, process_rttm_and_transcribe

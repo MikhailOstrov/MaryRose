@@ -320,9 +320,8 @@ class MeetListenerBot:
 
     def _speak_via_meet(self, text: str):
         """
-        Синтезирует TTS и проигрывает его в уникальный sink этого бота.
-        Звук из этого sink'а через loopback-модуль попадает в микрофон,
-        который "слышит" Google Meet.
+        Синтезирует TTS и проигрывает его в уникальный sink этого бота,
+        гарантируя подключение к правильному PulseAudio серверу.
         """
         if not text:
             return
@@ -333,28 +332,35 @@ class MeetListenerBot:
 
             toggled_on = False
             try:
-                # Включаем микрофон в Meet перед началом озвучки
                 self.toggle_mic_hotkey()
                 toggled_on = True
                 time.sleep(0.3)
 
-                # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ВОСПРОИЗВЕДЕНИЕ В КОНКРЕТНЫЙ SINK ---
-                # Используем paplay с флагом -d (--device), чтобы указать наш sink_name
                 logger.info(f"[{self.meeting_id}] Воспроизвожу TTS в sink: {self.sink_name}")
+                
+                # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ЯВНАЯ ПЕРЕДАЧА PULSE_SERVER ---
+                # Создаем копию текущего окружения
+                env = os.environ.copy()
+                # Устанавливаем (или перезаписываем) PULSE_SERVER, чтобы paplay
+                # гарантированно подключился к нашему TCP-серверу.
+                env['PULSE_SERVER'] = '127.0.0.1'
+
                 subprocess.run(
                     ["paplay", "-d", self.sink_name, "/dev/stdin"],
                     input=audio_bytes,
                     capture_output=True,
-                    check=True
+                    check=True,
+                    env=env  # Передаем модифицированное окружение
                 )
-                logger.info(f"[{self.meeting_id}] ✅ Ответ ассистента озвучен.")
                 # -----------------------------------------------------------
+                
+                logger.info(f"[{self.meeting_id}] ✅ Ответ ассистента озвучен.")
 
             except Exception as e:
-                logger.error(f"[{self.meeting_id}] ❌ Ошибка при автоозвучке (paplay): {e}.")
+                stderr_output = e.stderr.decode('utf-8', errors='ignore').strip() if hasattr(e, 'stderr') and e.stderr else str(e)
+                logger.error(f"[{self.meeting_id}] ❌ Ошибка при автоозвучке (paplay): {stderr_output}.")
             finally:
                 if toggled_on:
-                    # Небольшая пауза и выключаем микрофон
                     time.sleep(0.2)
                     self.toggle_mic_hotkey()
 
@@ -545,8 +551,13 @@ class MeetListenerBot:
                 if not audio_frame_bytes:
                     continue
 
+
+
                 audio_np = np.frombuffer(audio_frame_bytes, dtype=np.int16).astype(np.float32) / 32768.0
                 new_audio_tensor = torch.from_numpy(audio_np)
+
+                if audio_np.size == 0:
+                    continue # Пропускаем, если массив numpy оказался пустым
 
                 if vad_buffer is None:
                     vad_buffer = new_audio_tensor

@@ -345,14 +345,13 @@ class MeetListenerBot:
     def _speak_via_meet(self, text: str):
         """
         Синтезирует TTS и проигрывает его в УНИКАЛЬНЫЙ sink этого бота.
-        Звук из этого sink'а через remap-source попадает в микрофон,
-        который "слышит" Google Meet.
         """
         if not text:
             return
         try:
             audio_bytes = synthesize_speech_to_bytes(text)
             if not audio_bytes:
+                logger.warning(f"[{self.meeting_id}] TTS вернул пустые байты для текста: '{text}'")
                 return
 
             toggled_on = False
@@ -362,22 +361,25 @@ class MeetListenerBot:
                 toggled_on = True
                 time.sleep(0.3)
 
-                # --- ИЗМЕНЕНИЕ 3: Воспроизведение звука в конкретный SINK ---
-                # Используем paplay с флагом -d (--device), чтобы указать наш sink_name.
-                # Это гарантирует, что звук пойдет только в нужные виртуальные "колонки".
-                logger.info(f"[{self.meeting_id}] Воспроизвожу TTS в sink: {self.sink_name}")
+                # --- "ЛАКМУСОВАЯ БУМАЖКА" ---
+                # Этот лог подтвердит, что выполняется именно новый код.
+                # Он также покажет, какое именно имя sink'а используется.
+                logger.info(f"[{self.meeting_id}] ROUTING_CHECK: Попытка воспроизвести звук в конкретный sink: '{self.sink_name}'")
+                
+                # Команда, которая использует уникальное имя sink'а этого бота
                 subprocess.run(
                     ["paplay", "-d", self.sink_name, "/dev/stdin"],
                     input=audio_bytes,
                     capture_output=True,
                     check=True,
-                    timeout=20 # Таймаут на случай зависания paplay
+                    timeout=20
                 )
-                logger.info(f"[{self.meeting_id}] ✅ Ответ ассистента озвучен.")
-                # --- КОНЕЦ ИЗМЕНЕНИЯ 3 ---
+                logger.info(f"[{self.meeting_id}] ✅ Ответ ассистента успешно озвучен в '{self.sink_name}'.")
 
+            except subprocess.CalledProcessError as e:
+                logger.error(f"[{self.meeting_id}] ❌ Ошибка выполнения paplay для sink '{self.sink_name}': {e.stderr.strip()}")
             except Exception as e:
-                logger.error(f"[{self.meeting_id}] ❌ Ошибка при автоозвучке (paplay): {e}.")
+                logger.error(f"[{self.meeting_id}] ❌ Ошибка во время автоозвучки для sink '{self.sink_name}': {e}.")
             finally:
                 if toggled_on:
                     # Небольшая пауза и выключаем микрофон

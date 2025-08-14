@@ -28,6 +28,7 @@ from config.load_models import vad_model, asr_model
 from api.utils import combine_audio_chunks
 from handlers.tts_handler import synthesize_speech_to_bytes
 from api.audio_manager import VirtualAudioManager
+import signal
 
 logger = logging.getLogger(__name__)
 
@@ -70,6 +71,7 @@ class MeetListenerBot:
         self.monitor_name = self.audio_manager.monitor_name
 
         self.chrome_profile_path = CHROME_BASE_PROFILE_DIR / self.meeting_id
+        self.xvfb_process = None 
         # Убеждаемся, что эта директория существует
         os.makedirs(self.chrome_profile_path, exist_ok=True)
         logger.info(f"[{self.meeting_id}] Профиль Chrome будет использоваться из: '{self.chrome_profile_path}'")
@@ -120,10 +122,40 @@ class MeetListenerBot:
     # Инициализация драйвера для подключения
     def _initialize_driver(self):
         """
-        Инициализирует драйвер, запуская каждый Chrome в своем собственном
-        изолированном X-сервере с помощью xvfb-run.
+        Инициализирует драйвер, запуская для каждого бота свой собственный,
+        уникальный Xvfb-сервер на свободном дисплее, чтобы обеспечить полную изоляцию.
         """
-        logger.info(f"[{self.meeting_id}] Запуск undetected_chromedriver в изолированном X-сервере...")
+        logger.info(f"[{self.meeting_id}] Поиск свободного дисплея и запуск персонального Xvfb...")
+        
+        # Начинаем поиск свободного номера дисплея с 99
+        display_num = 99
+        while True:
+            display = f":{display_num}"
+            lock_file = f"/tmp/.X{display_num}-lock"
+            # Если lock-файла нет, значит дисплей свободен
+            if not os.path.exists(lock_file):
+                break
+            display_num += 1
+        
+        logger.info(f"[{self.meeting_id}] Найден свободный дисплей {display}. Запускаю Xvfb...")
+        
+        # Команда для запуска Xvfb
+        xvfb_cmd = ["Xvfb", display, "-screen", "0", "1280x720x16", "-nolisten", "tcp"]
+        
+        try:
+            # Запускаем Xvfb как отдельный процесс для этого бота.
+            # preexec_fn=os.setsid создает новую группу процессов, что позволяет нам
+            # убить Xvfb и всех его потомков одной командой при остановке.
+            self.xvfb_process = subprocess.Popen(xvfb_cmd, preexec_fn=os.setsid)
+            time.sleep(1) # Даем Xvfb время на полную инициализацию
+        except FileNotFoundError:
+             logger.critical(f"[{self.meeting_id}] ❌ КОМАНДА 'Xvfb' НЕ НАЙДЕНА! Убедитесь, что пакет 'xvfb' установлен.")
+             raise
+        except Exception as e:
+            logger.critical(f"[{self.meeting_id}] ❌ Не удалось запустить персональный Xvfb: {e}", exc_info=True)
+            raise
+
+        # --- Основной блок запуска Chrome ---
         try:
             options = uc.ChromeOptions()
             options.add_argument('--no-sandbox')
@@ -137,26 +169,26 @@ class MeetListenerBot:
                 "profile.default_content_setting_values.notifications": 2
             })
 
-            # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ЗАПУСК ЧЕРЕЗ XVFB-RUN ---
-            # Мы используем browser_executable_path, чтобы указать, как именно
-            # запускать браузер. xvfb-run автоматически найдет свободный дисплей.
+            # Явно передаем номер дисплея в uc.Chrome, чтобы он подключился
+            # к нашему персональному Xvfb-серверу.
             self.driver = uc.Chrome(
                 options=options,
-                headless=False, # headless=False обязательно для xvfb-run
-                browser_executable_path="/usr/bin/xvfb-run",
-                driver_executable_path=None # uc сам найдет chromedriver
+                headless=False, # headless=False, т.к. мы используем виртуальный дисплей
+                display=display 
             )
-            # ---------------------------------------------------
             
-            logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен в xvfb-run.")
+            logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен на дисплее {display}.")
             
             try:
-                self.driver.execute_cdp_cmd("Browser.grantPermissions", {"origin": "https://meet.google.com", "permissions": ["audioCapture"]})
+                self.driver.execute_cdp_cmd("Browser.grantPermissions", {"origin": "https.meet.google.com", "permissions": ["audioCapture"]})
                 logger.info(f"[{self.meeting_id}] Разрешение на микрофон выдано через CDP.")
             except Exception as e_grant:
                 logger.warning(f"[{self.meeting_id}] Не удалось выдать CDP-разрешение: {e_grant}")
             
         except Exception as e:
+            # Если запуск Chrome не удался, нужно обязательно убить наш Xvfb,
+            # чтобы не оставлять "мусорных" процессов.
+            self.stop()
             logger.critical(f"[{self.meeting_id}] ❌ Полный провал запуска Chrome: {e}", exc_info=True)
             raise
     
@@ -801,15 +833,13 @@ class MeetListenerBot:
             return
         
         logger.info(f"[{self.meeting_id}] Получена команда на завершение...")
-
         self.is_running.clear()
         
         if self.joined_successfully:
-            # Запускаем постобработку в отдельном потоке, чтобы не блокировать завершение
             post_processing_thread = threading.Thread(target=self._perform_post_processing)
             post_processing_thread.start()
         else:
-            logger.info(f"[{self.meeting_id}] Пропускаю постобработку, так как вход в конференцию не был успешен.")
+            logger.info(f"[{self.meeting_id}] Пропускаю постобработку.")
 
         if self.driver:
             try:
@@ -818,10 +848,22 @@ class MeetListenerBot:
             except Exception as e:
                 logger.error(f"[{self.meeting_id}] Ошибка при закрытии WebDriver: {e}")
         
-        # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ОЧИСТКА АУДИОРЕСУРСОВ ---
-        # Уничтожаем виртуальные устройства, созданные для этого бота
+        # --- НОВОЕ: ГАРАНТИРОВАННО УБИВАЕМ XVFB ---
+        if self.xvfb_process:
+            logger.info(f"[{self.meeting_id}] Остановка процесса Xvfb (pid: {self.xvfb_process.pid})...")
+            try:
+                # Убиваем всю группу процессов, созданную Xvfb
+                os.killpg(os.getpgid(self.xvfb_process.pid), signal.SIGTERM)
+                self.xvfb_process.wait(timeout=2)
+                logger.info(f"[{self.meeting_id}] Процесс Xvfb остановлен.")
+            except (ProcessLookupError, subprocess.TimeoutExpired):
+                pass # Процесс уже мог умереть
+            except Exception as e:
+                logger.error(f"[{self.meeting_id}] Ошибка при остановке Xvfb: {e}")
+            self.xvfb_process = None
+        # -------------------------------------------
+
         if self.audio_manager:
             self.audio_manager.destroy_devices()
-        # ----------------------------------------------------
 
         logger.info(f"[{self.meeting_id}] Сессия полностью завершена.")

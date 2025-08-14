@@ -28,6 +28,8 @@ from config.load_models import vad_model, asr_model
 from api.utils import combine_audio_chunks
 from handlers.tts_handler import synthesize_speech_to_bytes
 from api.audio_manager import VirtualAudioManager
+import shutil
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -54,17 +56,27 @@ class MeetListenerBot:
         self.frame_size = int(STREAM_SAMPLE_RATE * MEET_FRAME_DURATION_MS / 1000) # Для VAD-модели (длительность чанка)
         self.silent_frames_threshold = SILENCE_THRESHOLD_FRAMES # Пауза в речи в сек.
 
-        self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.meeting_id # Папка для сохранения чанков и скриншотов
+        # --- ИЗМЕНЕНИЕ 1: Создание уникальных путей для изоляции ---
+        # Уникальная директория для аудио-чанков этой сессии
+        self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.meeting_id 
         os.makedirs(self.output_dir, exist_ok=True)
         logger.info(f"[{self.meeting_id}] Аудиофрагменты будут сохраняться в: '{self.output_dir}'")
+        
+        # Уникальная директория для профиля Chrome этой сессии
+        self.chrome_profile_path = Path(CHROME_PROFILE_DIR) / self.meeting_id
+        # Гарантированно очищаем старый профиль, если он остался от предыдущего сбойного запуска
+        if self.chrome_profile_path.exists():
+            shutil.rmtree(self.chrome_profile_path)
+        os.makedirs(self.chrome_profile_path, exist_ok=True)
+        logger.info(f"[{self.meeting_id}] Временный профиль Chrome создан в: '{self.chrome_profile_path}'")
+        # --- КОНЕЦ ИЗМЕНЕНИЯ 1 ---
 
         # Управление автоозвучкой
         self.enable_auto_tts = True
-        # Используем системный default sink/source (entrypoint.sh создает meet_sink/meet_mic как default)
-        self.force_default_audio = True
-
+        
+        # Инициализация нашего менеджера аудиоустройств
         self.audio_manager = VirtualAudioManager(self.meeting_id)
-        # Эти имена будут использоваться в других методах
+        # Эти имена будут использоваться для привязки Chrome и воспроизведения звука
         self.sink_name = self.audio_manager.sink_name
         self.source_name = self.audio_manager.source_name
         self.monitor_name = self.audio_manager.monitor_name
@@ -115,24 +127,27 @@ class MeetListenerBot:
     # Инициализация драйвера для подключения
     def _initialize_driver(self):
         """
-        Инициализирует драйвер, явно указывая ему, какие виртуальные 
-        аудиоустройства PulseAudio использовать для этого конкретного бота.
+        Инициализирует драйвер, ЯВНО указывая ему, какие виртуальные 
+        устройства PulseAudio и какой профиль использовать для полной изоляции.
         """
-        logger.info(f"[{self.meeting_id}] Запуск undetected_chromedriver с аудио-настройками...")
+        logger.info(f"[{self.meeting_id}] Запуск undetected_chromedriver с полной изоляцией...")
         try:
             opt = uc.ChromeOptions()
             opt.add_argument('--no-sandbox')
             opt.add_argument('--disable-dev-shm-usage')
-            opt.add_argument(f'--user-data-dir={CHROME_PROFILE_DIR}')
             opt.add_argument('--window-size=1280,720')
             
-            # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ПРИВЯЗКА CHROME К УНИКАЛЬНЫМ УСТРОЙСТВАМ ---
-            # Явно указываем Chrome, какой sink (выход) и source (вход) использовать.
+            # --- ИЗМЕНЕНИЕ 2: Привязка Chrome к уникальным ресурсам ---
+            # 2.1. Указываем путь к уникальному профилю Chrome для этой сессии.
+            opt.add_argument(f'--user-data-dir={self.chrome_profile_path}')
+            logger.info(f"[{self.meeting_id}] Chrome будет использовать профиль: {self.chrome_profile_path}")
+
+            # 2.2. Явно привязываем Chrome к нашим виртуальным аудиоустройствам.
             # PulseAudio понимает эти аргументы и перенаправит аудио именно для этого процесса.
             logger.info(f"[{self.meeting_id}] Привязка Chrome к sink='{self.sink_name}' и source='{self.source_name}'")
-            opt.add_argument(f'--alsa-output-device=pulse/%s' % self.sink_name)
-            opt.add_argument(f'--alsa-input-device=pulse/%s' % self.source_name)
-            # --------------------------------------------------------------------
+            opt.add_argument(f'--alsa-output-device=pulse/{self.sink_name}')  # Устройство вывода (то, что слышит бот)
+            opt.add_argument(f'--alsa-input-device=pulse/{self.source_name}') # Устройство ввода (то, что говорит бот)
+            # --- КОНЕЦ ИЗМЕНЕНИЯ 2 ---
             
             # Разрешения на микрофон, установленные через experimental option
             opt.add_experimental_option("prefs", {
@@ -142,12 +157,12 @@ class MeetListenerBot:
             
             self.driver = uc.Chrome(
                 options=opt,
-                headless=False,       # Обязательно для работы в Xvfb
-                use_subprocess=True,  # Важно для стабильности
-                version_main=138      # Закрепленная версия - это хорошо
+                headless=False,
+                use_subprocess=True,
+                version_main=138
             )
             
-            logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен и привязан к своим виртуальным аудиоустройствам.")
+            logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен и привязан к своим виртуальным ресурсам.")
             
             # Попытка выдать разрешение через CDP остается как дополнительная мера
             try:
@@ -162,7 +177,7 @@ class MeetListenerBot:
         except Exception as e:
             logger.critical(f"[{self.meeting_id}] ❌ Полный провал запуска Chrome: {e}", exc_info=True)
             raise
-    
+
     # Скриншот для отладки 
     def _save_screenshot(self, name: str):
         """Сохраняет скриншот для отладки."""
@@ -327,10 +342,10 @@ class MeetListenerBot:
             return
         logger.info(f"[{self.meeting_id}] Всплывающее окно разрешений не обнаружено.")
 
-    def _speak_via_meet(self, text: str):
+   def _speak_via_meet(self, text: str):
         """
-        Синтезирует TTS и проигрывает его в уникальный sink этого бота.
-        Звук из этого sink'а через loopback-модуль попадает в микрофон,
+        Синтезирует TTS и проигрывает его в УНИКАЛЬНЫЙ sink этого бота.
+        Звук из этого sink'а через remap-source попадает в микрофон,
         который "слышит" Google Meet.
         """
         if not text:
@@ -347,17 +362,19 @@ class MeetListenerBot:
                 toggled_on = True
                 time.sleep(0.3)
 
-                # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ВОСПРОИЗВЕДЕНИЕ В КОНКРЕТНЫЙ SINK ---
-                # Используем paplay с флагом -d (--device), чтобы указать наш sink_name
+                # --- ИЗМЕНЕНИЕ 3: Воспроизведение звука в конкретный SINK ---
+                # Используем paplay с флагом -d (--device), чтобы указать наш sink_name.
+                # Это гарантирует, что звук пойдет только в нужные виртуальные "колонки".
                 logger.info(f"[{self.meeting_id}] Воспроизвожу TTS в sink: {self.sink_name}")
                 subprocess.run(
                     ["paplay", "-d", self.sink_name, "/dev/stdin"],
                     input=audio_bytes,
                     capture_output=True,
-                    check=True
+                    check=True,
+                    timeout=20 # Таймаут на случай зависания paplay
                 )
                 logger.info(f"[{self.meeting_id}] ✅ Ответ ассистента озвучен.")
-                # -----------------------------------------------------------
+                # --- КОНЕЦ ИЗМЕНЕНИЯ 3 ---
 
             except Exception as e:
                 logger.error(f"[{self.meeting_id}] ❌ Ошибка при автоозвучке (paplay): {e}.")
@@ -806,10 +823,19 @@ class MeetListenerBot:
             except Exception as e:
                 logger.error(f"[{self.meeting_id}] Ошибка при закрытии WebDriver: {e}")
         
-        # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ОЧИСТКА АУДИОРЕСУРСОВ ---
-        # Уничтожаем виртуальные устройства, созданные для этого бота
+        # Уничтожаем виртуальные аудиоустройства, созданные для этого бота
         if self.audio_manager:
             self.audio_manager.destroy_devices()
-        # ----------------------------------------------------
+        
+        # --- ИЗМЕНЕНИЕ 4: Очистка временного профиля Chrome ---
+        # Это критически важный шаг для предотвращения накопления мусора на диске.
+        try:
+            if self.chrome_profile_path.exists():
+                logger.info(f"[{self.meeting_id}] Удаление временного профиля Chrome: {self.chrome_profile_path}")
+                shutil.rmtree(self.chrome_profile_path)
+                logger.info(f"[{self.meeting_id}] Временный профиль Chrome успешно удален.")
+        except Exception as e:
+            logger.error(f"[{self.meeting_id}] Ошибка при удалении профиля Chrome: {e}")
+        # --- КОНЕЦ ИЗМЕНЕНИЯ 4 ---
 
         logger.info(f"[{self.meeting_id}] Сессия полностью завершена.")

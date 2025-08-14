@@ -15,7 +15,7 @@ MEET_AUDIO_CHUNKS_DIR = AUDIO_FILES_DIR / "meet_chunks"
 
 def ensure_dirs_exist():
     """Создает все необходимые директории."""
-    for path in [TTS_OUTPUT_DIR, USER_DATA_DIR, MEETINGS_DIR, CHROME_PROFILE_DIR, MEET_AUDIO_CHUNKS_DIR]:
+    for path in [TTS_OUTPUT_DIR, USER_DATA_DIR, MEETINGS_DIR, CHROME_BASE_PROFILE_DIR, MEET_AUDIO_CHUNKS_DIR]:
         path.mkdir(parents=True, exist_ok=True)
 
 ASR_MODEL_NAME = "deepdml/faster-whisper-large-v3-turbo-ct2" # Модель Whisper 

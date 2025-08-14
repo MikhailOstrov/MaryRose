@@ -20,19 +20,11 @@ export NEMO_CACHE_DIR=/workspace/.cache/nemo
 export HF_HOME=/workspace/.cache/huggingface
 echo "[Entrypoint] Переменные окружения для моделей настроены."
 
-# --- 1. Настройка Display и Chrome ---
+# --- 1. Настройка Display ---
 export DISPLAY=:99
-# Очищаем кэш и сессии Chrome от предыдущих запусков для чистого старта
-echo "[Entrypoint] Очистка старых сессий Chrome..."
-rm -rf /app/chrome_profile/Default/Service* 2>/dev/null || true
-rm -rf /app/chrome_profile/Default/Session* 2>/dev/null || true
-
-# --- 2. Запуск служб ---
 echo "[Entrypoint] Запуск виртуального дисплея Xvfb..."
-# Удаляем lock-файл на случай некорректного завершения предыдущей сессии
-rm -f /tmp/.X99-lock
+rm -f /tmp/.X99-lock # Удаляем lock-файл на случай некорректного завершения
 Xvfb :99 -screen 0 1280x720x16 &
-# Даем время на запуск
 sleep 3
 
 echo "[Entrypoint] Проверка Xvfb..."
@@ -43,26 +35,22 @@ fi
 echo "✅ [Entrypoint] Xvfb готов!"
 
 
-echo "[Entrypoint] Запуск аудиосервера PulseAudio..."
-# Устанавливаем путь для сокета PulseAudio
-export PULSE_RUNTIME_PATH=/tmp/pulse-runtime
-mkdir -p $PULSE_RUNTIME_PATH
-# Запускаем PulseAudio как демон, который не будет завершаться при бездействии
-pulseaudio --start --exit-idle-time=-1 --daemonize
-# Даем время на запуск
-sleep 3
+# --- 2. Запуск служб ---
+echo "[Entrypoint] Запуск системного аудиосервера PulseAudio..."
+# Запускаем в системном режиме (--system), чтобы избежать проблем с правами доступа в Docker.
+# Это создаст общедоступный сокет, который увидят все приложения.
+# --disallow-exit и --exit-idle-time=-1 гарантируют, что сервер не завершится.
+# --log-target=stderr направляет логи PA в стандартный поток ошибок контейнера.
+pulseaudio --system --disallow-exit --exit-idle-time=-1 --log-target=stderr --daemonize
+sleep 3 # Даем время на полный запуск сервера
 
-# Проверяем, что сервер PulseAudio действительно запустился и отвечает
+# Проверяем, что сервер действительно запустился и отвечает
 echo "[Entrypoint] Проверка PulseAudio..."
 if ! pactl info >/dev/null 2>&1; then
     echo "❌ [Entrypoint] CRITICAL: PulseAudio не запустился. Захват звука не будет работать."
     exit 1
 fi
 echo "✅ [Entrypoint] PulseAudio сервер готов. Управление аудиоустройствами будет выполняться приложением динамически."
-
-# --- БЛОК СОЗДАНИЯ ГЛОБАЛЬНЫХ АУДИОУСТРОЙСТВ ПОЛНОСТЬЮ УДАЛЕН ---
-# Приложение само будет создавать уникальные устройства для каждого бота.
-# -----------------------------------------------------------------
 
 
 # --- 3. Предзагрузка кэша моделей (опционально) ---
@@ -75,11 +63,7 @@ import sys
 from huggingface_hub import snapshot_download
 
 HF_TOKEN = os.getenv("HUGGING_FACE_HUB_TOKEN") or os.getenv("HF_TOKEN")
-
-targets = [
-    # Убедитесь, что здесь актуальный список моделей, если он изменится
-    "deepdml/faster-whisper-large-v3-turbo-ct2",
-]
+targets = ["deepdml/faster-whisper-large-v3-turbo-ct2"]
 
 for repo in targets:
     try:
@@ -89,7 +73,6 @@ for repo in targets:
             cache_dir="/workspace/.cache/huggingface",
             local_files_only=False,
             token=HF_TOKEN,
-            # ignore_patterns=["*.safetensors.index.json", "*.h5", "*.gguf"], # Можно добавить игнорирование ненужных файлов
         )
     except Exception as e:
         print(f"⚠️ [PreCache] Не удалось скачать {repo}: {e}")
@@ -97,24 +80,21 @@ print("[PreCache] ✅ Завершено")
 PY
 fi
 
-# --- 4. Проверки системы ---
+# --- 4. Проверки системы и диагностика ---
 echo "=== [Entrypoint] Проверка системы ==="
 echo "DISPLAY=$DISPLAY"
 echo "Chrome version: $(google-chrome --version 2>/dev/null || echo 'Chrome не найден')"
 echo "ChromeDriver: $(chromedriver --version 2>/dev/null || echo 'ChromeDriver не найден')"
 echo "Python version: $(python3 --version)"
 echo "Available memory: $(free -h | grep Mem)"
-echo "--- Доступные аудиоустройства (на старте должны быть только системные) ---"
+echo "--- [DIAG] Доступные аудиоустройства (на старте должны быть только системные) ---"
 pactl list sources short
 pactl list sinks short
 echo "---------------------------------------------------------------------"
-
-
-# --- НОВЫЙ БЛОК ДИАГНОСТИКИ ---
 echo "--- [DIAG] Устройства, видимые для Python/SoundDevice на старте ---"
 python3 -c "import sounddevice as sd; print(sd.query_devices())"
 echo "------------------------------------------------------------------"
-# --- КОНЕЦ БЛОКА ДИАГНОСТИКИ ---
+
 
 echo "=== [Entrypoint] Запуск основного приложения ==="
 echo "[Entrypoint] Передача управления команде: $@"

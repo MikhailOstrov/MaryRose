@@ -127,27 +127,27 @@ class MeetListenerBot:
     # Инициализация драйвера для подключения
     def _initialize_driver(self):
         """
-        Инициализирует драйвер, ЯВНО указывая ему, какие виртуальные 
-        устройства PulseAudio и какой профиль использовать для полной изоляции.
+        Инициализирует драйвер, ПРИНУДИТЕЛЬНО устанавливая целевой sink
+        как устройство по умолчанию перед запуском Chrome.
         """
-        logger.info(f"[{self.meeting_id}] Запуск undetected_chromedriver с полной изоляцией...")
+        logger.info(f"[{self.meeting_id}] Запуск undetected_chromedriver...")
         try:
+            # --- ШАГ 1: Принудительно меняем устройство по умолчанию ---
+            logger.info(f"[{self.meeting_id}] PULSE_ROUTE: Устанавливаю '{self.sink_name}' как sink по умолчанию...")
+            cmd_set_default = ["pactl", "set-default-sink", self.sink_name]
+            subprocess.run(cmd_set_default, check=True, capture_output=True, text=True)
+            logger.info(f"[{self.meeting_id}] PULSE_ROUTE: ✅ Sink по умолчанию успешно изменен.")
+            # --------------------------------------------------------
+
+            # --- ШАГ 2: Запускаем Chrome, который теперь подключится к новому default'у ---
             opt = uc.ChromeOptions()
             opt.add_argument('--no-sandbox')
             opt.add_argument('--disable-dev-shm-usage')
             opt.add_argument('--window-size=1280,720')
-            
-            # --- ИЗМЕНЕНИЕ 2: Привязка Chrome к уникальным ресурсам ---
-            # 2.1. Указываем путь к уникальному профилю Chrome для этой сессии.
             opt.add_argument(f'--user-data-dir={self.chrome_profile_path}')
-            logger.info(f"[{self.meeting_id}] Chrome будет использовать профиль: {self.chrome_profile_path}")
-
-            # 2.2. Явно привязываем Chrome к нашим виртуальным аудиоустройствам.
-            # PulseAudio понимает эти аргументы и перенаправит аудио именно для этого процесса.
             
-            # --- КОНЕЦ ИЗМЕНЕНИЯ 2 ---
+            # Нам больше не нужны флаги --alsa-*, так как мы управляем default'ом
             
-            # Разрешения на микрофон, установленные через experimental option
             opt.add_experimental_option("prefs", {
                 "profile.default_content_setting_values.media_stream_mic": 1,
                 "profile.default_content_setting_values.notifications": 2
@@ -160,9 +160,9 @@ class MeetListenerBot:
                 version_main=138
             )
             
-            logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен и привязан к своим виртуальным ресурсам.")
+            logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен. Он должен был подключиться к '{self.sink_name}'.")
             
-            # Попытка выдать разрешение через CDP остается как дополнительная мера
+            # ... (остальной код метода без изменений) ...
             try:
                 self.driver.execute_cdp_cmd("Browser.grantPermissions", {
                     "origin": "https://meet.google.com",
@@ -171,7 +171,10 @@ class MeetListenerBot:
                 logger.info(f"[{self.meeting_id}] Разрешение на микрофон выдано через CDP.")
             except Exception as e_grant:
                 logger.warning(f"[{self.meeting_id}] Не удалось выдать CDP-разрешение: {e_grant}")
-            
+
+        except subprocess.CalledProcessError as e:
+             logger.critical(f"[{self.meeting_id}] PULSE_ROUTE: ❌ КРИТИЧЕСКАЯ ОШИБКА: Не удалось изменить sink по умолчанию! Stderr: {e.stderr.strip()}", exc_info=True)
+             raise
         except Exception as e:
             logger.critical(f"[{self.meeting_id}] ❌ Полный провал запуска Chrome: {e}", exc_info=True)
             raise
@@ -372,50 +375,7 @@ class MeetListenerBot:
         except Exception as e:
             logger.error(f"[{self.meeting_id}] PULSE_DEBUG: Неожиданная ошибка при получении состояния PulseAudio: {e}")
 
-    def _force_reroute_audio(self):
-        """
-        Принудительно перемещает аудиопоток (sink-input) этого экземпляра Chrome
-        в предназначенный для него виртуальный sink.
-        Это надежный способ исправить маршрутизацию.
-        """
-        logger.info(f"[{self.meeting_id}] PULSE_ROUTE: Попытка принудительной маршрутизации аудио...")
-        try:
-            # Небольшая пауза, чтобы аудиопоток Chrome успел зарегистрироваться в PulseAudio
-            time.sleep(2)
-
-            # 1. Находим PID (ID процесса) нашего Chrome
-            pid = self.driver.browser_pid
-            if not pid:
-                logger.error(f"[{self.meeting_id}] PULSE_ROUTE: Не удалось получить PID процесса Chrome.")
-                return
-
-            # 2. Находим ID аудиопотока (sink-input), который принадлежит этому PID
-            cmd_find = ["pactl", "list", "short", "sink-inputs"]
-            result = subprocess.run(cmd_find, capture_output=True, text=True, check=True)
-            
-            sink_input_id = None
-            for line in result.stdout.strip().split('\n'):
-                if f'application.process.id="{pid}"' in line:
-                    sink_input_id = line.split('\t')[0]
-                    break
-            
-            if not sink_input_id:
-                logger.error(f"[{self.meeting_id}] PULSE_ROUTE: Не удалось найти sink-input для Chrome с PID={pid}.")
-                self._log_pulse_audio_state() # Логируем текущее состояние для отладки
-                return
-            
-            # 3. Перемещаем найденный аудиопоток в наш целевой sink
-            logger.info(f"[{self.meeting_id}] PULSE_ROUTE: Найден sink-input #{sink_input_id} для PID {pid}. Перемещаю его в sink '{self.sink_name}'...")
-            cmd_move = ["pactl", "move-sink-input", sink_input_id, self.sink_name]
-            subprocess.run(cmd_move, check=True)
-            
-            logger.info(f"[{self.meeting_id}] PULSE_ROUTE: ✅ Аудиопоток успешно перемещен.")
-            
-            # 4. Делаем контрольный снимок состояния ПОСЛЕ перемещения
-            self._log_pulse_audio_state()
-
-        except Exception as e:
-            logger.error(f"[{self.meeting_id}] PULSE_ROUTE: ❌ Ошибка во время принудительной маршрутизации: {e}")
+    
 
     def _speak_via_meet(self, text: str):
         """
@@ -527,7 +487,6 @@ class MeetListenerBot:
                         if self.driver.find_element(By.XPATH, xpath).is_displayed():
                             self._save_screenshot("04_joined_successfully")
                             logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
-                            self._force_reroute_audio()
                             self._log_pulse_audio_state()
                             # По требованию: сразу после входа эмулируем Ctrl+D для включения/выключения микрофона
                             try:

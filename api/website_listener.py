@@ -20,7 +20,7 @@ from config.config import (
 from handlers.llm_handler import get_mary_response, get_summary_response, get_title_response
 from handlers.diarization_handler import run_diarization, process_rttm_and_transcribe
 from api.utils import combine_audio_chunks
-from config.load_models import vad_model, asr_model
+from config.load_models import create_new_vad_model, asr_model
 from config.config import SILENCE_THRESHOLD_FRAMES
 
 logger = logging.getLogger(__name__)
@@ -37,7 +37,7 @@ class WebsiteListenerBot:
         self.is_running = threading.Event()
         self.is_running.set()
 
-        self.vad = vad_model # VAD-модель (from config.load_models import vad_model)
+        self.vad = create_new_vad_model()
         self.asr_model = asr_model # Whisper (from config.load_models import asr_model)
 
         self.frame_size = int(STREAM_SAMPLE_RATE * (MEET_FRAME_DURATION_MS / 1000) * 2)

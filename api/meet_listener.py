@@ -342,6 +342,38 @@ class MeetListenerBot:
             return
         logger.info(f"[{self.meeting_id}] Всплывающее окно разрешений не обнаружено.")
 
+    def _log_pulse_audio_state(self):
+        """
+        Выполняет команду 'pactl list sink-inputs', чтобы получить информацию
+        о том, какие приложения куда направляют свой звук, и выводит это в лог.
+        """
+        try:
+            logger.info(f"[{self.meeting_id}] PULSE_DEBUG: Получение снимка состояния аудиопотоков...")
+            
+            # Команда 'pactl list sink-inputs' показывает только активные аудиопотоки приложений.
+            result = subprocess.run(
+                ["pactl", "list", "sink-inputs"],
+                capture_output=True,
+                text=True,
+                check=True,
+                timeout=5
+            )
+            
+            # Выводим результат в лог в удобном для чтения виде.
+            log_message = f"\n--- PULSEAUDIO SINK INPUTS SNAPSHOT (after bot {self.meeting_id} joined) ---\n"
+            log_message += result.stdout
+            log_message += "\n-----------------------------------------------------------------"
+            
+            logger.info(log_message)
+
+        except FileNotFoundError:
+             logger.error(f"[{self.meeting_id}] PULSE_DEBUG: Команда 'pactl' не найдена. Невозможно сделать снимок состояния.")
+        except subprocess.CalledProcessError as e:
+            # Если нет активных потоков, команда может завершиться с ошибкой. Логируем stdout, так как там может быть полезная информация.
+            logger.warning(f"[{self.meeting_id}] PULSE_DEBUG: Команда 'pactl list sink-inputs' не вернула успешный результат. Возможно, нет активных потоков. Output: {e.stdout.strip()} Stderr: {e.stderr.strip()}")
+        except Exception as e:
+            logger.error(f"[{self.meeting_id}] PULSE_DEBUG: Неожиданная ошибка при получении состояния PulseAudio: {e}")
+
     def _speak_via_meet(self, text: str):
         """
         Синтезирует TTS и проигрывает его в УНИКАЛЬНЫЙ sink этого бота.
@@ -452,6 +484,7 @@ class MeetListenerBot:
                         if self.driver.find_element(By.XPATH, xpath).is_displayed():
                             self._save_screenshot("04_joined_successfully")
                             logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
+                            self._log_pulse_audio_state()
                             # По требованию: сразу после входа эмулируем Ctrl+D для включения/выключения микрофона
                             try:
                                 self.toggle_mic_hotkey()

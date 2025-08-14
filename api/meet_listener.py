@@ -128,20 +128,27 @@ class MeetListenerBot:
     # Инициализация драйвера для подключения
     def _initialize_driver(self):
         """
-        Инициализирует драйвер, используя переменную окружения PULSE_SINK
-        для точной и изолированной маршрутизации аудиопотока Chrome.
+        Инициализирует драйвер, используя переменные окружения PULSE_SINK и PULSE_SOURCE
+        для точной и изолированной маршрутизации аудио для Chrome.
         Запуск защищен блокировкой для предотвращения состояний гонки.
         """
         logger.info(f"[{self.meeting_id}] Ожидание блокировки для запуска Chrome...")
         
         with CHROME_LAUNCH_LOCK:
-            logger.info(f"[{self.meeting_id}] Блокировка получена. Запуск Chrome с PULSE_SINK='{self.sink_name}'...")
+            logger.info(f"[{self.meeting_id}] Блокировка получена. Настройка PulseAudio env vars...")
             
+            # Сохраняем исходные значения, чтобы восстановить их позже
             original_pulse_sink = os.environ.get('PULSE_SINK')
+            original_pulse_source = os.environ.get('PULSE_SOURCE')
+            
+            # Устанавливаем персональные устройства для следующего запускаемого процесса
             os.environ['PULSE_SINK'] = self.sink_name
+            os.environ['PULSE_SOURCE'] = self.source_name
+            
+            logger.info(f"[{self.meeting_id}] Запуск Chrome с PULSE_SINK='{self.sink_name}' и PULSE_SOURCE='{self.source_name}'...")
             
             try:
-                # --- Запускаем Chrome, пока установлена переменная окружения ---
+                # --- Запускаем Chrome, пока установлены переменные окружения ---
                 opt = uc.ChromeOptions()
                 opt.add_argument('--no-sandbox')
                 opt.add_argument('--disable-dev-shm-usage')
@@ -160,7 +167,7 @@ class MeetListenerBot:
                     version_main=138
                 )
                 
-                logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен. Аудиопоток должен быть направлен в '{self.sink_name}'.")
+                logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен. Аудио должно быть полностью изолировано.")
                 
                 # ... (блок с execute_cdp_cmd остается без изменений) ...
                 try:
@@ -176,12 +183,17 @@ class MeetListenerBot:
                 logger.critical(f"[{self.meeting_id}] ❌ Полный провал запуска Chrome: {e}", exc_info=True)
                 raise
             finally:
-                # --- Гарантированно очищаем переменную окружения ---
-                logger.info(f"[{self.meeting_id}] Очистка переменной окружения PULSE_SINK.")
+                # --- Гарантированно очищаем переменные окружения ---
+                logger.info(f"[{self.meeting_id}] Очистка переменных окружения PulseAudio.")
                 if original_pulse_sink is None:
                     del os.environ['PULSE_SINK']
                 else:
                     os.environ['PULSE_SINK'] = original_pulse_sink
+                
+                if original_pulse_source is None:
+                    del os.environ['PULSE_SOURCE']
+                else:
+                    os.environ['PULSE_SOURCE'] = original_pulse_source
         
         logger.info(f"[{self.meeting_id}] Блокировка запуска Chrome освобождена.")
 

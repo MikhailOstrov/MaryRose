@@ -62,20 +62,16 @@ RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
 # Копируем ВЕСЬ код приложения ОДИН РАЗ
 COPY . /app/
 
-# Создаем пользователя, которым будем все запускать
+# Создаем пользователя 'appuser', но НЕ переключаемся на него
 RUN groupadd -r appuser && useradd --no-log-init -r -g appuser appuser
 
 # Выполняем действия, требующие прав root
 RUN dos2unix /app/entrypoint.sh && \
     chmod +x /app/entrypoint.sh && \
     mkdir -p /workspace && \
-    mkdir -p /app/chrome_profile && \
-    # Рекурсивно меняем владельца всех файлов приложения и workspace на 'appuser'
     chown -R appuser:appuser /app /workspace
 
-# --- ШАГ 7: ПЕРЕКЛЮЧЕНИЕ НА НЕПРИВИЛЕГИРОВАННОГО ПОЛЬЗОВАТЕЛЯ ---
-# Все последующие команды будут выполняться от имени 'appuser'
-USER appuser
+
 
 # Настройка переменных окружения (можно делать и до USER, но так логичнее)
 ENV HOME=/app

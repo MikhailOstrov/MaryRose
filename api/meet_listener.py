@@ -24,7 +24,7 @@ from config.config import (STREAM_SAMPLE_RATE,SILENCE_THRESHOLD_FRAMES, MEET_FRA
                            MEET_GUEST_NAME, SUMMARY_OUTPUT_DIR, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, STREAM_STOP_WORD_3)
 from handlers.llm_handler import get_mary_response, get_summary_response, get_title_response
 from handlers.diarization_handler import run_diarization, process_rttm_and_transcribe
-from config.load_models import create_new_vad_model, asr_model
+from config.load_models import create_new_vad_model, asr_model, create_new_tts_model
 from api.utils import combine_audio_chunks
 from handlers.tts_handler import synthesize_speech_to_bytes
 from api.audio_manager import VirtualAudioManager
@@ -49,6 +49,7 @@ class MeetListenerBot:
         self.is_running.set()
 
         self.vad = create_new_vad_model()
+        self.tts_model = create_new_tts_model()
         self.asr_model = asr_model # Whisper (from config.load_models import asr_model)
         self.summary_output_dir = SUMMARY_OUTPUT_DIR # Директория сохранения summary
         self.joined_successfully = False 
@@ -389,7 +390,7 @@ class MeetListenerBot:
         if not text:
             return
         try:
-            audio_bytes = synthesize_speech_to_bytes(text)
+            audio_bytes = synthesize_speech_to_bytes(text, self.tts_model)
             if not audio_bytes:
                 logger.warning(f"[{self.meeting_id}] TTS вернул пустые байты для текста: '{text}'")
                 return

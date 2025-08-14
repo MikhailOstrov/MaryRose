@@ -24,7 +24,7 @@ from config.config import (STREAM_SAMPLE_RATE,SILENCE_THRESHOLD_FRAMES, MEET_FRA
                            MEET_GUEST_NAME, SUMMARY_OUTPUT_DIR, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, STREAM_STOP_WORD_3)
 from handlers.llm_handler import get_mary_response, get_summary_response, get_title_response
 from handlers.diarization_handler import run_diarization, process_rttm_and_transcribe
-from config.load_models import vad_model, asr_model
+from config.load_models import create_new_vad_models, asr_model
 from api.utils import combine_audio_chunks
 from handlers.tts_handler import synthesize_speech_to_bytes
 from api.audio_manager import VirtualAudioManager
@@ -48,7 +48,7 @@ class MeetListenerBot:
         self.is_running = threading.Event()
         self.is_running.set()
 
-        self.vad = vad_model # VAD-модель (from config.load_models import vad_model)
+        self.vad = create_new_vad_model()
         self.asr_model = asr_model # Whisper (from config.load_models import asr_model)
         self.summary_output_dir = SUMMARY_OUTPUT_DIR # Директория сохранения summary
         self.joined_successfully = False 

@@ -44,6 +44,20 @@ if hf_token:
 else:
     print(f"Токен Hugging Face не найден в переменных окружения. {hf_token}")
 
+# --- ИЗМЕНЕНИЕ 1: Создаем "фабрику" для VAD-моделей ---
+def create_new_vad_model():
+    """
+    Создает и возвращает НОВЫЙ, ИЗОЛИРОВАННЫЙ экземпляр VAD-модели Silero.
+    Использует кэш, чтобы не скачивать модель каждый раз.
+    """
+    print("Создание нового экземпляра VAD-модели из кэша...")
+    # force_reload=False гарантирует использование кэша, если он есть
+    model, _ = torch.hub.load(repo_or_dir='snakers4/silero-vad',
+                              model='silero_vad',
+                              force_reload=False)
+    print("✅ Новый экземпляр VAD создан.")
+    return model
+
 # Функция проверки, загружены ли модели
 def check_model_exists(model_identifier, model_type="whisper"):
     """Проверяет существование модели в /workspace"""
@@ -132,10 +146,10 @@ def load_diarizer_config():
 # Загрузка моделей при импорте модуля
 print("=== Начинаем загрузку моделей в /workspace ===")
 asr_model = load_asr_model()
-(vad_model, vad_utils, vad_iterator) = load_silero_vad_model()
+
 tts_model = load_tts_model()
 diarizer_config = load_diarizer_config()
 print("=== Все модели успешно загружены ===")
 
 # Экспортируем загруженные модели
-__all__ = ['llm_model', 'asr_model', 'vad_model', 'vad_utils', 'vad_iterator', 'tts_model', 'diarizer_config']
+__all__ = ['llm_model', 'asr_model', 'tts_model', 'diarizer_config', 'create_new_vad_model']

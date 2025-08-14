@@ -71,6 +71,20 @@ ENV PYTHONPATH=/app
 
 # НЕ загружаем модели на этапе сборки - они будут загружены при первом запуске в /workspace
 
+# --- ШАГ 6.5: СОЗДАНИЕ ПОЛЬЗОВАТЕЛЯ И НАСТРОЙКА ПРАВ ---
+# Создаем пользователя 'appuser' и даем ему права на рабочую директорию
+RUN groupadd -r appuser && useradd --no-log-init -r -g appuser appuser
+WORKDIR /app
+COPY . /app/
+# Даем права на /app и на /workspace (критически важно для моделей)
+RUN chown -R appuser:appuser /app && \
+    mkdir -p /workspace && \
+    chown -R appuser:appuser /workspace
+RUN chmod +x /app/entrypoint.sh && dos2unix /app/entrypoint.sh
+
+# Переключаемся на нашего нового пользователя
+USER appuser
+
 # --- ШАГ 7: КОПИРОВАНИЕ ОСТАЛЬНОГО КОДА И НАСТРОЙКА ENTRYPOINT ---
 # Только потом копируем весь остальной код
 COPY . /app/

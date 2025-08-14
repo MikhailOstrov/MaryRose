@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-echo "=== [Entrypoint] Настройка окружения для RunPod ==="
+echo "=== [Entrypoint] Настройка окружения для RunPod (Пользовательский режим + TCP) ==="
 
 # --- 0. Проверка и настройка /workspace ---
 echo "[Entrypoint] Проверка Volume диска /workspace..."
@@ -9,54 +9,45 @@ if [ ! -d "/workspace" ]; then
     echo "❌ [Entrypoint] CRITICAL: /workspace не найден. Убедитесь, что Volume диск подключен."
     exit 1
 fi
-
 echo "[Entrypoint] Создание структуры папок в /workspace..."
 mkdir -p /workspace/.cache/torch /workspace/.cache/nemo /workspace/.cache/huggingface /workspace/models
 echo "✅ [Entrypoint] Структура /workspace создана."
 
-# Настройка переменных окружения для кэширования моделей
-export TORCH_HOME=/workspace/.cache/torch
-export NEMO_CACHE_DIR=/workspace/.cache/nemo
-export HF_HOME=/workspace/.cache/huggingface
-echo "[Entrypoint] Переменные окружения для моделей настроены."
 
-# --- 1. Настройка Display ---
+# --- 1. Настройка Display и служб ---
 export DISPLAY=:99
 echo "[Entrypoint] Запуск виртуального дисплея Xvfb..."
 rm -f /tmp/.X99-lock # Удаляем lock-файл на случай некорректного завершения
 Xvfb :99 -screen 0 1280x720x16 &
 sleep 3
-
-echo "[Entrypoint] Проверка Xvfb..."
-if ! xdpyinfo -display :99 >/dev/null 2>&1; then
-    echo "❌ [Entrypoint] CRITICAL: Xvfb не запустился. Прерывание."
-    exit 1
-fi
 echo "✅ [Entrypoint] Xvfb готов!"
 
+echo "[Entrypoint] Запуск PulseAudio в пользовательском режиме с TCP-сокетом..."
 
-# --- 2. Запуск служб ---
-echo "[Entrypoint] Запуск системного аудиосервера PulseAudio..."
-# Запускаем в системном режиме (--system), чтобы избежать проблем с правами доступа в Docker.
-# Это создаст общедоступный сокет, который увидят все приложения.
-# --disallow-exit и --exit-idle-time=-1 гарантируют, что сервер не завершится.
-# --log-target=stderr направляет логи PA в стандартный поток ошибок контейнера.
-pulseaudio --system --disallow-exit --exit-idle-time=-1 --log-target=stderr --daemonize
-sleep 3 # Даем время на полный запуск сервера
+# Запускаем сервер в фоновом режиме
+pulseaudio --start --exit-idle-time=-1 --daemonize
+sleep 1 # Даем ему секунду на базовую инициализацию
 
-# Проверяем, что сервер действительно запустился и отвечает
-echo "[Entrypoint] Проверка PulseAudio..."
+# Загружаем модуль для публикации сервера по TCP на localhost.
+# Это самый надежный способ сделать его доступным для всех процессов внутри контейнера.
+pactl load-module module-native-protocol-tcp auth-ip-acl=127.0.0.1
+sleep 1
+
+# Устанавливаем переменную окружения, которая скажет всем клиентам (Chrome, sounddevice)
+# подключаться к нашему TCP-серверу, а не искать файловый сокет.
+export PULSE_SERVER=127.0.0.1
+
+echo "[Entrypoint] Проверка PulseAudio через TCP..."
 if ! pactl info >/dev/null 2>&1; then
-    echo "❌ [Entrypoint] CRITICAL: PulseAudio не запустился. Захват звука не будет работать."
+    echo "❌ [Entrypoint] CRITICAL: PulseAudio не запустился или недоступен по TCP."
     exit 1
 fi
-echo "✅ [Entrypoint] PulseAudio сервер готов. Управление аудиоустройствами будет выполняться приложением динамически."
+echo "✅ [Entrypoint] PulseAudio сервер готов и доступен по TCP."
 
 
-# --- 3. Предзагрузка кэша моделей (опционально) ---
-# Эта логика остается без изменений
+# --- 2. Предзагрузка моделей (без изменений) ---
 if [ "${PREWARM:-off}" = "download_only" ]; then
-  echo "=== [Entrypoint] Предзагрузка весов моделей (pre-cache) ==="
+  echo "=== [Entrypoint] Предзагрузка весов моделей... ==="
   python3 - <<'PY'
 import os
 import sys
@@ -80,23 +71,12 @@ print("[PreCache] ✅ Завершено")
 PY
 fi
 
-# --- 4. Проверки системы и диагностика ---
+
+# --- 3. Финальная диагностика ---
 echo "=== [Entrypoint] Проверка системы ==="
 echo "DISPLAY=$DISPLAY"
-echo "Chrome version: $(google-chrome --version 2>/dev/null || echo 'Chrome не найден')"
-echo "ChromeDriver: $(chromedriver --version 2>/dev/null || echo 'ChromeDriver не найден')"
+echo "PULSE_SERVER=$PULSE_SERVER"
 echo "Python version: $(python3 --version)"
-echo "Available memory: $(free -h | grep Mem)"
-echo "--- [DIAG] Доступные аудиоустройства (на старте должны быть только системные) ---"
-pactl list sources short
-pactl list sinks short
-echo "---------------------------------------------------------------------"
 echo "--- [DIAG] Устройства, видимые для Python/SoundDevice на старте ---"
 python3 -c "import sounddevice as sd; print(sd.query_devices())"
-echo "------------------------------------------------------------------"
-
-
-echo "=== [Entrypoint] Запуск основного приложения ==="
-echo "[Entrypoint] Передача управления команде: $@"
-# Выполняем команду, переданную из Dockerfile (например, uvicorn ...)
-exec "$@"
+echo "---------------------

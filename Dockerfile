@@ -75,6 +75,7 @@ ENV PYTHONPATH=/app
 # Только потом копируем весь остальной код
 COPY . /app/
 RUN chmod +x /app/entrypoint.sh && dos2unix /app/entrypoint.sh
+COPY .asoundrc /root/.asoundrc
 # ВАЖНО: Создаем папку профиля, как в join_meet
 RUN mkdir -p /app/chrome_profile && chmod 755 /app/chrome_profile
 

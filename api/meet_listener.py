@@ -31,7 +31,7 @@ from api.audio_manager import VirtualAudioManager
 
 logger = logging.getLogger(__name__)
 
-os.environ['SOUNDDEVICE_HOSTAPI'] = 'PulseAudio'
+
 
 class MeetListenerBot:
 

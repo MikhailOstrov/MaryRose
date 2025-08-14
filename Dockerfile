@@ -6,7 +6,7 @@ FROM nvidia/cuda:12.3.2-cudnn9-devel-ubuntu22.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Основные утилиты, необходимые для проекта
-    software-properties-common build-essential wget curl git ca-certificates jq unzip dos2unix \
+    software-properties-common build-essential wget curl git ca-certificates jq unzip dos2unix gosu \
     # ЗАВИСИМОСТИ CHROME/AUDIO ИЗ JOIN_MEET (полный список для надежности)
     gnupg procps xvfb pulseaudio dbus-x11 x11-utils \
     fonts-liberation libnss3 libgdk-pixbuf-2.0-0 libgtk-3-0 libxss1 libgbm1 \
@@ -62,16 +62,26 @@ RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
 # Копируем ВЕСЬ код приложения ОДИН РАЗ
 COPY . /app/
 
-# Создаем пользователя 'appuser', но НЕ переключаемся на него
+# Создаем пользователя 'appuser'
 RUN groupadd -r appuser && useradd --no-log-init -r -g appuser appuser
+
+# Создаем директорию для конфига PulseAudio и копируем наш файл
+RUN mkdir -p /home/appuser/.config/pulse && \
+    cp /app/pulse/daemon.conf /home/appuser/.config/pulse/daemon.conf
 
 # Выполняем действия, требующие прав root
 RUN dos2unix /app/entrypoint.sh && \
     chmod +x /app/entrypoint.sh && \
     mkdir -p /workspace && \
-    chown -R appuser:appuser /app /workspace
+    # Рекурсивно меняем владельца всех файлов приложения и workspace на 'appuser'
+    chown -R appuser:appuser /app /workspace /home/appuser
 
+# --- ШАГ 7: ПЕРЕКЛЮЧЕНИЕ НА НЕПРИВИЛЕГИРОВАННОГО ПОЛЬЗОВАТЕЛЯ ---
+USER appuser
 
+# Настройка переменных окружения
+ENV HOME=/home/appuser
+ENV XDG_RUNTIME_DIR=/tmp/runtime-appuser
 
 # Настройка переменных окружения (можно делать и до USER, но так логичнее)
 ENV HOME=/app

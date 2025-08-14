@@ -65,22 +65,19 @@ COPY . /app/
 # Создаем пользователя 'appuser'
 RUN groupadd -r appuser && useradd --no-log-init -r -g appuser appuser
 
-# Создаем директорию для конфига PulseAudio и копируем наш файл
-RUN mkdir -p /home/appuser/.config/pulse && \
-    cp /app/pulse/daemon.conf /home/appuser/.config/pulse/daemon.conf
-
 # Выполняем действия, требующие прав root
 RUN dos2unix /app/entrypoint.sh && \
     chmod +x /app/entrypoint.sh && \
     mkdir -p /workspace && \
     # Рекурсивно меняем владельца всех файлов приложения и workspace на 'appuser'
-    chown -R appuser:appuser /app /workspace /home/appuser
+    chown -R appuser:appuser /app /workspace
 
 # --- ШАГ 7: ПЕРЕКЛЮЧЕНИЕ НА НЕПРИВИЛЕГИРОВАННОГО ПОЛЬЗОВАТЕЛЯ ---
+# ЭТА КОМАНДА ДОЛЖНА БЫТЬ!
 USER appuser
 
-# Настройка переменных окружения
-ENV HOME=/home/appuser
+# Настройка переменных окружения, которые понадобятся appuser
+ENV HOME=/home/appuser 
 ENV XDG_RUNTIME_DIR=/tmp/runtime-appuser
 
 # Настройка переменных окружения (можно делать и до USER, но так логичнее)

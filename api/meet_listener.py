@@ -69,6 +69,11 @@ class MeetListenerBot:
         self.source_name = self.audio_manager.source_name
         self.monitor_name = self.audio_manager.monitor_name
 
+        self.chrome_profile_path = CHROME_BASE_PROFILE_DIR / self.meeting_id
+        # Убеждаемся, что эта директория существует
+        os.makedirs(self.chrome_profile_path, exist_ok=True)
+        logger.info(f"[{self.meeting_id}] Профиль Chrome будет использоваться из: '{self.chrome_profile_path}'")
+
     # Отслеживание кол-ва участников
     def _monitor_participants(self):
         """Отслеживает количество участников. Если бот остается один, он завершает работу."""
@@ -114,47 +119,33 @@ class MeetListenerBot:
     
     # Инициализация драйвера для подключения
     def _initialize_driver(self):
-        """
-        Инициализирует драйвер, явно указывая ему, какие виртуальные 
-        аудиоустройства PulseAudio использовать для этого конкретного бота.
-        """
+        """Инициализирует драйвер, используя уникальный профиль для каждого бота."""
         logger.info(f"[{self.meeting_id}] Запуск undetected_chromedriver с аудио-настройками...")
         try:
             opt = uc.ChromeOptions()
             opt.add_argument('--no-sandbox')
             opt.add_argument('--disable-dev-shm-usage')
-            opt.add_argument(f'--user-data-dir={CHROME_PROFILE_DIR}')
+            
+            # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ИСПОЛЬЗУЕМ УНИКАЛЬНЫЙ ПРОФИЛЬ ---
+            opt.add_argument(f'--user-data-dir={self.chrome_profile_path}')
+            # ---------------------------------------------------------
+
             opt.add_argument('--window-size=1280,720')
             
-            # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: ПРИВЯЗКА CHROME К УНИКАЛЬНЫМ УСТРОЙСТВАМ ---
-            # Явно указываем Chrome, какой sink (выход) и source (вход) использовать.
-            # PulseAudio понимает эти аргументы и перенаправит аудио именно для этого процесса.
             logger.info(f"[{self.meeting_id}] Привязка Chrome к sink='{self.sink_name}' и source='{self.source_name}'")
             opt.add_argument(f'--alsa-output-device=pulse/%s' % self.sink_name)
             opt.add_argument(f'--alsa-input-device=pulse/%s' % self.source_name)
-            # --------------------------------------------------------------------
             
-            # Разрешения на микрофон, установленные через experimental option
             opt.add_experimental_option("prefs", {
                 "profile.default_content_setting_values.media_stream_mic": 1,
                 "profile.default_content_setting_values.notifications": 2
             })
             
-            self.driver = uc.Chrome(
-                options=opt,
-                headless=False,       # Обязательно для работы в Xvfb
-                use_subprocess=True,  # Важно для стабильности
-                version_main=138      # Закрепленная версия - это хорошо
-            )
-            
+            self.driver = uc.Chrome(options=opt, headless=False, use_subprocess=True, version_main=138)
             logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен и привязан к своим виртуальным аудиоустройствам.")
             
-            # Попытка выдать разрешение через CDP остается как дополнительная мера
             try:
-                self.driver.execute_cdp_cmd("Browser.grantPermissions", {
-                    "origin": "https://meet.google.com",
-                    "permissions": ["audioCapture"]
-                })
+                self.driver.execute_cdp_cmd("Browser.grantPermissions", {"origin": "https://meet.google.com", "permissions": ["audioCapture"]})
                 logger.info(f"[{self.meeting_id}] Разрешение на микрофон выдано через CDP.")
             except Exception as e_grant:
                 logger.warning(f"[{self.meeting_id}] Не удалось выдать CDP-разрешение: {e_grant}")

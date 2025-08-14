@@ -5,11 +5,13 @@ AUDIO_FILES_DIR = BASE_DIR / "audio_files"
 USER_DATA_DIR = BASE_DIR / "user_data"
 MEETINGS_DIR = AUDIO_FILES_DIR / "meetings" # Для записей встреч
 TTS_OUTPUT_DIR = BASE_DIR / "static" / "tts_output"
-CHROME_PROFILE_DIR = BASE_DIR / "chrome_profile" # Для хранения сессии  Google
+CHROME_BASE_PROFILE_DIR = BASE_DIR / "chrome_profile"
 SUMMARY_OUTPUT_DIR = BASE_DIR / "summary"
 MEET_INPUT_DEVICE_NAME = "pulse"
 MEET_GUEST_NAME = "Mary" # Имя ассистента
 MEET_AUDIO_CHUNKS_DIR = AUDIO_FILES_DIR / "meet_chunks" 
+
+
 
 def ensure_dirs_exist():
     """Создает все необходимые директории."""

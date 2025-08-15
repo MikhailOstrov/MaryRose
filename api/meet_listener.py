@@ -272,7 +272,7 @@ class MeetListenerBot:
         if js_scan_click(with_mic_variants, total_timeout=1.0):
             logger.info(f"[{self.meeting_id}] Кнопка 'с микрофоном' нажата за {time.time()-t0:.2f}s")
             return True
-        if js_scan_click(without_mic_variants, total_timeout=1.0):
+        if js_scan_click(without_mic_variants, total_timeout=0.2):
             logger.info(f"[{self.meeting_id}] Кнопка 'без микрофона' нажата за {time.time()-t0:.2f}s")
             return True
         logger.info(f"[{self.meeting_id}] Диалог микрофона не найден за {time.time()-t0:.2f}s — продолжаю.")

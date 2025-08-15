@@ -873,10 +873,16 @@ class MeetListenerBot:
                 # По aria-label (русский и английский)
                 '//button[@aria-label="Покинуть видеовстречу"]',
                 '//button[@aria-label="Leave meeting"]',
-                # По jsname (если aria-label недоступен)
+                # По jsname (самый надежный селектор)
+                '//button[@jsname="CQylAd"]',
                 # По иконке call_end
                 '//button[.//i[contains(@class, "call_end")]]',
                 # По классу кнопки
+                '//button[contains(@class, "VYBDae-Bz112c-LgbsSe") and contains(@class, "hk9qKe")]',
+                # По data-tooltip-id
+                '//button[@data-tooltip-id="tt-c49"]',
+                # По jscontroller
+                '//button[@jscontroller="PIVayb"]'
             ]
             
             button_found = False
@@ -889,7 +895,7 @@ class MeetListenerBot:
                     
                     # Прокручиваем к кнопке и кликаем
                     self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", leave_button)
-                    time.sleep(0.2)  # Небольшая пауза для стабилизации
+                    time.sleep(0.5)  # Небольшая пауза для стабилизации
                     leave_button.click()
                     
                     logger.info(f"[{self.meeting_id}] ✅ Кнопка 'Покинуть встречу' успешно нажата (селектор: {selector})")
@@ -904,7 +910,7 @@ class MeetListenerBot:
                 logger.warning(f"[{self.meeting_id}] ⚠️ Не удалось найти кнопку 'Покинуть встречу' ни одним из селекторов.")
             
             # Небольшая пауза после нажатия кнопки
-
+            time.sleep(2)
             
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка при попытке покинуть встречу: {e}")

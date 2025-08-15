@@ -468,7 +468,7 @@ class MeetListenerBot:
             )
             join_button.click()
             # Подаем сигнал "Зеленый свет"
-            startup_complete_event.set()
+            
             
             logger.info(f"[{self.meeting_id}] Запрос отправлен. Ожидаю одобрения хоста (до 120с)...")
             max_wait_time, check_interval, elapsed_time = 120, 2, 0
@@ -491,11 +491,12 @@ class MeetListenerBot:
                 for i, xpath in enumerate(success_indicators):
                     try:
                         if self.driver.find_element(By.XPATH, xpath).is_displayed():
-                            self._save_screenshot("04_joined_successfully")
+                            startup_complete_event.set()
+                            
+                            logger.info(f"[{self.meeting_id}] Сигнал о завершении запуска отправлен воркеру.")
                             logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
                             
                             
-                            logger.info(f"[{self.meeting_id}] Сигнал о завершении запуска отправлен воркеру.")
 
                             try:
                                 self.toggle_mic_hotkey()

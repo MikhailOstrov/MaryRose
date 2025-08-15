@@ -24,17 +24,26 @@ async def get_status(meeting_id: str):
     return {"status": "inactive", "meeting_id": meeting_id}
 
 # Запуск бота
-@router.post("/api/v1/internal/start-processing", dependencies=[Depends(get_api_key)])
-async def start_processing(request: StartRequest):
-    logger.info(f"Получен запрос на запуск бота для meeting_id: {request.meeting_id}")
-    if request.meeting_id in active_bots:
-        raise HTTPException(status_code=400, detail=f"Бот для встречи {request.meeting_id} уже запущен.")
-
-    thread = threading.Thread(target=run_bot_thread, args=(request.meeting_id, request.meet_url))
-    thread.daemon = True
-    thread.start()
+@router.post("/api/v1/internal/start-processing", dependencies=[Depends(get_api_key)], status_code=202)
+async def start_processing(request: StartRequest, background_tasks: BackgroundTasks):
+    """
+    Принимает запрос, добавляет его в очередь и запускает фоновую задачу
+    для обработки этой очереди.
+    """
+    logger.info(f"[API] Получен запрос на запуск бота для meeting_id: {request.meeting_id}")
     
-    return {"status": "processing_started", "meeting_id": request.meeting_id}
+    if request.meeting_id in active_bots:
+        raise HTTPException(status_code=409, detail=f"Бот для встречи {request.meeting_id} уже запущен.")
+
+    # 1. Добавляем "заявку" в очередь.
+    launch_queue.put((request.meeting_id, request.meet_url))
+    
+    # 2. Говорим FastAPI запустить нашего обработчика в фоне ПОСЛЕ отправки ответа.
+    background_tasks.add_task(process_launch_queue)
+    
+    logger.info(f"[API] Задача для {request.meeting_id} поставлена в очередь. Запускаю фоновый обработчик.")
+    
+    return {"status": "processing_queued", "meeting_id": request.meeting_id}
 
 # Остановка бота
 @router.post("/api/v1/internal/stop-processing", dependencies=[Depends(get_api_key)])

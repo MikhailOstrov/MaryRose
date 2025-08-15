@@ -92,4 +92,4 @@ def launch_worker():
 
         except Exception as e:
             logger.critical(f"[Воркер] ❌ КРИТИЧЕСКАЯ ОШИБКА в цикле воркера: {e}", exc_info=True)
-            time.sleep(30)
+            time.sleep(30)  

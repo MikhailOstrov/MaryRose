@@ -486,7 +486,7 @@ class MeetListenerBot:
                 '//*[contains(text(), "error") or contains(text(), "ошибка")]',
                 '//*[contains(text(), "unable") or contains(text(), "невозможно")]'
             ]
-
+            startup_complete_event.set()
             while elapsed_time < max_wait_time:
                 for i, xpath in enumerate(success_indicators):
                     try:

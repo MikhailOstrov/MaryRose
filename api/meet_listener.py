@@ -447,8 +447,7 @@ class MeetListenerBot:
         try:
             logger.info(f"[{self.meeting_id}] Подключаюсь к встрече как гость: {self.meeting_url}")
             self.driver.get(self.meeting_url)
-            time.sleep(8)
-            self._save_screenshot("01_meet_page_loaded")
+            time.sleep(2)
             
             logger.info(f"[{self.meeting_id}] Ищу поле для ввода имени...")
             name_input_xpath = '//input[@placeholder="Your name" or @aria-label="Your name" or contains(@placeholder, "name")]'
@@ -459,8 +458,7 @@ class MeetListenerBot:
             logger.info(f"[{self.meeting_id}] Ввожу имя: {MEET_GUEST_NAME}")
             name_input.clear()
             name_input.send_keys(MEET_GUEST_NAME)
-            time.sleep(2)
-            self._save_screenshot("02_name_entered")
+
 
             # Обработка диалога микрофона и баннера разрешений
             logger.info(f"[{self.meeting_id}] Обработка диалога микрофона...")

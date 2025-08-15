@@ -10,8 +10,7 @@ import torch
 import numpy as np
 from scipy.io.wavfile import write
 import sounddevice as sd
-import soundfile as sf
-import undetected_chromedriver as uc
+from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -129,7 +128,7 @@ class MeetListenerBot:
     def _initialize_driver(self):
         """
         Инициализирует драйвер, используя переменные окружения PULSE_SINK и PULSE_SOURCE
-        для точной и изолированной маршрутизации аудио для Chrome.
+        для точной и изолированной маршрутации аудио для Chrome.
         Запуск защищен блокировкой для предотвращения состояний гонки.
         """
         logger.info(f"[{self.meeting_id}] Ожидание блокировки для запуска Chrome...")
@@ -149,7 +148,10 @@ class MeetListenerBot:
             
             try:
                 # --- Запускаем Chrome, пока установлены переменные окружения ---
-                opt = uc.ChromeOptions()
+                
+                # <<< ИЗМЕНЕНИЕ 1: Используем webdriver.ChromeOptions вместо uc.ChromeOptions >>>
+                opt = webdriver.ChromeOptions()
+                
                 opt.add_argument('--no-sandbox')
                 opt.add_argument('--disable-dev-shm-usage')
                 opt.add_argument('--window-size=1280,720')
@@ -160,11 +162,10 @@ class MeetListenerBot:
                     "profile.default_content_setting_values.notifications": 2
                 })
                 
-                self.driver = uc.Chrome(
-                    options=opt,
-                    headless=False,
-                    use_subprocess=True,
-                    version_main=138
+                # <<< ИЗМЕНЕНИЕ 2: Используем webdriver.Chrome и удаляем специфичные для UC параметры >>>
+                # Параметры use_subprocess и version_main удалены, так как они не поддерживаются стандартным Selenium
+                self.driver = webdriver.Chrome(
+                    options=opt
                 )
                 
                 logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен. Аудио должно быть полностью изолировано.")
@@ -442,12 +443,13 @@ class MeetListenerBot:
 
     # Присоединение в Google Meet
     def join_meet_as_guest(self, startup_complete_event: threading.Event):
+            
+        logger.info(f"[{self.meeting_id}] Сигнал отправлен воркеру. Следующий бот может начинать запуск.")
         try:
             logger.info(f"[{self.meeting_id}] Подключаюсь к встрече как гость: {self.meeting_url}")
             self.driver.get(self.meeting_url)
 
-            startup_complete_event.set()
-            logger.info(f"[{self.meeting_id}] Сигнал отправлен воркеру. Следующий бот может начинать запуск.")
+            
             
             logger.info(f"[{self.meeting_id}] Ищу поле для ввода имени...")
             name_input_xpath = '//input[@placeholder="Your name" or @aria-label="Your name" or contains(@placeholder, "name")]'
@@ -470,7 +472,6 @@ class MeetListenerBot:
                 EC.element_to_be_clickable((By.XPATH, join_button_xpath))
             )
             join_button.click()
-            # Подаем сигнал "Зеленый свет"
             
             
             logger.info(f"[{self.meeting_id}] Запрос отправлен. Ожидаю одобрения хоста (до 120с)...")

@@ -856,6 +856,60 @@ class MeetListenerBot:
             self.stop()
             logger.info(f"[{self.meeting_id}] Основной метод run завершен.")
 
+    def _leave_meeting(self):
+        """
+        Нажимает кнопку "Покинуть видеовстречу" в Google Meet.
+        Использует надежные селекторы по aria-label для русского и английского интерфейса.
+        """
+        if not self.driver or not self.joined_successfully:
+            logger.info(f"[{self.meeting_id}] Пропускаю выход из встречи - драйвер не инициализирован или не был в конференции.")
+            return
+        
+        try:
+            logger.info(f"[{self.meeting_id}] Пытаюсь покинуть встречу...")
+            
+            # Надежные селекторы для кнопки "Покинуть видеовстречу"
+            leave_button_selectors = [
+                # По aria-label (русский и английский)
+                '//button[@aria-label="Покинуть видеовстречу"]',
+                '//button[@aria-label="Leave meeting"]',
+                # По jsname (если aria-label недоступен)
+                # По иконке call_end
+                '//button[.//i[contains(@class, "call_end")]]',
+                # По классу кнопки
+            ]
+            
+            button_found = False
+            for selector in leave_button_selectors:
+                try:
+                    # Ждем появления кнопки до 5 секунд
+                    leave_button = WebDriverWait(self.driver, 5).until(
+                        EC.element_to_be_clickable((By.XPATH, selector))
+                    )
+                    
+                    # Прокручиваем к кнопке и кликаем
+                    self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", leave_button)
+                    time.sleep(0.2)  # Небольшая пауза для стабилизации
+                    leave_button.click()
+                    
+                    logger.info(f"[{self.meeting_id}] ✅ Кнопка 'Покинуть встречу' успешно нажата (селектор: {selector})")
+                    button_found = True
+                    break
+                    
+                except Exception as e:
+                    logger.debug(f"[{self.meeting_id}] Селектор '{selector}' не сработал: {e}")
+                    continue
+            
+            if not button_found:
+                logger.warning(f"[{self.meeting_id}] ⚠️ Не удалось найти кнопку 'Покинуть встречу' ни одним из селекторов.")
+            
+            # Небольшая пауза после нажатия кнопки
+
+            
+        except Exception as e:
+            logger.error(f"[{self.meeting_id}] ❌ Ошибка при попытке покинуть встречу: {e}")
+            # Продолжаем завершение работы даже при ошибке
+
     # Остановка бота
     def stop(self):
         if not self.is_running.is_set():
@@ -864,6 +918,10 @@ class MeetListenerBot:
         logger.info(f"[{self.meeting_id}] Получена команда на завершение...")
 
         self.is_running.clear()
+        
+        # Сначала пытаемся покинуть встречу
+        if self.joined_successfully:
+            self._leave_meeting()
         
         if self.joined_successfully:
             # Запускаем постобработку в отдельном потоке, чтобы не блокировать завершение

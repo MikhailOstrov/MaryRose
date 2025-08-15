@@ -352,11 +352,11 @@ class MeetListenerBot:
             pass
 
         if try_click_phrases(allow_site_ru, timeout_each=3) or try_click_phrases(allow_site_en, timeout_each=3):
-            time.sleep(0.1)
+            # time.sleep(0.1)
             self._save_screenshot("02b_permission_allowed_site")
             return
         if try_click_phrases(allow_once_ru, timeout_each=2) or try_click_phrases(allow_once_en, timeout_each=2):
-            time.sleep(0.1)
+            # time.sleep(0.1)
             self._save_screenshot("02b_permission_allowed_once")
             return
         logger.info(f"[{self.meeting_id}] Всплывающее окно разрешений не обнаружено.")
@@ -447,7 +447,7 @@ class MeetListenerBot:
         try:
             logger.info(f"[{self.meeting_id}] Подключаюсь к встрече как гость: {self.meeting_url}")
             self.driver.get(self.meeting_url)
-            time.sleep(2)
+            # time.sleep(2)
             
             logger.info(f"[{self.meeting_id}] Ищу поле для ввода имени...")
             name_input_xpath = '//input[@placeholder="Your name" or @aria-label="Your name" or contains(@placeholder, "name")]'

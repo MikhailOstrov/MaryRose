@@ -503,6 +503,9 @@ class MeetListenerBot:
                             logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
                             self._log_pulse_audio_state()
                             # По требованию: сразу после входа эмулируем Ctrl+D для включения/выключения микрофона
+                            startup_complete_event.set()
+                            logger.info(f"[{self.meeting_id}] Сигнал о завершении запуска отправлен воркеру.")
+
                             try:
                                 self.toggle_mic_hotkey()
                             except Exception as e_toggle:
@@ -804,22 +807,23 @@ class MeetListenerBot:
             logger.error(f"❌ Ошибка при сохранении аудиофрагмента: {e}")
 
     # Запуск работы бота
-    def run(self):
+    def run(self, startup_complete_event: threading.Event):
         """
-        Основной метод, выполняющий всю работу ПОСЛЕ того, как драйвер уже был инициализирован.
+        Основной метод, выполняющий всю работу.
+        Принимает "сигнальный флажок", который нужно установить после успешного входа.
         """
-        # --- ИЗМЕНЕНИЕ: Мы больше не вызываем _initialize_driver() здесь. ---
-        
-        logger.info(f"[{self.meeting_id}] Бот запускает основной рабочий цикл...")
+        logger.info(f"[{self.meeting_id}] Бот запускается...")
         try:
             # 1. Создаем уникальные виртуальные аудиоустройства для этого бота
             if not self.audio_manager.create_devices():
                 logger.error(f"[{self.meeting_id}] ❌ Не удалось создать аудиоустройства. Завершение работы.")
-                return
+                return # Не забываем вернуть управление
 
-            # 2. Попытка присоединиться к встрече
-            # Драйвер уже запущен и готов.
-            joined_successfully = self.join_meet_as_guest()
+            # 2. Инициализируем драйвер
+            self._initialize_driver()
+            
+            # 3. Попытка присоединиться к встрече. Передаем флажок дальше.
+            joined_successfully = self.join_meet_as_guest(startup_complete_event)
             
             if joined_successfully:
                 logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")
@@ -828,7 +832,6 @@ class MeetListenerBot:
                 monitor_thread = threading.Thread(target=self._monitor_participants, name=f'ParticipantMonitor-{self.meeting_id}')
                 capture_thread = threading.Thread(target=self._audio_capture_thread, name=f'AudioCapture-{self.meeting_id}')
                 
-                # Делаем потоки демонами, чтобы они не блокировали завершение, если что-то пойдет не так
                 processor_thread.daemon = True
                 monitor_thread.daemon = True
                 capture_thread.daemon = True
@@ -837,8 +840,6 @@ class MeetListenerBot:
                 monitor_thread.start()
                 capture_thread.start()
                 
-                # Ожидаем завершения основного потока захвата аудио.
-                # Другие потоки остановятся по флагу self.is_running.
                 capture_thread.join()
                 processor_thread.join()
                 monitor_thread.join()
@@ -850,7 +851,12 @@ class MeetListenerBot:
         except Exception as e:
             logger.critical(f"[{self.meeting_id}] ❌ Критическая ошибка в работе бота: {e}", exc_info=True)
         finally:
-            # Гарантированно вызываем stop(), который очистит все ресурсы
+            # Если по какой-то причине мы вышли, а сигнал так и не был подан,
+            # подаем его здесь, чтобы не заблокировать очередь навсегда.
+            if not startup_complete_event.is_set():
+                logger.warning(f"[{self.meeting_id}] Аварийное завершение, подаю сигнал воркеру, чтобы разблокировать очередь.")
+                startup_complete_event.set()
+            
             self.stop()
             logger.info(f"[{self.meeting_id}] Основной метод run завершен.")
 

@@ -31,6 +31,12 @@ from api.audio_manager import VirtualAudioManager
 import shutil
 from pathlib import Path
 
+
+
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException # <-- ДОБАВЬТЕ ИЛИ ПРОВЕРЬТЕ НАЛИЧИЕ ЭТОЙ СТРОКИ
+from selenium.webdriver.common.keys import Keys
+
 logger = logging.getLogger(__name__)
 
 CHROME_LAUNCH_LOCK = threading.Lock()
@@ -446,9 +452,6 @@ class MeetListenerBot:
             logger.info(f"[{self.meeting_id}] Подключаюсь к встрече как гость: {self.meeting_url}")
             self.driver.get(self.meeting_url)
 
-            startup_complete_event.set()
-            logger.info(f"[{self.meeting_id}] Сигнал отправлен воркеру. Следующий бот может начинать запуск.")
-            
             logger.info(f"[{self.meeting_id}] Ищу поле для ввода имени...")
             name_input_xpath = '//input[@placeholder="Your name" or @aria-label="Your name" or contains(@placeholder, "name")]'
             name_input = WebDriverWait(self.driver, 30).until(
@@ -469,12 +472,19 @@ class MeetListenerBot:
             join_button = WebDriverWait(self.driver, 30).until(
                 EC.element_to_be_clickable((By.XPATH, join_button_xpath))
             )
-            join_button.click()
-            # Подаем сигнал "Зеленый свет"
             
+            # --- ИДЕАЛЬНОЕ МЕСТО ДЛЯ СИГНАЛА ВОРКЕРУ ---
+            # Сигнал подается после того, как вся активная работа с UI закончена,
+            # и бот переходит в пассивный режим ожидания.
+            startup_complete_event.set()
+            logger.info(f"[{self.meeting_id}] Сигнал отправлен воркеру. Следующий бот может начинать запуск.")
+            # ---------------------------------------------
+            
+            join_button.click()
+            
+            # --- НАЧАЛО НОВОЙ, УЛУЧШЕННОЙ ЛОГИКИ ОЖИДАНИЯ ---
             
             logger.info(f"[{self.meeting_id}] Запрос отправлен. Ожидаю одобрения хоста (до 120с)...")
-            max_wait_time, check_interval, elapsed_time = 120, 2, 0
             
             success_indicators = [
                 '//button[@data-tooltip*="end call" or @aria-label*="end call" or @aria-label*="завершить"]',
@@ -489,37 +499,42 @@ class MeetListenerBot:
                 '//*[contains(text(), "error") or contains(text(), "ошибка")]',
                 '//*[contains(text(), "unable") or contains(text(), "невозможно")]'
             ]
-            while elapsed_time < max_wait_time:
-                for i, xpath in enumerate(success_indicators):
-                    try:
-                        if self.driver.find_element(By.XPATH, xpath).is_displayed():
-                            
-                            logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
-                            
+            
+            # Объединяем все возможные исходы в один список для ожидания
+            all_possible_locators = success_indicators + error_indicators
+            conditions = [EC.presence_of_element_located((By.XPATH, xpath)) for xpath in all_possible_locators]
+            
+            wait = WebDriverWait(self.driver, 120) # Общий таймаут 120 секунд
+            
+            # Ждем появления ЛЮБОГО из элементов (успеха или ошибки)
+            found_element = wait.until(EC.any_of(*conditions))
+            
+            # Теперь проверяем, что именно мы нашли
+            element_text = (found_element.text or "").lower()
+            element_aria_label = (found_element.get_attribute("aria-label") or "").lower()
+            full_content = element_text + " " + element_aria_label
 
-                            try:
-                                self.toggle_mic_hotkey()
-                            except Exception as e_toggle:
-                                logger.warning(f"[{self.meeting_id}] Не удалось отправить хоткей Ctrl+D после входа: {e_toggle}")
-                            self._log_permissions_state()
-                            self.joined_successfully = True
-                            return True # Возвращаем True в случае успеха
-                    except: continue
+            error_keywords = ["denied", "отклонен", "rejected", "отказано", "error", "ошибка", "unable", "невозможно"]
+            
+            if any(keyword in full_content for keyword in error_keywords):
+                logger.error(f"[{self.meeting_id}] ❌ Присоединение отклонено или произошла ошибка: {found_element.text}")
+                return False
+            else:
+                # Если это не ошибка, значит это успех
+                logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече!")
                 
-                for error_xpath in error_indicators:
-                    try:
-                        error_element = self.driver.find_element(By.XPATH, error_xpath)
-                        if error_element.is_displayed():
-                            logger.error(f"[{self.meeting_id}] ❌ Присоединение отклонено: {error_element.text}")
-                            return False # Возвращаем False в случае отказа
-                    except: continue
+                try:
+                    self.toggle_mic_hotkey()
+                except Exception as e_toggle:
+                    logger.warning(f"[{self.meeting_id}] Не удалось отправить хоткей Ctrl+D после входа: {e_toggle}")
+                
+                self._log_permissions_state()
+                self.joined_successfully = True
+                return True
 
-                time.sleep(check_interval)
-                elapsed_time += check_interval
-
-            logger.warning(f"[{self.meeting_id}] ⚠️ Превышено время ожидания одобрения ({max_wait_time}с).")
+        except TimeoutException:
+            logger.warning(f"[{self.meeting_id}] ⚠️ Превышено время ожидания одобрения ({120}с).")
             return False # Возвращаем False в случае таймаута
-
         except Exception as e:
             logger.critical(f"[{self.meeting_id}] ❌ Критическая ошибка при присоединении: {e}", exc_info=True)
             return False # Возвращаем False в случае любой другой ошибки

@@ -11,18 +11,6 @@ from api.session_store import session_to_meeting_map
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-def is_process_alive(pid: int) -> bool:
-    """Проверяет, существует ли процесс с данным PID."""
-    if pid is None or pid <= 0:
-        return False
-    try:
-        # Отправка сигнала 0 не убивает процесс, а проверяет его существование
-        os.kill(pid, 0)
-    except OSError:
-        return False
-    else:
-        return True
-
 # Проверка сервера
 @router.get("/health")
 async def health_check():
@@ -40,12 +28,15 @@ async def get_status(meeting_id: str):
 async def start_processing(request: StartRequest):
     logger.info(f"[API] Получен запрос на запуск бота для meeting_id: {request.meeting_id}")
     
-    pid = active_bots.get(request.meeting_id)
-    if pid and is_process_alive(pid):
+    bot_info = active_bots.get(request.meeting_id)
+    if bot_info and bot_info.get('process') and bot_info['process'].is_alive():
         raise HTTPException(status_code=409, detail=f"Бот для встречи {request.meeting_id} уже запущен.")
 
+    # Кладем задачу в межпроцессную очередь
     launch_queue.put((request.meeting_id, request.meet_url))
+    
     logger.info(f"[API] Задача на запуск бота для {request.meeting_id} успешно поставлена в очередь.")
+    
     return {"status": "processing_queued", "meeting_id": request.meeting_id}
 
 # Остановка бота

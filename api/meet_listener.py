@@ -829,13 +829,12 @@ class MeetListenerBot:
                 processor_thread.start()
                 monitor_thread.start()
                 capture_thread.start()
-                startup_complete_event.set()
                 
                 capture_thread.join()
                 processor_thread.join()
                 monitor_thread.join()
 
-                
+                startup_complete_event.set()
                 
                 
                 logger.info(f"[{self.meeting_id}] Основные потоки (обработка и захват) завершены.")

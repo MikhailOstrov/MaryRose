@@ -831,7 +831,6 @@ class MeetListenerBot:
                 processor_thread.join()
                 monitor_thread.join()
 
-                self.joined_successfully = True
                 startup_complete_event()
                 
                 logger.info(f"[{self.meeting_id}] Основные потоки (обработка и захват) завершены.")

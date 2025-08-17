@@ -808,7 +808,9 @@ class MeetListenerBot:
             self._initialize_driver()
             
             # 3. Попытка присоединиться к встрече. Передаем флажок дальше.
-            joined_successfully = self.join_meet_as_guest(startup_complete_event)
+            # joined_successfully = self.join_meet_as_guest(startup_complete_event)
+            joined_successfully = True
+
             
             if joined_successfully:
                 logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")
@@ -828,6 +830,8 @@ class MeetListenerBot:
                 capture_thread.join()
                 processor_thread.join()
                 monitor_thread.join()
+
+                startup_complete_event()
                 
                 logger.info(f"[{self.meeting_id}] Основные потоки (обработка и захват) завершены.")
             else:

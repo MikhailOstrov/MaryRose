@@ -90,7 +90,7 @@ class MeetListenerBot:
         
         participant_locator_xpath = "//button[.//i[text()='people'] and @aria-label]"
         consecutive_failures = 0
-        max_failures = 10
+        max_failures = 2
 
         while self.is_running.is_set():
             for _ in range(15): # Проверяем каждые 15 секунд

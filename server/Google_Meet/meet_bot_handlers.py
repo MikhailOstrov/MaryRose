@@ -26,16 +26,13 @@ async def get_status(meeting_id: str):
 # Запуск бота
 @router.post("/api/v1/internal/start-processing", dependencies=[Depends(get_api_key)], status_code=202)
 async def start_processing(request: StartRequest):
-    """
-    Принимает запрос на запуск бота и ставит его в очередь.
-    Отвечает немедленно.
-    """
     logger.info(f"[API] Получен запрос на запуск бота для meeting_id: {request.meeting_id}")
     
-    if request.meeting_id in active_bots:
+    bot_info = active_bots.get(request.meeting_id)
+    if bot_info and bot_info.get('process') and bot_info['process'].is_alive():
         raise HTTPException(status_code=409, detail=f"Бот для встречи {request.meeting_id} уже запущен.")
 
-    # Просто добавляем "заявку" в очередь. Воркер ее подхватит.
+    # Кладем задачу в межпроцессную очередь
     launch_queue.put((request.meeting_id, request.meet_url))
     
     logger.info(f"[API] Задача на запуск бота для {request.meeting_id} успешно поставлена в очередь.")

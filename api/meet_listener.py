@@ -829,8 +829,7 @@ class MeetListenerBot:
                 processor_thread.start()
                 monitor_thread.start()
                 capture_thread.start()
-                timer = threading.Timer(5.0, startup_complete_event.set)
-                timer.start()
+                startup_complete_event.set()
                 
                 capture_thread.join()
                 processor_thread.join()

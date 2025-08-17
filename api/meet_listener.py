@@ -812,8 +812,7 @@ class MeetListenerBot:
             self._initialize_driver()
             
             # 3. Попытка присоединиться к встрече. Передаем флажок дальше.
-            # joined_successfully = self.join_meet_as_guest(startup_complete_event)
-            joined_successfully = True
+            joined_successfully = self.join_meet_as_guest(startup_complete_event)
 
             
             if joined_successfully:

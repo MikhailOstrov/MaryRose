@@ -819,7 +819,7 @@ class MeetListenerBot:
                 logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")
                 
                 processor_thread = threading.Thread(target=self._process_audio_stream, name=f'VADProcessor-{self.meeting_id}')
-                # monitor_thread = threading.Thread(target=self._monitor_participants, name=f'ParticipantMonitor-{self.meeting_id}')
+                monitor_thread = threading.Thread(target=self._monitor_participants, name=f'ParticipantMonitor-{self.meeting_id}')
                 capture_thread = threading.Thread(target=self._audio_capture_thread, name=f'AudioCapture-{self.meeting_id}')
                 
                 processor_thread.daemon = True

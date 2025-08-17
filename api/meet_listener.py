@@ -441,10 +441,11 @@ class MeetListenerBot:
             logger.error(f"[{self.meeting_id}] ❌ Критическая ошибка в _speak_via_meet: {e}")
 
     # Присоединение в Google Meet
-    def join_meet_as_guest(self, startup_complete_event: threading.Event):
+    def join_meet_as_guest(self):
         try:
             logger.info(f"[{self.meeting_id}] Подключаюсь к встрече как гость: {self.meeting_url}")
             self.driver.get(self.meeting_url)
+            # time.sleep(2)
             
             logger.info(f"[{self.meeting_id}] Ищу поле для ввода имени...")
             name_input_xpath = '//input[@placeholder="Your name" or @aria-label="Your name" or contains(@placeholder, "name")]'
@@ -456,8 +457,11 @@ class MeetListenerBot:
             name_input.clear()
             name_input.send_keys(MEET_GUEST_NAME)
 
+
+            # Обработка диалога микрофона и баннера разрешений
             logger.info(f"[{self.meeting_id}] Обработка диалога микрофона...")
             mic_dialog_found = self._handle_mic_dialog()
+            # Если диалог микрофона не показывался — сразу идем дальше, пропуская поиск баннера разрешений
             if mic_dialog_found:
                 self._handle_chrome_permission_prompt()
 
@@ -472,13 +476,18 @@ class MeetListenerBot:
             logger.info(f"[{self.meeting_id}] Запрос отправлен. Ожидаю одобрения хоста (до 120с)...")
             max_wait_time, check_interval, elapsed_time = 120, 2, 0
             
+            # ОБНОВЛЕННЫЙ И НАДЕЖНЫЙ СПИСОК ИНДИКАТОРОВ УСПЕХА
             success_indicators = [
+                # Кнопка завершения звонка - самый надежный индикатор
                 '//button[@data-tooltip*="end call" or @aria-label*="end call" or @aria-label*="завершить"]',
+                # Кнопка списка участников, которая появляется только внутри встречи
                 "//button[.//i[text()='people'] and @aria-label]",
-                '//div[@data-self-name]',
-                '//div[contains(@class, "control") and (contains(@class, "bar") or contains(@class, "panel"))]',
-                '//button[@aria-label*="hand" or @aria-label*="рука" or @data-tooltip*="hand"]'
+                # Другие надежные элементы интерфейса
+                '//div[@data-self-name]', # Элемент с именем самого бота
+                '//div[contains(@class, "control") and (contains(@class, "bar") or contains(@class, "panel"))]', # Панель управления
+                '//button[@aria-label*="hand" or @aria-label*="рука" or @data-tooltip*="hand"]' # Кнопка "поднять руку"
             ]
+            # ПОЛНЫЙ СПИСОК ИНДИКАТОРОВ ОШИБКИ
             error_indicators = [
                 '//*[contains(text(), "denied") or contains(text(), "отклонен")]',
                 '//*[contains(text(), "rejected") or contains(text(), "отказано")]',
@@ -492,8 +501,8 @@ class MeetListenerBot:
                         if self.driver.find_element(By.XPATH, xpath).is_displayed():
                             self._save_screenshot("04_joined_successfully")
                             logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
-                            
-                            # Подаем сигнал "Зеленый свет"
+                            self._log_pulse_audio_state()
+                            # По требованию: сразу после входа эмулируем Ctrl+D для включения/выключения микрофона
                             startup_complete_event.set()
                             logger.info(f"[{self.meeting_id}] Сигнал о завершении запуска отправлен воркеру.")
 
@@ -503,7 +512,7 @@ class MeetListenerBot:
                                 logger.warning(f"[{self.meeting_id}] Не удалось отправить хоткей Ctrl+D после входа: {e_toggle}")
                             self._log_permissions_state()
                             self.joined_successfully = True
-                            return True # Возвращаем True в случае успеха
+                            return True
                     except: continue
                 
                 for error_xpath in error_indicators:
@@ -511,18 +520,24 @@ class MeetListenerBot:
                         error_element = self.driver.find_element(By.XPATH, error_xpath)
                         if error_element.is_displayed():
                             logger.error(f"[{self.meeting_id}] ❌ Присоединение отклонено: {error_element.text}")
-                            return False # Возвращаем False в случае отказа
+                            self._save_screenshot("98_join_denied")
+                            return False
                     except: continue
 
                 time.sleep(check_interval)
                 elapsed_time += check_interval
+                if elapsed_time % 30 == 0:
+                    logger.info(f"[{self.meeting_id}] Ожидание... {elapsed_time}с прошло.")
+                    self._save_screenshot(f"wait_{elapsed_time}s")
 
             logger.warning(f"[{self.meeting_id}] ⚠️ Превышено время ожидания одобрения ({max_wait_time}с).")
-            return False # Возвращаем False в случае таймаута
+            self._save_screenshot("99_join_timeout")
+            return False
 
         except Exception as e:
             logger.critical(f"[{self.meeting_id}] ❌ Критическая ошибка при присоединении: {e}", exc_info=True)
-            return False # Возвращаем False в случае любой другой ошибки
+            self._save_screenshot("99_join_fatal_error")
+            return False
     
     # Поиск и определение аудиоустройства
     

@@ -3,7 +3,6 @@ import time
 import queue
 import threading
 import logging
-import random
 import requests
 from datetime import datetime
 from uuid import uuid4
@@ -149,11 +148,8 @@ class MeetListenerBot:
             logger.info(f"[{self.meeting_id}] Запуск Chrome с PULSE_SINK='{self.sink_name}' и PULSE_SOURCE='{self.source_name}'...")
             
             try:
-                port = random.randint(9222, 9555)
-
                 # --- Запускаем Chrome, пока установлены переменные окружения ---
                 opt = uc.ChromeOptions()
-                opt.add_argument(f'--remote-debugging-port={port}')
                 opt.add_argument('--no-sandbox')
                 opt.add_argument('--disable-dev-shm-usage')
                 opt.add_argument('--window-size=1280,720')
@@ -412,7 +408,7 @@ class MeetListenerBot:
             toggled_on = False
             try:
                 # Включаем микрофон в Meet перед началом озвучки
-                # self.toggle_mic_hotkey()
+                self.toggle_mic_hotkey()
                 toggled_on = True
                 time.sleep(0.3)
 
@@ -439,7 +435,7 @@ class MeetListenerBot:
                 if toggled_on:
                     # Небольшая пауза и выключаем микрофон
                     time.sleep(0.2)
-                    # self.toggle_mic_hotkey()
+                    self.toggle_mic_hotkey()
 
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Критическая ошибка в _speak_via_meet: {e}")
@@ -823,22 +819,22 @@ class MeetListenerBot:
                 logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")
                 
                 processor_thread = threading.Thread(target=self._process_audio_stream, name=f'VADProcessor-{self.meeting_id}')
-                monitor_thread = threading.Thread(target=self._monitor_participants, name=f'ParticipantMonitor-{self.meeting_id}')
+                # monitor_thread = threading.Thread(target=self._monitor_participants, name=f'ParticipantMonitor-{self.meeting_id}')
                 capture_thread = threading.Thread(target=self._audio_capture_thread, name=f'AudioCapture-{self.meeting_id}')
                 
                 processor_thread.daemon = True
-                monitor_thread.daemon = True
+                # monitor_thread.daemon = True
                 capture_thread.daemon = True
 
                 processor_thread.start()
-                monitor_thread.start()
+                # monitor_thread.start()
                 capture_thread.start()
                 timer = threading.Timer(5.0, startup_complete_event.set)
                 timer.start()
                 
                 capture_thread.join()
                 processor_thread.join()
-                monitor_thread.join()
+                # monitor_thread.join()
 
                 
                 

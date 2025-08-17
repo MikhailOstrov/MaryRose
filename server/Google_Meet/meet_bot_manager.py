@@ -1,28 +1,38 @@
-# server/Google_Meet/meet_bot_manager.py (ВЕРСИЯ С MULTIPROCESSING И 'spawn')
+# server/Google_Meet/meet_bot_manager.py (ИСПРАВЛЕННАЯ ВЕРСЯ)
 
 import logging
 import time
 from typing import Dict
 import multiprocessing as mp
-from queue import Empty # <-- ИСПРАВЛЕНИЕ 3: Импортируем исключение
-
-# --- ИСПРАВЛЕНИЕ 1: Устанавливаем метод старта 'spawn' ---
-# ЭТО НУЖНО СДЕЛАТЬ ДО СОЗДАНИЯ ЛЮБЫХ ОБЪЕКТОВ MULTIPROCESSING
-# force=True гарантирует, что метод будет установлен, даже если он уже был задан ранее.
-try:
-    mp.set_start_method('spawn', force=True)
-    logging.info("Multiprocessing start method set to 'spawn'.")
-except RuntimeError:
-    logging.warning("Multiprocessing start method already set.")
-# -------------------------------------------------------------
+from queue import Empty
+from api.meet_listener import MeetListenerBot # Убедитесь, что этот импорт есть
 
 logger = logging.getLogger(__name__)
 
-manager = mp.Manager()
-launch_queue = manager.Queue()
-# --- ИСПРАВЛЕНИЕ 2: Словарь будет хранить только PID (числа) ---
-active_bots = manager.dict()
-# -------------------------------------------------------------
+# --- ШАГ 1: Объявляем переменные, но не инициализируем их ---
+manager = None
+launch_queue = None
+active_bots = None
+# -----------------------------------------------------------
+
+def initialize_multiprocessing():
+    """
+    Эта функция будет вызвана ОДИН РАЗ при старте сервера FastAPI.
+    Она безопасно настраивает все объекты multiprocessing.
+    """
+    global manager, launch_queue, active_bots
+
+    try:
+        mp.set_start_method('spawn', force=True)
+        logging.info("Multiprocessing start method set to 'spawn'.")
+    except RuntimeError:
+        logging.warning("Multiprocessing start method already set.")
+
+    manager = mp.Manager()
+    launch_queue = manager.Queue()
+    active_bots = manager.dict()
+    logging.info("Multiprocessing manager, queue, and dict initialized successfully.")
+
 
 def run_bot_in_process(meeting_id: str, meet_url: str, startup_complete_event: mp.Event):
     """
@@ -48,7 +58,12 @@ def launch_worker():
     
     while True:
         try:
-            meeting_id, meet_url = launch_queue.get(timeout=1) # Используем таймаут, чтобы цикл не блокировался навечно
+            # Проверяем, что объекты инициализированы, прежде чем их использовать
+            if launch_queue is None or active_bots is None:
+                time.sleep(1)
+                continue
+
+            meeting_id, meet_url = launch_queue.get(timeout=1)
             logger.info(f"[Воркер] Получена задача на запуск бота для встречи {meeting_id}.")
             
             if meeting_id in active_bots:
@@ -64,7 +79,6 @@ def launch_worker():
             bot_process.name = f"BotProcess-{meeting_id}"
             bot_process.start()
             
-            # --- ИСПРАВЛЕНИЕ 2: Сохраняем только PID ---
             active_bots[meeting_id] = bot_process.pid
             
             logger.info(f"[Воркер] Процесс для бота {meeting_id} (PID: {bot_process.pid}) запущен. Ожидаю сигнала...")
@@ -81,8 +95,8 @@ def launch_worker():
                 if meeting_id in active_bots:
                     del active_bots[meeting_id]
 
-        except Empty: # <-- ИСПРАВЛЕНИЕ 3: Правильно обрабатываем исключение
-            time.sleep(0.1) # Спим немного, если очередь пуста
+        except Empty:
+            time.sleep(0.1)
             continue
         except Exception as e:
             logger.critical(f"[Воркер] ❌ КРИТИЧЕСКАЯ ОШИБКА в цикле воркера: {e}", exc_info=True)

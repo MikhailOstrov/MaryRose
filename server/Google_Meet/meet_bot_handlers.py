@@ -39,11 +39,9 @@ async def get_status(meeting_id: str):
 @router.post("/api/v1/internal/start-processing", dependencies=[Depends(get_api_key)], status_code=202)
 async def start_processing(request: StartRequest):
     logger.info(f"[API] Получен запрос на запуск бота для meeting_id: {request.meeting_id}")
-    
     pid = active_bots.get(request.meeting_id)
     if pid and is_process_alive(pid):
         raise HTTPException(status_code=409, detail=f"Бот для встречи {request.meeting_id} уже запущен.")
-
     launch_queue.put((request.meeting_id, request.meet_url))
     logger.info(f"[API] Задача на запуск бота для {request.meeting_id} успешно поставлена в очередь.")
     return {"status": "processing_queued", "meeting_id": request.meeting_id}

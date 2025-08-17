@@ -5,7 +5,7 @@ import threading
 
 from server.dependencies import get_api_key
 from server.request_models import StartRequest, StopRequest, WebsiteSessionStartRequest
-from server.Google_Meet.meet_bot_manager import launch_queue, active_bots
+from server.Google_Meet.meet_bot_manager import launch_queue, active_bots, process_launch_queue
 from api.session_store import session_to_meeting_map
 
 logger = logging.getLogger(__name__)
@@ -25,20 +25,23 @@ async def get_status(meeting_id: str):
 
 # Запуск бота
 @router.post("/api/v1/internal/start-processing", dependencies=[Depends(get_api_key)], status_code=202)
-async def start_processing(request: StartRequest):
+async def start_processing(request: StartRequest, background_tasks: BackgroundTasks):
     """
-    Принимает запрос на запуск бота и ставит его в очередь.
-    Отвечает немедленно.
+    Принимает запрос, добавляет его в очередь и запускает фоновую задачу
+    для обработки этой очереди.
     """
     logger.info(f"[API] Получен запрос на запуск бота для meeting_id: {request.meeting_id}")
     
     if request.meeting_id in active_bots:
         raise HTTPException(status_code=409, detail=f"Бот для встречи {request.meeting_id} уже запущен.")
 
-    # Просто добавляем "заявку" в очередь. Воркер ее подхватит.
+    # 1. Добавляем "заявку" в очередь.
     launch_queue.put((request.meeting_id, request.meet_url))
     
-    logger.info(f"[API] Задача на запуск бота для {request.meeting_id} успешно поставлена в очередь.")
+    # 2. Говорим FastAPI запустить нашего обработчика в фоне ПОСЛЕ отправки ответа.
+    background_tasks.add_task(process_launch_queue)
+    
+    logger.info(f"[API] Задача для {request.meeting_id} поставлена в очередь. Запускаю фоновый обработчик.")
     
     return {"status": "processing_queued", "meeting_id": request.meeting_id}
 

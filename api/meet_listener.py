@@ -791,14 +791,17 @@ class MeetListenerBot:
         """
         logger.info(f"[{self.meeting_id}] Бот запускается...")
         try:
+            # 1. Создаем уникальные виртуальные аудиоустройства для этого бота
             if not self.audio_manager.create_devices():
                 logger.error(f"[{self.meeting_id}] ❌ Не удалось создать аудиоустройства. Завершение работы.")
-                return 
+                return # Не забываем вернуть управление
 
+            # 2. Инициализируем драйвер
             self._initialize_driver()
             
-            # Эта функция теперь сама вызовет startup_complete_event.set() в нужный момент
+            # 3. Попытка присоединиться к встрече. Передаем флажок дальше.
             joined_successfully = self.join_meet_as_guest(startup_complete_event)
+
             
             if joined_successfully:
                 logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")
@@ -814,12 +817,15 @@ class MeetListenerBot:
                 processor_thread.start()
                 monitor_thread.start()
                 capture_thread.start()
-                
-                # --- НЕПРАВИЛЬНЫЙ TIMER УБРАН ---
+                timer = threading.Timer(5.0, startup_complete_event.set)
+                timer.start()
                 
                 capture_thread.join()
                 processor_thread.join()
                 monitor_thread.join()
+
+                
+                
                 
                 logger.info(f"[{self.meeting_id}] Основные потоки (обработка и захват) завершены.")
             else:
@@ -828,6 +834,8 @@ class MeetListenerBot:
         except Exception as e:
             logger.critical(f"[{self.meeting_id}] ❌ Критическая ошибка в работе бота: {e}", exc_info=True)
         finally:
+            # Если по какой-то причине мы вышли, а сигнал так и не был подан,
+            # подаем его здесь, чтобы не заблокировать очередь навсегда.
             if not startup_complete_event.is_set():
                 logger.warning(f"[{self.meeting_id}] Аварийное завершение, подаю сигнал воркеру, чтобы разблокировать очередь.")
                 startup_complete_event.set()

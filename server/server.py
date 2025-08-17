@@ -7,7 +7,6 @@ from api import websocket_gateway
 from server.TG_Bot.tg_bot_handlers import router as tg_bot_router
 from server.Google_Meet.meet_bot_handlers import router as bot_control_router
 from server.Google_Meet.meet_bot_manager import launch_worker
-from server.Google_Meet.meet_bot_manager import launch_worker, initialize_multiprocessing
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -22,11 +21,7 @@ app = FastAPI(
 def startup_event():
     """
     Запускает фоновый поток для воркера, который будет обрабатывать очередь.
-
-    
     """
-
-    initialize_multiprocessing()
     worker_thread = threading.Thread(target=launch_worker, daemon=True)
     worker_thread.name = "BotLaunchWorker"
     worker_thread.start()

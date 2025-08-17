@@ -446,6 +446,7 @@ class MeetListenerBot:
             logger.info(f"[{self.meeting_id}] Подключаюсь к встрече как гость: {self.meeting_url}")
             self.driver.get(self.meeting_url)
 
+            startup_complete_event.set()
             logger.info(f"[{self.meeting_id}] Сигнал отправлен воркеру. Следующий бот может начинать запуск.")
             
             logger.info(f"[{self.meeting_id}] Ищу поле для ввода имени...")
@@ -487,42 +488,37 @@ class MeetListenerBot:
                 '//*[contains(text(), "rejected") or contains(text(), "отказано")]',
                 '//*[contains(text(), "error") or contains(text(), "ошибка")]',
                 '//*[contains(text(), "unable") or contains(text(), "невозможно")]'
-                
             ]
-
-            self.joined_successfully = True
-            
-            return True
-            # while elapsed_time < max_wait_time:
-            #     for i, xpath in enumerate(success_indicators):
-            #         try:
-            #             if self.driver.find_element(By.XPATH, xpath).is_displayed():
+            while elapsed_time < max_wait_time:
+                for i, xpath in enumerate(success_indicators):
+                    try:
+                        if self.driver.find_element(By.XPATH, xpath).is_displayed():
                             
-            #                 logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
+                            logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
                             
 
-            #                 try:
-            #                     self.toggle_mic_hotkey()
-            #                 except Exception as e_toggle:
-            #                     logger.warning(f"[{self.meeting_id}] Не удалось отправить хоткей Ctrl+D после входа: {e_toggle}")
-            #                 self._log_permissions_state()
-            #                 self.joined_successfully = True
-            #                 return True # Возвращаем True в случае успеха
-            #         except: continue
+                            try:
+                                self.toggle_mic_hotkey()
+                            except Exception as e_toggle:
+                                logger.warning(f"[{self.meeting_id}] Не удалось отправить хоткей Ctrl+D после входа: {e_toggle}")
+                            self._log_permissions_state()
+                            self.joined_successfully = True
+                            return True # Возвращаем True в случае успеха
+                    except: continue
                 
-            #     for error_xpath in error_indicators:
-            #         try:
-            #             error_element = self.driver.find_element(By.XPATH, error_xpath)
-            #             if error_element.is_displayed():
-            #                 logger.error(f"[{self.meeting_id}] ❌ Присоединение отклонено: {error_element.text}")
-            #                 return False # Возвращаем False в случае отказа
-            #         except: continue
+                for error_xpath in error_indicators:
+                    try:
+                        error_element = self.driver.find_element(By.XPATH, error_xpath)
+                        if error_element.is_displayed():
+                            logger.error(f"[{self.meeting_id}] ❌ Присоединение отклонено: {error_element.text}")
+                            return False # Возвращаем False в случае отказа
+                    except: continue
 
-            #     time.sleep(check_interval)
-            #     elapsed_time += check_interval
+                time.sleep(check_interval)
+                elapsed_time += check_interval
 
-            # logger.warning(f"[{self.meeting_id}] ⚠️ Превышено время ожидания одобрения ({max_wait_time}с).")
-            # return False # Возвращаем False в случае таймаута
+            logger.warning(f"[{self.meeting_id}] ⚠️ Превышено время ожидания одобрения ({max_wait_time}с).")
+            return False # Возвращаем False в случае таймаута
 
         except Exception as e:
             logger.critical(f"[{self.meeting_id}] ❌ Критическая ошибка при присоединении: {e}", exc_info=True)
@@ -835,8 +831,8 @@ class MeetListenerBot:
                 processor_thread.join()
                 monitor_thread.join()
 
-                startup_complete_event.set()
-                
+                self.joined_successfully = True
+                startup_complete_event()
                 
                 logger.info(f"[{self.meeting_id}] Основные потоки (обработка и захват) завершены.")
             else:

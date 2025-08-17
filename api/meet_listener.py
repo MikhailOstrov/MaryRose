@@ -823,11 +823,11 @@ class MeetListenerBot:
                 capture_thread = threading.Thread(target=self._audio_capture_thread, name=f'AudioCapture-{self.meeting_id}')
                 
                 processor_thread.daemon = True
-                # monitor_thread.daemon = True
+                monitor_thread.daemon = True
                 capture_thread.daemon = True
 
                 processor_thread.start()
-                # monitor_thread.start()
+                monitor_thread.start()
                 capture_thread.start()
                 timer = threading.Timer(5.0, startup_complete_event.set)
                 timer.start()

@@ -441,7 +441,7 @@ class MeetListenerBot:
             logger.error(f"[{self.meeting_id}] ❌ Критическая ошибка в _speak_via_meet: {e}")
 
     # Присоединение в Google Meet
-    def join_meet_as_guest(self, join_successful_event: threading.Event):
+    def join_meet_as_guest(self, startup_complete_event: threading.Event):
         try:
             logger.info(f"[{self.meeting_id}] Подключаюсь к встрече как гость: {self.meeting_url}")
             self.driver.get(self.meeting_url)
@@ -491,10 +491,12 @@ class MeetListenerBot:
                 for i, xpath in enumerate(success_indicators):
                     try:
                         if self.driver.find_element(By.XPATH, xpath).is_displayed():
+                            startup_complete_event.set()
                             
+                            logger.info(f"[{self.meeting_id}] Сигнал о завершении запуска отправлен воркеру.")
                             logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
                             
-                            join_successful_event.set() 
+                            
 
                             try:
                                 self.toggle_mic_hotkey()
@@ -807,20 +809,7 @@ class MeetListenerBot:
             self._initialize_driver()
             
             # 3. Попытка присоединиться к встрече. Передаем флажок дальше.
-            join_successful_event = threading.Event()
-            
-            join_thread = threading.Thread(
-                target=self.join_meet_as_guest, 
-                args=(join_successful_event,) # Передаем новое событие
-            )
-            join_thread.daemon = True
-            join_thread.name = f"JoinThread-{self.meeting_id}"
-            join_thread.start()
-
-            startup_complete_event.set()
-            logger.info(f"[{self.meeting_id}] Сигнал о завершении инициализации отправлен воркеру. Присоединение к встрече продолжается в фоне.")
-
-            joined_successfully = join_successful_event.wait(timeout=150.0) 
+            joined_successfully = self.join_meet_as_guest(startup_complete_event)
             
             if joined_successfully:
                 logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")

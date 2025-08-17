@@ -1,4 +1,4 @@
-# server/Google_Meet/meet_bot_manager.py (ФИНАЛЬНАЯ ВЕРСИЯ С СИГНАЛОМ ПОСЛЕ ВХОДА)
+# server/Google_Meet/meet_bot_manager.py (ФИНАЛЬНАЯ ВЕРСИЯ С threading.Event)
 
 import logging
 import queue
@@ -17,18 +17,26 @@ launch_queue = queue.Queue()
 def run_bot_in_thread(meeting_id: str, meet_url: str, startup_complete_event: threading.Event):
     """
     Эта функция-обертка выполняется в отдельном потоке для каждого бота.
-    Она создает бота и передает ему "сигнальный флажок".
+    Она сначала выполняет "холодный старт", сигнализирует о его завершении,
+    а затем выполняет основную работу.
     """
     bot = None
     try:
         logger.info(f"[{meeting_id}] Поток для бота запущен. Начинаю инициализацию...")
         bot = MeetListenerBot(meeting_url=meet_url, meeting_id=meeting_id)
-        active_bots[meeting_id] = bot
         
-        # --- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ---
-        # Мы передаем "сигнальный флажок" в метод run().
-        # Теперь сам бот будет отвечать за то, чтобы подать сигнал в нужный момент.
-        bot.run(startup_complete_event=startup_complete_event)
+        # --- КЛЮЧЕВОЙ ЭТАП 1: "Холодный старт" ---
+        bot._initialize_driver()
+        # ----------------------------------------
+        
+        # --- КЛЮЧЕВОЙ ЭТАП 2: Подаем сигнал "Зеленый свет" ---
+        # Сообщаем воркеру, что тяжелая часть позади и он может запускать следующего бота.
+        startup_complete_event.set()
+        logger.info(f"[{meeting_id}] ✅ Инициализация завершена. Сигнал отправлен воркеру.")
+        # ----------------------------------------------------
+
+        active_bots[meeting_id] = bot
+        bot.run()
 
     except Exception as e:
         logger.error(f"[{meeting_id}] Ошибка в потоке бота: {e}", exc_info=True)
@@ -42,10 +50,10 @@ def run_bot_in_thread(meeting_id: str, meet_url: str, startup_complete_event: th
 
 def launch_worker():
     """
-    Функция-воркер, которая ПОСЛЕДОВАТЕЛЬНО запускает ботов,
-    дожидаясь сигнала о ПОЛНОМ ВХОДЕ В КОНФЕРЕНЦИЮ от каждого.
+    Функция-воркер, которая ПОСЛЕДОВАТЕЛЬНО инициализирует ботов,
+    дожидаясь сигнала о завершении "холодного старта" от каждого.
     """
-    logger.info("✅ Воркер-диспетчер (с Event после входа) запущен и готов к работе.")
+    logger.info("✅ Воркер-диспетчер (с Event) запущен и готов к работе.")
     
     while True:
         try:
@@ -68,18 +76,20 @@ def launch_worker():
             bot_thread.name = f"BotThread-{meeting_id}"
             bot_thread.start()
             
-            logger.info(f"[Воркер] Поток для бота {meeting_id} запущен. Ожидаю сигнала об успешном входе в созвон...")
+            logger.info(f"[Воркер] Поток для бота {meeting_id} запущен. Ожидаю сигнала о завершении инициализации...")
 
-            # Ждем "зеленого света", но не дольше 180 секунд (увеличиваем таймаут, т.к. он включает ожидание хоста)
-            completed_in_time = startup_complete_event.wait(timeout=180.0)
+            # --- ЗАМЕНА time.sleep() ---
+            # Ждем "зеленого света" от потока, но не дольше 90 секунд (на случай, если Chrome зависнет)
+            completed_in_time = startup_complete_event.wait(timeout=90.0)
+            # ---------------------------
 
             if completed_in_time:
                 logger.info(f"[Воркер] ✅ Сигнал от бота {meeting_id} получен. Беру следующую задачу.")
             else:
-                logger.error(f"[Воркер] ❌ Сигнал от бота {meeting_id} не получен за 180 секунд! Возможно, вход завис или не был одобрен.")
+                logger.error(f"[Воркер] ❌ Сигнал от бота {meeting_id} не получен за 90 секунд! Возможно, инициализация зависла.")
             
             launch_queue.task_done()
 
         except Exception as e:
             logger.critical(f"[Воркер] ❌ КРИТИЧЕСКАЯ ОШИБКА в цикле воркера: {e}", exc_info=True)
-            time.sleep(30)
+            time.sleep(30)  

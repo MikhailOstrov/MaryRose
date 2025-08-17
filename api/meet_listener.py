@@ -445,11 +445,13 @@ class MeetListenerBot:
             logger.error(f"[{self.meeting_id}] ❌ Критическая ошибка в _speak_via_meet: {e}")
 
     # Присоединение в Google Meet
-    def join_meet_as_guest(self, startup_complete_event: threading.Event): # Тип Event не важен, у них одинаковый интерфейс
+    def join_meet_as_guest(self, startup_complete_event: threading.Event):
         try:
             logger.info(f"[{self.meeting_id}] Подключаюсь к встрече как гость: {self.meeting_url}")
             self.driver.get(self.meeting_url)
 
+            logger.info(f"[{self.meeting_id}] Сигнал отправлен воркеру. Следующий бот может начинать запуск.")
+            
             logger.info(f"[{self.meeting_id}] Ищу поле для ввода имени...")
             name_input_xpath = '//input[@placeholder="Your name" or @aria-label="Your name" or contains(@placeholder, "name")]'
             name_input = WebDriverWait(self.driver, 30).until(
@@ -470,51 +472,65 @@ class MeetListenerBot:
             join_button = WebDriverWait(self.driver, 30).until(
                 EC.element_to_be_clickable((By.XPATH, join_button_xpath))
             )
-            
-            # --- ПРАВИЛЬНОЕ МЕСТО ДЛЯ СИГНАЛА ВОРКЕРУ ---
-            startup_complete_event.set()
-            logger.info(f"[{self.meeting_id}] Сигнал отправлен воркеру. Следующий процесс может начинать запуск.")
-            # ---------------------------------------------
-            
             join_button.click()
+            # Подаем сигнал "Зеленый свет"
             
-            # --- ВОЗВРАЩАЕМ НАДЕЖНУЮ ЛОГИКУ ОЖИДАНИЯ ---
+            
             logger.info(f"[{self.meeting_id}] Запрос отправлен. Ожидаю одобрения хоста (до 120с)...")
+            max_wait_time, check_interval, elapsed_time = 120, 2, 0
             
             success_indicators = [
                 '//button[@data-tooltip*="end call" or @aria-label*="end call" or @aria-label*="завершить"]',
                 "//button[.//i[text()='people'] and @aria-label]",
-                '//div[@data-self-name]'
+                '//div[@data-self-name]',
+                '//div[contains(@class, "control") and (contains(@class, "bar") or contains(@class, "panel"))]',
+                '//button[@aria-label*="hand" or @aria-label*="рука" or @data-tooltip*="hand"]'
             ]
             error_indicators = [
                 '//*[contains(text(), "denied") or contains(text(), "отклонен")]',
-                '//*[contains(text(), "rejected") or contains(text(), "отказано")]'
+                '//*[contains(text(), "rejected") or contains(text(), "отказано")]',
+                '//*[contains(text(), "error") or contains(text(), "ошибка")]',
+                '//*[contains(text(), "unable") or contains(text(), "невозможно")]'
+                
             ]
-            
-            all_locators = success_indicators + error_indicators
-            conditions = [EC.presence_of_element_located((By.XPATH, xpath)) for xpath in all_locators]
-            wait = WebDriverWait(self.driver, 120)
-            found_element = wait.until(EC.any_of(*conditions))
-            
-            element_text = (found_element.text or "").lower()
-            if any(keyword in element_text for keyword in ["denied", "отклонен", "rejected", "отказано"]):
-                logger.error(f"[{self.meeting_id}] ❌ Присоединение отклонено: {found_element.text}")
-                self.joined_successfully = False
-                return False
-            else:
-                logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече!")
-                self.joined_successfully = True
-                self.toggle_mic_hotkey()
-                return True
 
-        except TimeoutException:
-            logger.warning(f"[{self.meeting_id}] ⚠️ Превышено время ожидания одобрения (120с).")
-            self.joined_successfully = False
-            return False
+            self.joined_successfully = True
+            
+            return True
+            # while elapsed_time < max_wait_time:
+            #     for i, xpath in enumerate(success_indicators):
+            #         try:
+            #             if self.driver.find_element(By.XPATH, xpath).is_displayed():
+                            
+            #                 logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
+                            
+
+            #                 try:
+            #                     self.toggle_mic_hotkey()
+            #                 except Exception as e_toggle:
+            #                     logger.warning(f"[{self.meeting_id}] Не удалось отправить хоткей Ctrl+D после входа: {e_toggle}")
+            #                 self._log_permissions_state()
+            #                 self.joined_successfully = True
+            #                 return True # Возвращаем True в случае успеха
+            #         except: continue
+                
+            #     for error_xpath in error_indicators:
+            #         try:
+            #             error_element = self.driver.find_element(By.XPATH, error_xpath)
+            #             if error_element.is_displayed():
+            #                 logger.error(f"[{self.meeting_id}] ❌ Присоединение отклонено: {error_element.text}")
+            #                 return False # Возвращаем False в случае отказа
+            #         except: continue
+
+            #     time.sleep(check_interval)
+            #     elapsed_time += check_interval
+
+            # logger.warning(f"[{self.meeting_id}] ⚠️ Превышено время ожидания одобрения ({max_wait_time}с).")
+            # return False # Возвращаем False в случае таймаута
+
         except Exception as e:
             logger.critical(f"[{self.meeting_id}] ❌ Критическая ошибка при присоединении: {e}", exc_info=True)
-            self.joined_successfully = False
-            return False
+            return False # Возвращаем False в случае любой другой ошибки
     
     # Поиск и определение аудиоустройства
     

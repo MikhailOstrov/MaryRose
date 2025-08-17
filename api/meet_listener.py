@@ -834,7 +834,7 @@ class MeetListenerBot:
                 
                 capture_thread.join()
                 processor_thread.join()
-                monitor_thread.join()
+                # monitor_thread.join()
 
                 
                 

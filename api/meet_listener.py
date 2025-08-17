@@ -467,8 +467,7 @@ class MeetListenerBot:
                 EC.element_to_be_clickable((By.XPATH, join_button_xpath))
             )
             join_button.click()
-            # Подаем сигнал "Зеленый свет"
-            startup_complete_event.set()
+            self._save_screenshot("03_after_ask_to_join")
             
             logger.info(f"[{self.meeting_id}] Запрос отправлен. Ожидаю одобрения хоста (до 120с)...")
             max_wait_time, check_interval, elapsed_time = 120, 2, 0
@@ -494,7 +493,8 @@ class MeetListenerBot:
                             self._save_screenshot("04_joined_successfully")
                             logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
                             
-                            
+                            # Подаем сигнал "Зеленый свет"
+                            startup_complete_event.set()
                             logger.info(f"[{self.meeting_id}] Сигнал о завершении запуска отправлен воркеру.")
 
                             try:

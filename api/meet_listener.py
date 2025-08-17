@@ -805,43 +805,41 @@ class MeetListenerBot:
 
     # Запуск работы бота
     def run(self):
-        """
-        Основной метод, выполняющий всю работу ПОСЛЕ того, как драйвер уже был инициализирован.
-        """
-        # --- ИЗМЕНЕНИЕ: Мы больше не вызываем _initialize_driver() здесь. ---
-        
-        logger.info(f"[{self.meeting_id}] Бот запускает основной рабочий цикл...")
+        """Основной метод, выполняющий всю работу."""
+        logger.info(f"[{self.meeting_id}] Бот запускается...")
         try:
             # 1. Создаем уникальные виртуальные аудиоустройства для этого бота
             if not self.audio_manager.create_devices():
                 logger.error(f"[{self.meeting_id}] ❌ Не удалось создать аудиоустройства. Завершение работы.")
                 return
 
-            # 2. Попытка присоединиться к встрече
-            # Драйвер уже запущен и готов.
+            # 2. Инициализируем драйвер, который привяжется к этим устройствам
+            self._initialize_driver()
+            
+            # 3. Попытка присоединиться к встрече
             joined_successfully = self.join_meet_as_guest()
             
             if joined_successfully:
                 logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")
                 
+                # Поток обработки аудио (VAD, ASR) - он остается без изменений
                 processor_thread = threading.Thread(target=self._process_audio_stream, name=f'VADProcessor-{self.meeting_id}')
-                monitor_thread = threading.Thread(target=self._monitor_participants, name=f'ParticipantMonitor-{self.meeting_id}')
-                capture_thread = threading.Thread(target=self._audio_capture_thread, name=f'AudioCapture-{self.meeting_id}')
-                
-                # Делаем потоки демонами, чтобы они не блокировали завершение, если что-то пойдет не так
-                processor_thread.daemon = True
-                monitor_thread.daemon = True
-                capture_thread.daemon = True
-
                 processor_thread.start()
+                
+                # Поток мониторинга участников - также без изменений
+                monitor_thread = threading.Thread(target=self._monitor_participants, name=f'ParticipantMonitor-{self.meeting_id}')
+                monitor_thread.daemon = True
                 monitor_thread.start()
+
+                # --- НОВАЯ ЛОГИКА ЗАПУСКА ЗАХВАТА ---
+                # Запускаем наш новый поток захвата аудио через parec
+                capture_thread = threading.Thread(target=self._audio_capture_thread, name=f'AudioCapture-{self.meeting_id}')
                 capture_thread.start()
                 
-                # Ожидаем завершения основного потока захвата аудио.
-                # Другие потоки остановятся по флагу self.is_running.
+                # Ожидаем завершения потоков. Они остановятся, когда будет вызван self.stop()
+                # (когда is_running станет False)
                 capture_thread.join()
                 processor_thread.join()
-                monitor_thread.join()
                 
                 logger.info(f"[{self.meeting_id}] Основные потоки (обработка и захват) завершены.")
             else:

@@ -689,18 +689,11 @@ class MeetListenerBot:
                                     full_audio_np = np.concatenate(speech_buffer_for_asr)
                                     speech_buffer_for_asr = []
                                     
-                                    # self._save_chunk(full_audio_np)
+                                    self._save_chunk(full_audio_np)
 
                                     chunk_duration = len(full_audio_np) / 16000.0
 
                                     segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
-
-                                    for seg in segments:
-                                        self.dialog.append({
-                                            "start": round(self.global_offset + seg.start, 2),
-                                            "end": round(self.global_offset + seg.end, 2),
-                                            "text": seg.text.strip()
-                                        })
 
                                     self.global_offset += chunk_duration
 

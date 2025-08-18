@@ -5,7 +5,7 @@ import threading
 
 from server.dependencies import get_api_key
 from server.request_models import StartRequest, StopRequest, WebsiteSessionStartRequest
-from server.Google_Meet.meet_bot_manager import active_bots, run_bot_thread
+from server.Google_Meet.meet_bot_manager import start_bot_process, stop_bot_process, get_bot_status
 from api.session_store import session_to_meeting_map
 
 logger = logging.getLogger(__name__)
@@ -19,21 +19,24 @@ async def health_check():
 # Проверка бота по ID
 @router.get("/status/{meeting_id}")
 async def get_status(meeting_id: str):
-    if meeting_id in active_bots:
-        return {"status": "active", "meeting_id": meeting_id}
-    return {"status": "inactive", "meeting_id": meeting_id}
+    """Проверяет статус бота по его ID."""
+    status = get_bot_status(meeting_id)
+    return {"status": status, "meeting_id": meeting_id}
 
 # Запуск бота
 @router.post("/api/v1/internal/start-processing", dependencies=[Depends(get_api_key)])
 async def start_processing(request: StartRequest):
-    logger.info(f"Получен запрос на запуск бота для meeting_id: {request.meeting_id}")
-    if request.meeting_id in active_bots:
+    """Запускает процесс обработки для новой встречи."""
+    logger.info(f"Получен запрос на запуск процесса для meeting_id: {request.meeting_id}")
+    
+    if get_bot_status(request.meeting_id) == "active":
         raise HTTPException(status_code=400, detail=f"Бот для встречи {request.meeting_id} уже запущен.")
 
-    thread = threading.Thread(target=run_bot_thread, args=(request.meeting_id, request.meet_url))
-    thread.daemon = True
-    thread.start()
+    success = start_bot_process(request.meeting_id, request.meet_url)
     
+    if not success:
+        raise HTTPException(status_code=500, detail="Не удалось запустить процесс бота.")
+
     return {"status": "processing_started", "meeting_id": request.meeting_id}
 
 # Остановка бота

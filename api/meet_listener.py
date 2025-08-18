@@ -128,33 +128,56 @@ class MeetListenerBot:
     # Инициализация драйвера для подключения
     def _initialize_driver(self):
         """
-        Инициализирует драйвер, используя переменные окружения PULSE_SINK и PULSE_SOURCE
-        для точной и изолированной маршрутизации аудио для Chrome.
-        Запуск защищен блокировкой для предотвращения состояний гонки.
+        Инициализирует драйвер с ПОЛНОЙ ИЗОЛЯЦИЕЙ:
+        1. Использует уникальную копию бинарного файла chromedriver.
+        2. Использует уникальный порт для remote debugging.
+        3. Использует переменные окружения PulseAudio для изоляции звука.
         """
-        logger.info(f"[{self.meeting_id}] Ожидание блокировки для запуска Chrome...")
-        
+        logger.info(f"[{self.meeting_id}] Полная изоляция и запуск Chrome...")
+
+        # --- ШАГ 1: Создаем уникальную копию chromedriver ---
+        # Это предотвратит конфликт, когда несколько ботов пытаются патчить один и тот же файл
+        try:
+            # Находим путь к оригинальному, кэшированному chromedriver
+            patcher = Patcher()
+            original_driver_path = patcher.executable_path
+            
+            # Создаем уникальный путь для копии драйвера этого бота
+            driver_copy_path = self.chrome_profile_path / "chromedriver"
+            shutil.copy(original_driver_path, driver_copy_path)
+            
+            logger.info(f"[{self.meeting_id}] Создана изолированная копия chromedriver в: {driver_copy_path}")
+        except Exception as e:
+            logger.error(f"[{self.meeting_id}] Не удалось создать копию chromedriver: {e}. Продолжаю с драйвером по умолчанию.")
+            driver_copy_path = None
+
+
+        # --- ШАГ 2: Блокировка для безопасного изменения os.environ ---
+        # Эта часть остается, так как изменение env переменных - глобальная операция
         with CHROME_LAUNCH_LOCK:
             logger.info(f"[{self.meeting_id}] Блокировка получена. Настройка PulseAudio env vars...")
             
-            # Сохраняем исходные значения, чтобы восстановить их позже
             original_pulse_sink = os.environ.get('PULSE_SINK')
             original_pulse_source = os.environ.get('PULSE_SOURCE')
             
-            # Устанавливаем персональные устройства для следующего запускаемого процесса
             os.environ['PULSE_SINK'] = self.sink_name
             os.environ['PULSE_SOURCE'] = self.source_name
             
             logger.info(f"[{self.meeting_id}] Запуск Chrome с PULSE_SINK='{self.sink_name}' и PULSE_SOURCE='{self.source_name}'...")
             
             try:
-                # --- Запускаем Chrome, пока установлены переменные окружения ---
                 opt = uc.ChromeOptions()
                 opt.add_argument('--no-sandbox')
                 opt.add_argument('--disable-dev-shm-usage')
                 opt.add_argument('--window-size=1280,720')
                 opt.add_argument(f'--user-data-dir={self.chrome_profile_path}')
                 
+                # --- ШАГ 3: Используем уникальный порт ---
+                # Это дополнительная мера гигиены для предотвращения конфликтов
+                port = random.randint(10000, 20000)
+                opt.add_argument(f'--remote-debugging-port={port}')
+                logger.info(f"[{self.meeting_id}] Используется порт для отладки: {port}")
+
                 opt.add_experimental_option("prefs", {
                     "profile.default_content_setting_values.media_stream_mic": 1,
                     "profile.default_content_setting_values.notifications": 2
@@ -164,12 +187,13 @@ class MeetListenerBot:
                     options=opt,
                     headless=False,
                     use_subprocess=True,
-                    version_main=138
+                    version_main=138,
+                    # --- ШАГ 4: Указываем путь к НАШЕЙ КОПИИ драйвера ---
+                    driver_executable_path=str(driver_copy_path) if driver_copy_path else None
                 )
                 
-                logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен. Аудио должно быть полностью изолировано.")
+                logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен с полной изоляцией.")
                 
-                # ... (блок с execute_cdp_cmd остается без изменений) ...
                 try:
                     self.driver.execute_cdp_cmd("Browser.grantPermissions", {
                         "origin": "https://meet.google.com",
@@ -186,12 +210,12 @@ class MeetListenerBot:
                 # --- Гарантированно очищаем переменные окружения ---
                 logger.info(f"[{self.meeting_id}] Очистка переменных окружения PulseAudio.")
                 if original_pulse_sink is None:
-                    del os.environ['PULSE_SINK']
+                    if 'PULSE_SINK' in os.environ: del os.environ['PULSE_SINK']
                 else:
                     os.environ['PULSE_SINK'] = original_pulse_sink
                 
                 if original_pulse_source is None:
-                    del os.environ['PULSE_SOURCE']
+                    if 'PULSE_SOURCE' in os.environ: del os.environ['PULSE_SOURCE']
                 else:
                     os.environ['PULSE_SOURCE'] = original_pulse_source
         

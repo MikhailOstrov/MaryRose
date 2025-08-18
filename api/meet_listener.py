@@ -5,6 +5,7 @@ import threading
 import logging
 import random
 import requests
+from undetected_chromedriver.patcher import Patcher
 from datetime import datetime
 from uuid import uuid4
 import torch

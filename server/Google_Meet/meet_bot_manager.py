@@ -12,16 +12,22 @@ active_bots: Dict[str, int] = {}
 
 def start_bot_process(meeting_id: str, meet_url: str) -> bool:
     """
-    Запускает бота в отдельном, полностью изолированном процессе.
-    Возвращает True в случае успеха, False в случае неудачи.
+    Запускает бота в отдельном процессе с собственным виртуальным дисплеем.
     """
     if get_bot_status(meeting_id) == "active":
         logger.warning(f"Попытка запустить уже работающего бота для meeting_id: {meeting_id}")
         return False
     
-    # Команда для запуска нашего нового скрипта
+    # --- ИЗМЕНЕНИЕ: Формируем команду с xvfb-run ---
     command = [
-        sys.executable,  # Используем тот же интерпретатор Python, что и у FastAPI
+        "xvfb-run",
+        # Эта опция автоматически найдет свободный номер дисплея
+        "--auto-servernum",
+        # Задаем параметры экрана, как было в entrypoint
+        "--server-args=-screen 0 1280x720x16 -nolisten tcp",
+        
+        # Далее идет наша оригинальная команда
+        sys.executable,
         "bot_runner.py",
         "--meeting-id", meeting_id,
         "--meet-url", meet_url
@@ -30,14 +36,18 @@ def start_bot_process(meeting_id: str, meet_url: str) -> bool:
     logger.info(f"Запуск дочернего процесса командой: {' '.join(command)}")
     
     try:
-        # subprocess.Popen не блокирует выполнение, он запускает процесс и идет дальше
         process = subprocess.Popen(command)
         active_bots[meeting_id] = process.pid
         logger.info(f"Бот для встречи {meeting_id} успешно запущен в процессе с PID: {process.pid}")
         return True
+    except FileNotFoundError:
+        logger.critical("❌ КОМАНДА 'xvfb-run' НЕ НАЙДЕНА! Установите пакет 'xvfb' в ваш Dockerfile.")
+        return False
     except Exception as e:
         logger.error(f"Не удалось запустить процесс бота для {meeting_id}: {e}", exc_info=True)
         return False
+
+# Функции stop_bot_process и get_bot_status остаются без изменений
 
 def stop_bot_process(meeting_id: str) -> bool:
     """
@@ -49,10 +59,8 @@ def stop_bot_process(meeting_id: str) -> bool:
         return False
         
     try:
-        # Отправляем сигнал SIGTERM, который будет пойман в bot_runner.py
         os.kill(pid, signal.SIGTERM)
         logger.info(f"Отправлен сигнал SIGTERM процессу {pid} (meeting_id: {meeting_id}).")
-        # Удаляем из активных, так как команда на остановку дана
         del active_bots[meeting_id]
         return True
     except ProcessLookupError:
@@ -72,14 +80,10 @@ def get_bot_status(meeting_id: str) -> str:
     if not pid:
         return "inactive"
     
-    # Проверяем, существует ли такой процесс в системе.
-    # Для Linux/macOS это надежный способ.
     try:
-        # os.kill с сигналом 0 не убивает процесс, а проверяет его существование
         os.kill(pid, 0)
         return "active"
     except OSError:
-        # Процесс умер, но не был удален из словаря. Очищаем.
         logger.warning(f"Процесс {pid} для {meeting_id} не найден. Удаляем запись.")
         del active_bots[meeting_id]
         return "inactive"

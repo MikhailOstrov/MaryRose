@@ -83,6 +83,7 @@ class MeetListenerBot:
         self.sink_name = self.audio_manager.sink_name
         self.source_name = self.audio_manager.source_name
         self.monitor_name = self.audio_manager.monitor_name
+        self.post_processing_thread = None
 
     # Отслеживание кол-ва участников
     def _monitor_participants(self):
@@ -833,52 +834,63 @@ class MeetListenerBot:
 
     # Запуск работы бота
     def run(self):
-        """Основной метод, выполняющий всю работу."""
+        """
+        Основной метод, управляющий жизненным циклом бота.
+        1. Инициализирует ресурсы.
+        2. Запускает рабочие потоки (аудио, VAD, мониторинг).
+        3. Ждет их естественного завершения (когда is_running станет False).
+        4. В блоке finally гарантированно ждет завершения постобработки.
+        5. Выполняет финальную очистку.
+        """
         logger.info(f"[{self.meeting_id}] Бот запускается...")
         try:
-            # 1. Создаем уникальные виртуальные аудиоустройства для этого бота
+            # Инициализация
             if not self.audio_manager.create_devices():
                 logger.error(f"[{self.meeting_id}] ❌ Не удалось создать аудиоустройства. Завершение работы.")
                 return
 
-            # 2. Инициализируем драйвер, который привяжется к этим устройствам
             self._initialize_driver()
             
-            # 3. Попытка присоединиться к встрече
-            joined_successfully = self.join_meet_as_guest()
+            self.joined_successfully = self.join_meet_as_guest()
             
-            if joined_successfully:
+            # Основной цикл работы
+            if self.joined_successfully:
                 logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")
                 
-                # Поток обработки аудио (VAD, ASR) - он остается без изменений
                 processor_thread = threading.Thread(target=self._process_audio_stream, name=f'VADProcessor-{self.meeting_id}')
-                processor_thread.start()
-                
-                # Поток мониторинга участников - также без изменений
                 monitor_thread = threading.Thread(target=self._monitor_participants, name=f'ParticipantMonitor-{self.meeting_id}')
-                monitor_thread.daemon = True
-                monitor_thread.start()
-
-                # --- НОВАЯ ЛОГИКА ЗАПУСКА ЗАХВАТА ---
-                # Запускаем наш новый поток захвата аудио через parec
                 capture_thread = threading.Thread(target=self._audio_capture_thread, name=f'AudioCapture-{self.meeting_id}')
+                
+                processor_thread.start()
+                monitor_thread.start()
                 capture_thread.start()
                 
-                # Ожидаем завершения потоков. Они остановятся, когда будет вызван self.stop()
-                # (когда is_running станет False)
+                # ПОЯСНЕНИЕ: Главный поток останавливается здесь и ждет, пока ВСЕ рабочие потоки
+                # завершат свою работу. Они завершатся только после вызова stop() из любого места.
                 capture_thread.join()
                 processor_thread.join()
+                monitor_thread.join()
                 
-                logger.info(f"[{self.meeting_id}] Основные потоки (обработка и захват) завершены.")
+                logger.info(f"[{self.meeting_id}] Основные рабочие потоки завершены.")
             else:
                 logger.warning(f"[{self.meeting_id}] Не удалось присоединиться к встрече. Завершаю работу.")
 
         except Exception as e:
             logger.critical(f"[{self.meeting_id}] ❌ Критическая ошибка в работе бота: {e}", exc_info=True)
         finally:
-            # Гарантированно вызываем stop(), который очистит все ресурсы
+            # ПОЯСНЕНИЕ: Этот блок выполняется ВСЕГДА, независимо от того, как завершился бот.
+            # Это самое надежное место для ожидания постобработки.
+            if self.post_processing_thread:
+                logger.info(f"[{self.meeting_id}] Ожидание завершения потока постобработки...")
+                # Главный поток блокируется здесь и ждет, пока постобработка не будет выполнена до конца.
+                self.post_processing_thread.join()
+                logger.info(f"[{self.meeting_id}] Поток постобработки успешно завершен.")
+
+            # ПОЯСНЕНИЕ: Вызываем stop() здесь еще раз на всякий случай. Если он уже был вызван,
+            # он ничего не сделает. Но если `run` завершился из-за критической ошибки,
+            # этот вызов гарантирует, что все ресурсы будут корректно очищены.
             self.stop()
-            logger.info(f"[{self.meeting_id}] Основной метод run завершен.")
+            logger.info(f"[{self.meeting_id}] Основной метод run завершен. Процесс готов к выходу.")
 
     def _leave_meeting(self):
         """
@@ -942,24 +954,41 @@ class MeetListenerBot:
 
     # Остановка бота
     def stop(self):
+        """
+        Инициирует процесс остановки бота.
+        1. Устанавливает флаг is_running в False, чтобы все рабочие потоки начали завершаться.
+        2. Запускает поток постобработки в фоновом режиме (если нужно).
+        3. Очищает немедленные ресурсы (драйвер, аудиоустройства, временные папки).
+        """
+        # ПОЯСНЕНИЕ: Эта проверка предотвращает повторный вызов stop().
         if not self.is_running.is_set():
             return
         
         logger.info(f"[{self.meeting_id}] Получена команда на завершение...")
 
+        # ПОЯСНЕНИЕ: Это сигнал для всех циклов while self.is_running.is_set() о том,
+        # что им пора прекращать работу. Это нужно сделать в самом начале.
         self.is_running.clear()
         
-        # Сначала пытаемся покинуть встречу
+        # Пытаемся корректно покинуть встречу
         if self.joined_successfully:
             self._leave_meeting()
         
+        # ПОЯСНЕНИЕ: Здесь ключевое изменение. Мы создаем и запускаем поток,
+        # но, что важно, СОХРАНЯЕМ его в свойство self.post_processing_thread.
+        # Это позволит методу run() позже найти этот поток и дождаться его.
         if self.joined_successfully:
-            # Запускаем постобработку в отдельном потоке, чтобы не блокировать завершение
-            post_processing_thread = threading.Thread(target=self._perform_post_processing)
-            post_processing_thread.start()
+            logger.info(f"[{self.meeting_id}] Инициализация потока постобработки...")
+            self.post_processing_thread = threading.Thread(
+                target=self._perform_post_processing,
+                name=f'PostProcessor-{self.meeting_id}'
+            )
+            self.post_processing_thread.start()
         else:
             logger.info(f"[{self.meeting_id}] Пропускаю постобработку, так как вход в конференцию не был успешен.")
 
+        # ПОЯСНЕНИЕ: Эти ресурсы можно и нужно освобождать немедленно,
+        # так как постобработка их не использует.
         if self.driver:
             try:
                 logger.info(f"[{self.meeting_id}] Закрытие WebDriver...")
@@ -967,12 +996,9 @@ class MeetListenerBot:
             except Exception as e:
                 logger.error(f"[{self.meeting_id}] Ошибка при закрытии WebDriver: {e}")
         
-        # Уничтожаем виртуальные аудиоустройства, созданные для этого бота
         if self.audio_manager:
             self.audio_manager.destroy_devices()
         
-        # --- ИЗМЕНЕНИЕ 4: Очистка временного профиля Chrome ---
-        # Это критически важный шаг для предотвращения накопления мусора на диске.
         try:
             if self.chrome_profile_path.exists():
                 logger.info(f"[{self.meeting_id}] Удаление временного профиля Chrome: {self.chrome_profile_path}")
@@ -980,6 +1006,5 @@ class MeetListenerBot:
                 logger.info(f"[{self.meeting_id}] Временный профиль Chrome успешно удален.")
         except Exception as e:
             logger.error(f"[{self.meeting_id}] Ошибка при удалении профиля Chrome: {e}")
-        # --- КОНЕЦ ИЗМЕНЕНИЯ 4 ---
-
-        logger.info(f"[{self.meeting_id}] Сессия полностью завершена.")
+        
+        logger.info(f"[{self.meeting_id}] Процедура остановки инициирована, основные ресурсы освобождены.")

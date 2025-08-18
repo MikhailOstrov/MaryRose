@@ -695,7 +695,9 @@ class MeetListenerBot:
 
                                     transcription = "".join([seg.text for seg in segments]).strip()
 
-                                    for seg in segments:
+                                    segments_l = list(segments)
+
+                                    for seg in segments_l:
                                         segment_data = {
                                             "start": round(self.global_offset + seg.start, 2),
                                             "end": round(self.global_offset + seg.end, 2),

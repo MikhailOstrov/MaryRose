@@ -73,7 +73,7 @@ def process_rttm_and_transcribe(rttm_path: str, audio_path: str):
 
     for segment in segments:
         try:
-            transcriptions, _ = asr_model.transcribe(segment['path'], beam_size=5, language="ru")
+            transcriptions, _ = asr_model.transcribe(segment['path'], beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
             text = " ".join([t.text for t in transcriptions])
 
             if text.strip():

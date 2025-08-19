@@ -2,9 +2,8 @@ import io
 import soundfile as sf
 from config.config import TTS_SPEAKER, TTS_SAMPLE_RATE
 import simpleaudio as sa
-from config.load_models import tts_model
 
-def synthesize_speech_to_bytes(text: str) -> bytes:
+def synthesize_speech_to_bytes(text: str, tts_model) -> bytes:
     """
     Синтезирует речь, используя ПЕРЕДАННЫЙ экземпляр TTS-модели.
     """

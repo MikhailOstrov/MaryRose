@@ -40,7 +40,7 @@ def get_mary_response(command: str) -> str:
 # Функция ответа для тг-бота
 async def tg_bot_response(command: str) -> str:
 
-    chat_completion = CLIENT.chat.completions.create(
+    chat_completion = await CLIENT.chat.completions.create(
         model="openai/gpt-4o-mini", 
         messages=[
             {"role": "system", "content": TG_PROMPT},

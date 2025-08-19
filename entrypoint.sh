@@ -33,11 +33,7 @@ if ! pactl info >/dev/null 2>&1; then
 fi
 echo "✅ [Entrypoint] PulseAudio готов."
 
-# --- 3. Запуск мониторинга памяти (остается) ---
-echo "=== [Entrypoint] Запуск скрипта мониторинга памяти... ==="
-chmod +x /app/monitor.sh
-/app/monitor.sh &
-echo "✅ [Entrypoint] Мониторинг запущен."
+
 
 # --- 4. Предзагрузка моделей (остается без изменений) ---
 # ... (ваш код предзагрузки) ...

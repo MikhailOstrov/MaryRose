@@ -1028,7 +1028,7 @@ class MeetListenerBot:
         try:
             if self.chrome_profile_path.exists():
                 logger.info(f"[{self.meeting_id}] Удаление временного профиля Chrome: {self.chrome_profile_path}")
-                shutil.rmtree(self.chrome_profile_path)
+                shutil.rmtree(self.chrome_profile_path, ignore_errors=True)
                 logger.info(f"[{self.meeting_id}] Временный профиль Chrome успешно удален.")
         except Exception as e:
             logger.error(f"[{self.meeting_id}] Ошибка при удалении профиля Chrome: {e}")

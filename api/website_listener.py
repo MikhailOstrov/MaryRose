@@ -9,19 +9,20 @@ import numpy as np
 import torch
 from scipy.io.wavfile import write
 import requests
+import soundfile as sf
 
 from config.config import (
     STREAM_SAMPLE_RATE,
     MEET_FRAME_DURATION_MS,
     MEET_AUDIO_CHUNKS_DIR,
     SUMMARY_OUTPUT_DIR,
+    SILENCE_THRESHOLD_FRAMES,
 )
 
 from handlers.llm_handler import get_mary_response, get_summary_response, get_title_response
 from handlers.diarization_handler import run_diarization, process_rttm_and_transcribe
 from api.utils import combine_audio_chunks
 from config.load_models import create_new_vad_model, asr_model
-from config.config import SILENCE_THRESHOLD_FRAMES
 
 logger = logging.getLogger(__name__)
 
@@ -40,8 +41,11 @@ class WebsiteListenerBot:
         self.vad = create_new_vad_model()
         self.asr_model = asr_model # Whisper (from config.load_models import asr_model)
 
-        self.frame_size = int(STREAM_SAMPLE_RATE * (MEET_FRAME_DURATION_MS / 1000) * 2)
-        self.silent_frames_threshold = SILENCE_THRESHOLD_FRAMES
+        self.frame_size = int(STREAM_SAMPLE_RATE * MEET_FRAME_DURATION_MS / 1000) # Для VAD-модели (длительность чанка)
+        self.silent_frames_threshold = SILENCE_THRESHOLD_FRAMES # Пауза в речи в сек.
+
+        self.global_offset = 0.0
+        self.all_segments = []
 
         self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.session_id
         os.makedirs(self.output_dir, exist_ok=True)
@@ -66,8 +70,6 @@ class WebsiteListenerBot:
         speech_buffer_for_asr = []
         is_speaking = False
         silent_frames_after_speech = 0
-        
-        TRIGGER_WORD = "мэри"
 
         while self.is_running.is_set():
             try:
@@ -113,16 +115,25 @@ class WebsiteListenerBot:
                                     
                                     self._save_chunk(full_audio_np)
 
-                                    segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=5, language="ru")
+                                    segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
+
                                     transcription = "".join([seg.text for seg in segments]).strip()
-                                    
-                                    if transcription:
-                                        logger.info(f"[{self.meeting_id}] Распознано: '{transcription}'")
-                                        
-                                        if transcription.lower().lstrip().startswith(TRIGGER_WORD):
-                                            logger.info(f"[{self.meeting_id}] Обнаружено слово-триггер. Отправка команды...")
-                                            response = get_mary_response(transcription)
-                                            logger.info(f"[{self.meeting_id}] Ответ от Мэри: {response}")
+
+                                    segments_l = list(segments)
+
+                                    for seg in segments_l:
+                                        segment_data = {
+                                            "start": round(self.global_offset + seg.start, 2),
+                                            "end": round(self.global_offset + seg.end, 2),
+                                            "text": seg.text.strip()
+                                        }
+                                        self.all_segments.append(segment_data)
+                                        print("Добавлен сегмент:", segment_data)
+
+                                    chunk_duration = len(full_audio_np) / 16000.0
+                                    self.global_offset += chunk_duration
+
+                                    print(f"Распознано: {transcription}")
                 
             except queue.Empty:
                 if is_speaking and speech_buffer_for_asr:
@@ -134,7 +145,10 @@ class WebsiteListenerBot:
 
     # Постобработка: объединение аудиочанков -- запуск диаризации и объединение с транскрибацией -- суммаризация -- генерация заголовка -- отправка результатов на внешний сервер
     def _perform_post_processing(self):
-
+        """
+        Выполняет всю постобработку: объединение аудио, транскрипцию,
+        диаризацию и суммаризацию. Вызывается в отдельном потоке.
+        """
         threading.current_thread().name = f'PostProcessor-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] Начинаю постобработку...")
 
@@ -202,33 +216,57 @@ class WebsiteListenerBot:
             sf.write(file_path, audio_np, STREAM_SAMPLE_RATE)
             logger.info(f"💾 Фрагмент сохранен: {filename} (длительность: {len(audio_np)/STREAM_SAMPLE_RATE:.2f} сек)")
         except Exception as e:
-            logger.infog(f"❌ Ошибка при сохранении аудиофрагмента: {e}")
+            logger.error(f"❌ Ошибка при сохранении аудиофрагмента: {e}")
 
     # Функция отправки результатов на внешний сервер
     def _send_results_to_backend(self, full_text: str, summary: str, title: str):
         try:
-            payload = {"meeting_id": self.meeting_id, "full_text": full_text, "summary": summary, "title": title}
-            headers = {"X-Internal-Api-Key": "key", "Content-Type": "application/json"}
-
-            backend_url = os.getenv('MAIN_BACKEND_URL', 'https://puny-goats-smell.loca.lt')
-
-            # backend_url = os.getenv('MAIN_BACKEND_URL', 'https://maryrose.by')
+            meeting_id_int = int(self.meeting_id) if isinstance(self.meeting_id, str) else self.meeting_id
             
+            payload = {
+                "meeting_id": meeting_id_int,
+                "full_text": full_text,
+                "summary": summary,
+                "title": title
+            }
+            headers = {
+                "X-Internal-Api-Key": "key",
+                "Content-Type": "application/json"
+            }
+            backend_url = os.getenv('MAIN_BACKEND_URL', 'https://maryrose.by')
             url = f"{backend_url}/meetings/internal/result"
-            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            logger.info(f"[{self.meeting_id}] Отправляю результаты на backend...")
+            response = requests.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=30
+            )
+            
             response.raise_for_status()
-            logger.info(f"[{self.session_id}] ✅ Результаты для meeting_id {self.meeting_id} успешно отправлены.")
+            logger.info(f"[{self.meeting_id}] ✅ Результаты успешно отправлены на backend")
+            
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Ошибка при отправке результатов на backend: {e}")
+            logger.error(f"[{self.meeting_id}] ❌ Ошибка при отправке результатов: {e}")
+        except ValueError as e:
+            print(f"❌ Ошибка преобразования meeting_id в число: {e}")
+            logger.error(f"[{self.meeting_id}] ❌ Ошибка meeting_id: {e}")
         except Exception as e:
-            logger.error(f"[{self.session_id}] ❌ Ошибка при отправке результатов на Main Backend: {e}")
+            print(f"❌ Неожиданная ошибка при отправке результатов: {e}")
+            logger.error(f"[{self.meeting_id}] ❌ Неожиданная ошибка: {e}")
 
     # Остановка бота
     def stop(self):
         if not self.is_running.is_set():
             return
         
+        logger.info(f"[{self.session_id}] Получена команда на завершение...")
         self.is_running.clear()
         self.processor_thread.join()
         
+        # Запускаем постобработку в отдельном потоке
         post_processing_thread = threading.Thread(target=self._perform_post_processing)
         post_processing_thread.daemon = False
         post_processing_thread.start()

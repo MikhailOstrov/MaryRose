@@ -164,4 +164,4 @@ diarizer_config = load_diarizer_config()
 print("=== Все модели успешно загружены ===")
 
 # Экспортируем загруженные модели
-__all__ = ['llm_model', 'asr_model', 'create_new_tts_model', 'diarizer_config', 'create_new_vad_model']
+__all__ = ['llm_model', 'asr_model', 'create_new_tts_model', 'diarizer_config', 'create_new_vad_model', 'create_new_tts_model']

@@ -695,8 +695,6 @@ class MeetListenerBot:
 
                                     segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
 
-                                    self.global_offset += chunk_duration
-
                                     transcription = "".join([seg.text for seg in segments]).strip()
 
                                     for seg in segments:

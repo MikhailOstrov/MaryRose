@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import queue
 import threading
@@ -644,6 +645,7 @@ class MeetListenerBot:
         sr = STREAM_SAMPLE_RATE
 
         silence_accum_ms = 0
+        speech_start_walltime = None
 
         while self.is_running.is_set():
             try:
@@ -670,11 +672,14 @@ class MeetListenerBot:
                         recent_probs.pop(0)
                     smooth_prob = sum(recent_probs) / len(recent_probs)
 
+                    now = time.time()
+                    meeting_elapsed_sec = now - self.meeting_start_time
+
                     if smooth_prob > vad_threshold:
                         if not is_speaking:
                             logger.info(f"[{self.meeting_id}] ▶️ Начало речи")
                             is_speaking = True
-                            speech_buffer_for_asr = []
+                            speech_start_walltime = meeting_elapsed_sec
 
                         speech_buffer_for_asr.append(chunk_to_process.numpy())
                         silence_accum_ms = 0
@@ -688,26 +693,25 @@ class MeetListenerBot:
 
                                 chunk_duration = len(full_audio_np) / 16000.0
                                 if chunk_duration >= min_speech_duration:
+                                    
+                                    speech_end_walltime = speech_start_walltime + chunk_duration
 
                                     is_speaking = False
                                     silence_accum_ms = 0
-                                    speech_buffer_for_asr = []
 
-                                    self._save_chunk(full_audio_np)
+                                    #self._save_chunk(full_audio_np)
 
-                                    segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=3, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
-
-                                    segments_t, segments_b, segments_e = zip(*[(segment.text, segment.start, segment.end) for segment in segments])
+                                    segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
 
                                     dialog = "\n".join(
-                                        f"[{self.global_offset + start:.2f} - {self.global_offset + end:.2f}] {text.strip()}"
-                                        for text, start, end in zip(segments_t, segments_b, segments_e)
+                                        f"[{self.format_time_hms(speech_start_walltime)} - {self.format_time_hms(speech_end_walltime)}] {segment.text.strip()}"
+                                        for segment in segments
                                     )
                                     self.all_segments.append(dialog)
-
                                     print(dialog)
 
-                                    transcription = "\n".join(text.strip() for text in segments_t)
+                                    # Чистый текст без таймингов
+                                    transcription = re.sub(r"\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*", "", dialog)
 
                                     self.global_offset += chunk_duration
 
@@ -717,7 +721,7 @@ class MeetListenerBot:
 
                                         if STREAM_STOP_WORD_1 in clean_transcription or STREAM_STOP_WORD_2 in clean_transcription or STREAM_STOP_WORD_3 in clean_transcription:
                                             logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")
-                                            response = "Всё, соси пенис, пока"
+                                            response = "Дайте денек, пажэ."
                                             self._speak_via_meet(response)
                                             self.stop()
                                         else:
@@ -748,6 +752,7 @@ class MeetListenerBot:
         logger.info(f"[{self.meeting_id}] Начинаю постобработку...")
 
         try:
+            '''
             # Объединение аудио чанков
             combined_audio_filename = f"combined_meeting_{self.meeting_id}.wav"
             combined_audio_filepath = self.output_dir / combined_audio_filename
@@ -763,14 +768,14 @@ class MeetListenerBot:
             if not os.path.exists(combined_audio_filepath):
                 logger.error(f"[{self.meeting_id}] Объединенный аудиофайл не был создан: {combined_audio_filepath}")
                 return
+            '''
             
             full = "\n".join(self.all_segments)
         
             print(f"Финальный диалог: \n {full}")
 
             # Очистка диалога от временных меток
-            import re
-            cleaned_dialogue = re.sub(r"\[\d+\.\d+\s*-\s*\d+\.\d+\]\s*", "", full)
+            cleaned_dialogue = re.sub(r"\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*", "", full)
 
             # Суммаризация
             logger.info(f"[{self.meeting_id}] Создание резюме...")
@@ -842,6 +847,12 @@ class MeetListenerBot:
         except Exception as e:
             logger.error(f"❌ Ошибка при сохранении аудиофрагмента: {e}")
 
+    def format_time_hms(seconds: float) -> str:
+        h = int(seconds // 3600)
+        m = int((seconds % 3600) // 60)
+        s = int(seconds % 60)
+        return f"{h:02d}:{m:02d}:{s:02d}"
+
     # Запуск работы бота
     def run(self):
         """
@@ -866,7 +877,10 @@ class MeetListenerBot:
             # Основной цикл работы
             if self.joined_successfully:
                 logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")
-                
+
+                # Начало созвона
+                self.meeting_start_time = time.time()
+
                 processor_thread = threading.Thread(target=self._process_audio_stream, name=f'VADProcessor-{self.meeting_id}')
                 monitor_thread = threading.Thread(target=self._monitor_participants, name=f'ParticipantMonitor-{self.meeting_id}')
                 capture_thread = threading.Thread(target=self._audio_capture_thread, name=f'AudioCapture-{self.meeting_id}')

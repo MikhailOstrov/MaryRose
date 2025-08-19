@@ -25,8 +25,7 @@ from config.config import (STREAM_SAMPLE_RATE,SILENCE_THRESHOLD_FRAMES, MEET_FRA
                            MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME, STREAM_TRIGGER_WORD, CHROME_PROFILE_DIR,
                            MEET_GUEST_NAME, SUMMARY_OUTPUT_DIR, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, STREAM_STOP_WORD_3)
 from handlers.llm_handler import get_mary_response, get_summary_response, get_title_response
-from handlers.diarization_handler import run_diarization, process_rttm_and_transcribe
-from config.load_models import create_new_vad_model, asr_model, create_new_tts_model
+from config.load_models import create_new_vad_model, asr_model
 from api.utils import combine_audio_chunks
 from handlers.tts_handler import synthesize_speech_to_bytes
 from api.audio_manager import VirtualAudioManager
@@ -51,7 +50,6 @@ class MeetListenerBot:
         self.is_running.set()
 
         self.vad = create_new_vad_model()
-        self.tts_model = create_new_tts_model()
         self.asr_model = asr_model # Whisper (from config.load_models import asr_model)
         self.summary_output_dir = SUMMARY_OUTPUT_DIR # Директория сохранения summary
         self.joined_successfully = False 
@@ -430,24 +428,20 @@ class MeetListenerBot:
         if not text:
             return
         try:
-            audio_bytes = synthesize_speech_to_bytes(text, self.tts_model)
+            audio_bytes = synthesize_speech_to_bytes(text)
             if not audio_bytes:
                 logger.warning(f"[{self.meeting_id}] TTS вернул пустые байты для текста: '{text}'")
                 return
             print("Включаю микрофон")
             toggled_on = False
             try:
-                # Включаем микрофон в Meet перед началом озвучки
+        
                 self.toggle_mic_hotkey()
                 toggled_on = True
                 time.sleep(0.3)
 
-                # --- "ЛАКМУСОВАЯ БУМАЖКА" ---
-                # Этот лог подтвердит, что выполняется именно новый код.
-                # Он также покажет, какое именно имя sink'а используется.
                 logger.info(f"[{self.meeting_id}] ROUTING_CHECK: Попытка воспроизвести звук в конкретный sink: '{self.sink_name}'")
                 
-                # Команда, которая использует уникальное имя sink'а этого бота
                 subprocess.run(
                     ["paplay", "-d", self.sink_name, "/dev/stdin"],
                     input=audio_bytes,
@@ -463,7 +457,6 @@ class MeetListenerBot:
                 logger.error(f"[{self.meeting_id}] ❌ Ошибка во время автоозвучки для sink '{self.sink_name}': {e}.")
             finally:
                 if toggled_on:
-                    # Небольшая пауза и выключаем микрофон
                     time.sleep(0.2)
                     self.toggle_mic_hotkey()
 
@@ -567,8 +560,6 @@ class MeetListenerBot:
             return False
     
     # Поиск и определение аудиоустройства
-    
-
     def _audio_capture_thread(self):
         """
         Запускает `parec` в подпроцессе и читает из него аудиопоток.
@@ -638,16 +629,23 @@ class MeetListenerBot:
     # Обработка аудиопотока -- транскрибация -- ответ (если обнаружен триггер)
     def _process_audio_stream(self):
         threading.current_thread().name = f'VADProcessor-{self.meeting_id}'
-        logger.info(f"[{self.meeting_id}] Процессор VAD запущен с моделью Silero.")
+        logger.info(f"[{self.meeting_id}] VAD процессор запущен (Silero).")
 
         vad_buffer = None
-        VAD_CHUNK_SIZE = 512
+        VAD_CHUNK_SIZE = 1024                 # ~64 мс при 16 kHz
         speech_buffer_for_asr = []
         is_speaking = False
-        silent_frames_after_speech = 0
+        recent_probs = []                     # для сглаживания
+
+        # Настройки
+        vad_threshold = 0.1                   # вероятность речи
+        silence_duration_ms = 600             # сколько тишины нужно для конца речи
+        min_speech_duration = 0.5             # минимальная длина речи
+        sr = STREAM_SAMPLE_RATE
+
+        silence_accum_ms = 0
 
         while self.is_running.is_set():
-            
             try:
                 audio_frame_bytes = self.audio_queue.get(timeout=1)
                 if not audio_frame_bytes:
@@ -662,33 +660,40 @@ class MeetListenerBot:
                     vad_buffer = torch.cat([vad_buffer, new_audio_tensor])
 
                 while vad_buffer is not None and vad_buffer.shape[0] >= VAD_CHUNK_SIZE:
-                    
                     chunk_to_process = vad_buffer[:VAD_CHUNK_SIZE]
                     vad_buffer = vad_buffer[VAD_CHUNK_SIZE:]
-                    speech_prob = self.vad(chunk_to_process, STREAM_SAMPLE_RATE).item()
-                    
-                    if speech_prob > 0.3:
+
+                    speech_prob = self.vad(chunk_to_process, sr).item()
+
+                    recent_probs.append(speech_prob)
+                    if len(recent_probs) > 3:
+                        recent_probs.pop(0)
+                    smooth_prob = sum(recent_probs) / len(recent_probs)
+
+                    if smooth_prob > vad_threshold:
                         if not is_speaking:
-                            logger.info(f"[{self.meeting_id}] Обнаружено начало речи.")
+                            logger.info(f"[{self.meeting_id}] ▶️ Начало речи")
                             is_speaking = True
-                        
+                            last_speech_time = time.time()
+                            speech_buffer_for_asr = []
+
                         speech_buffer_for_asr.append(chunk_to_process.numpy())
-                        silent_frames_after_speech = 0
+                        silence_accum_ms = 0
+
                     else:
-                        
                         if is_speaking:
-                            
-                            silent_frames_after_speech += 1
-                            
-                            if silent_frames_after_speech > self.silent_frames_threshold:
-                                logger.info(f"[{self.meeting_id}] Обнаружен конец фразы.")
-                                is_speaking = False
-                                silent_frames_after_speech = 0
-                                
-                                if speech_buffer_for_asr:
-                                    full_audio_np = np.concatenate(speech_buffer_for_asr)
+                            silence_accum_ms += (VAD_CHUNK_SIZE / sr) * 1000
+                            if silence_accum_ms >= silence_duration_ms:
+                                full_audio_np = np.concatenate(speech_buffer_for_asr)
+                                speech_buffer_for_asr = []
+
+                                chunk_duration = len(full_audio_np) / 16000.0
+                                if chunk_duration >= min_speech_duration:
+
+                                    is_speaking = False
+                                    silence_accum_ms = 0
                                     speech_buffer_for_asr = []
-                                    
+
                                     self._save_chunk(full_audio_np)
 
                                     segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
@@ -705,10 +710,7 @@ class MeetListenerBot:
 
                                     transcription = "\n".join(text.strip() for text in segments_t)
 
-                                    chunk_duration = len(full_audio_np) / 16000.0
                                     self.global_offset += chunk_duration
-
-                                    # print(f"Распознано: {transcription}")
 
                                     if transcription.lower().lstrip().startswith(STREAM_TRIGGER_WORD):
 
@@ -716,6 +718,8 @@ class MeetListenerBot:
 
                                         if STREAM_STOP_WORD_1 in clean_transcription or STREAM_STOP_WORD_2 in clean_transcription or STREAM_STOP_WORD_3 in clean_transcription:
                                             logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")
+                                            response = "Всё, соси пенис, пока"
+                                            self._speak_via_meet(response)
                                             self.stop()
                                         else:
                                             logger.info(f"[{self.meeting_id}] Мэри услышала вас")
@@ -765,24 +769,9 @@ class MeetListenerBot:
         
             print(f"Финальный диалог: \n {full}")
 
+            # Очистка диалога от временных меток
             import re
             cleaned_dialogue = re.sub(r"\[\d+\.\d+\s*-\s*\d+\.\d+\]\s*", "", full)
-
-            '''
-            # Диаризация
-            logger.info(f"[{self.meeting_id}] Запуск диаризации...")
-            rttm_path = run_diarization(str(combined_audio_filepath), str(self.output_dir))
-            
-            # Обработка RTTM и транскрипция (возможно, слияние с результатами онлайн STT)
-            logger.info(f"[{self.meeting_id}] Обработка диаризации и транскрипция...")
-            dialogue_transcript = process_rttm_and_transcribe(rttm_path, str(combined_audio_filepath))
-            print(f"Это вывод диалога: \n{dialogue_transcript}")
-
-            # Убираем метки спикеров, что икслючить засорение промптов
-            import re
-            pattern = r"\[speaker_\d+\]:\s*"
-            cleaned_dialogue = re.sub(pattern, "", dialogue_transcript)
-            '''
 
             # Суммаризация
             logger.info(f"[{self.meeting_id}] Создание резюме...")
@@ -796,10 +785,6 @@ class MeetListenerBot:
             
             # Отправка результатов на внешний сервер
             self._send_results_to_backend(full, summary_text, title_text)
-            
-            # Сохранение резюме
-            # summary_filename = f"summary_{self.meeting_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-            # summary_filepath = self.summary_output_dir / summary_filename
 
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка при постобработке: {e}", exc_info=True)

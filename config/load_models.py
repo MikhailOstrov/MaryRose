@@ -110,7 +110,7 @@ def load_asr_model():
             token=hf_token
         )
         print(f"ASR модель скачана в: {local_path}")
-    asr_model = WhisperModel(local_path, compute_type="int8_float16")
+    asr_model = WhisperModel(local_path, compute_type="float16")   # compute_type="int8_float16" Подумать над этим
     print("ASR model loaded.")
     return asr_model
 

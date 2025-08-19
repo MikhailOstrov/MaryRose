@@ -632,7 +632,7 @@ class MeetListenerBot:
         logger.info(f"[{self.meeting_id}] VAD процессор запущен (Silero).")
 
         vad_buffer = None
-        VAD_CHUNK_SIZE = 1024                 # ~64 мс при 16 kHz
+        VAD_CHUNK_SIZE = 512
         speech_buffer_for_asr = []
         is_speaking = False
         recent_probs = []                     # для сглаживания

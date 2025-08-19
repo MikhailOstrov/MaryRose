@@ -40,7 +40,7 @@ CLIENT = OpenAI(
 )
 
 CLIENT_AS = AsyncOpenAI(
-    api_key=os.getenv("API_KEY"),
+    api_key=os.getenv("PROXY_API"),
     base_url=os.getenv("BASE_OPENAI_URL"),
 )
 

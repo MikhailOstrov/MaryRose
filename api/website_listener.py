@@ -145,7 +145,10 @@ class WebsiteListenerBot:
 
     # Постобработка: объединение аудиочанков -- запуск диаризации и объединение с транскрибацией -- суммаризация -- генерация заголовка -- отправка результатов на внешний сервер
     def _perform_post_processing(self):
-
+        """
+        Выполняет всю постобработку: объединение аудио, транскрипцию,
+        диаризацию и суммаризацию. Вызывается в отдельном потоке.
+        """
         threading.current_thread().name = f'PostProcessor-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] Начинаю постобработку...")
 
@@ -166,13 +169,19 @@ class WebsiteListenerBot:
                 logger.error(f"[{self.meeting_id}] Объединенный аудиофайл не был создан: {combined_audio_filepath}")
                 return
             
-            dialog = "\n".join(
-                f"[{seg['start']} - {seg['end']}] {seg['text']}"
-                for seg in self.all_segments
-            )
-            print("Итоговый диалог:\n", dialog)
+            # Диаризация
+            logger.info(f"[{self.meeting_id}] Запуск диаризации...")
+            rttm_path = run_diarization(str(combined_audio_filepath), str(self.output_dir))
+            
+            # Обработка RTTM и транскрипция (возможно, слияние с результатами онлайн STT)
+            logger.info(f"[{self.meeting_id}] Обработка диаризации и транскрипция...")
+            dialogue_transcript = process_rttm_and_transcribe(rttm_path, str(combined_audio_filepath))
+            print(f"Это вывод диалога: \n{dialogue_transcript}")
 
-            cleaned_dialogue = "\n".join(seg['text'] for seg in self.all_segments)
+            # Убираем метки спикеров, что икслючить засорение промптов
+            import re
+            pattern = r"\[speaker_\d+\]:\s*"
+            cleaned_dialogue = re.sub(pattern, "", dialogue_transcript)
 
             # Суммаризация
             logger.info(f"[{self.meeting_id}] Создание резюме...")
@@ -185,7 +194,7 @@ class WebsiteListenerBot:
             print(f"Это вывод заголовка: \n{title_text}")
             
             # Отправка результатов на внешний сервер
-            self._send_results_to_backend(dialog, summary_text, title_text)
+            self._send_results_to_backend(dialogue_transcript, summary_text, title_text)
             
             # Сохранение резюме
             # summary_filename = f"summary_{self.meeting_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
@@ -212,17 +221,41 @@ class WebsiteListenerBot:
     # Функция отправки результатов на внешний сервер
     def _send_results_to_backend(self, full_text: str, summary: str, title: str):
         try:
-            payload = {"meeting_id": self.meeting_id, "full_text": full_text, "summary": summary, "title": title}
-            headers = {"X-Internal-Api-Key": "key", "Content-Type": "application/json"}
-
-            backend_url = os.getenv('MAIN_BACKEND_URL', 'https://maryrose.by')
+            meeting_id_int = int(self.meeting_id) if isinstance(self.meeting_id, str) else self.meeting_id
             
+            payload = {
+                "meeting_id": meeting_id_int,
+                "full_text": full_text,
+                "summary": summary,
+                "title": title
+            }
+            headers = {
+                "X-Internal-Api-Key": "key",
+                "Content-Type": "application/json"
+            }
+            backend_url = os.getenv('MAIN_BACKEND_URL', 'https://maryrose.by')
             url = f"{backend_url}/meetings/internal/result"
-            response = requests.post(url, json=payload, headers=headers, timeout=30)
+            
+            logger.info(f"[{self.meeting_id}] Отправляю результаты на backend...")
+            response = requests.post(
+                url,
+                json=payload,
+                headers=headers,
+                timeout=30
+            )
+            
             response.raise_for_status()
-            logger.info(f"[{self.session_id}] ✅ Результаты для meeting_id {self.meeting_id} успешно отправлены.")
+            logger.info(f"[{self.meeting_id}] ✅ Результаты успешно отправлены на backend")
+            
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Ошибка при отправке результатов на backend: {e}")
+            logger.error(f"[{self.meeting_id}] ❌ Ошибка при отправке результатов: {e}")
+        except ValueError as e:
+            print(f"❌ Ошибка преобразования meeting_id в число: {e}")
+            logger.error(f"[{self.meeting_id}] ❌ Ошибка meeting_id: {e}")
         except Exception as e:
-            logger.error(f"[{self.session_id}] ❌ Ошибка при отправке результатов на Main Backend: {e}")
+            print(f"❌ Неожиданная ошибка при отправке результатов: {e}")
+            logger.error(f"[{self.meeting_id}] ❌ Неожиданная ошибка: {e}")
 
     # Остановка бота
     def stop(self):

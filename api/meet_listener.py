@@ -59,6 +59,9 @@ class MeetListenerBot:
         self.frame_size = int(STREAM_SAMPLE_RATE * MEET_FRAME_DURATION_MS / 1000) # Для VAD-модели (длительность чанка)
         self.silent_frames_threshold = SILENCE_THRESHOLD_FRAMES # Пауза в речи в сек.
 
+        self.global_offset = 0.0
+        self.all_segments = []
+
         # --- ИЗМЕНЕНИЕ 1: Создание уникальных путей для изоляции ---
         # Уникальная директория для аудио-чанков этой сессии
         self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.meeting_id 
@@ -686,11 +689,31 @@ class MeetListenerBot:
                                     full_audio_np = np.concatenate(speech_buffer_for_asr)
                                     speech_buffer_for_asr = []
                                     
-                                    self._save_chunk(full_audio_np)
+                                    # self._save_chunk(full_audio_np)
+
+                                    chunk_duration = len(full_audio_np) / 16000.0
 
                                     segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
-                                    
+
+                                    for seg in segments:
+                                        self.dialog.append({
+                                            "start": round(self.global_offset + seg.start, 2),
+                                            "end": round(self.global_offset + seg.end, 2),
+                                            "text": seg.text.strip()
+                                        })
+
+                                    self.global_offset += chunk_duration
+
                                     transcription = "".join([seg.text for seg in segments]).strip()
+
+                                    for seg in segments:
+                                        self.all_segments.append({
+                                            "start": round(self.global_offset + seg.start, 2),
+                                            "end": round(self.global_offset + seg.end, 2),
+                                            "text": seg.text.strip()
+                                        })
+
+                                    self.global_offset += chunk_duration
 
                                     print(f"Распознано: {transcription}")
 
@@ -744,6 +767,14 @@ class MeetListenerBot:
                 logger.error(f"[{self.meeting_id}] Объединенный аудиофайл не был создан: {combined_audio_filepath}")
                 return
             
+            dialog = "\n".join(
+                f"[{seg['start']} - {seg['end']}] {seg['text']}"
+                for seg in self.all_segments
+            )
+
+            cleaned_dialogue = "\n".join(seg['text'] for seg in self.all_segments)
+
+            '''
             # Диаризация
             logger.info(f"[{self.meeting_id}] Запуск диаризации...")
             rttm_path = run_diarization(str(combined_audio_filepath), str(self.output_dir))
@@ -757,6 +788,7 @@ class MeetListenerBot:
             import re
             pattern = r"\[speaker_\d+\]:\s*"
             cleaned_dialogue = re.sub(pattern, "", dialogue_transcript)
+            '''
 
             # Суммаризация
             logger.info(f"[{self.meeting_id}] Создание резюме...")
@@ -769,7 +801,7 @@ class MeetListenerBot:
             print(f"Это вывод заголовка: \n{title_text}")
             
             # Отправка результатов на внешний сервер
-            self._send_results_to_backend(dialogue_transcript, summary_text, title_text)
+            self._send_results_to_backend(dialog, summary_text, title_text)
             
             # Сохранение резюме
             # summary_filename = f"summary_{self.meeting_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"

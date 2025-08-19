@@ -769,7 +769,7 @@ class MeetListenerBot:
                 logger.error(f"[{self.meeting_id}] Объединенный аудиофайл не был создан: {combined_audio_filepath}")
                 return
             '''
-            
+
             full = "\n".join(self.all_segments)
         
             print(f"Финальный диалог: \n {full}")
@@ -847,7 +847,7 @@ class MeetListenerBot:
         except Exception as e:
             logger.error(f"❌ Ошибка при сохранении аудиофрагмента: {e}")
 
-    def format_time_hms(seconds: float) -> str:
+    def format_time_hms(self, seconds: float) -> str:
         h = int(seconds // 3600)
         m = int((seconds % 3600) // 60)
         s = int(seconds % 60)

@@ -691,20 +691,19 @@ class MeetListenerBot:
                                     
                                     self._save_chunk(full_audio_np)
 
+                                    chunk_duration = len(full_audio_np) / 16000.0
+
                                     segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
 
                                     transcription = "".join([seg.text for seg in segments]).strip()
 
                                     for seg in segments:
-                                        segment_data = {
+                                        self.all_segments.append({
                                             "start": round(self.global_offset + seg.start, 2),
                                             "end": round(self.global_offset + seg.end, 2),
                                             "text": seg.text.strip()
-                                        }
-                                        self.all_segments.append(segment_data)
-                                        print("Добавлен сегмент:", segment_data)
+                                        })
 
-                                    chunk_duration = len(full_audio_np) / 16000.0
                                     self.global_offset += chunk_duration
 
                                     print(f"Распознано: {transcription}")
@@ -763,7 +762,6 @@ class MeetListenerBot:
                 f"[{seg['start']} - {seg['end']}] {seg['text']}"
                 for seg in self.all_segments
             )
-            print("Итоговый диалог:\n", dialog)
 
             cleaned_dialogue = "\n".join(seg['text'] for seg in self.all_segments)
 

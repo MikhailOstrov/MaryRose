@@ -688,11 +688,12 @@ class MeetListenerBot:
                         if is_speaking:
                             silence_accum_ms += (VAD_CHUNK_SIZE / sr) * 1000
                             if silence_accum_ms >= silence_duration_ms:
+                                
                                 if speech_buffer_for_asr:
 
                                     full_audio_np = np.concatenate(speech_buffer_for_asr)
                                     speech_buffer_for_asr.clear()
-                                    
+
                                     chunk_duration = len(full_audio_np) / 16000.0
                                     if chunk_duration >= min_speech_duration:
                                         

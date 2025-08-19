@@ -37,7 +37,8 @@ def get_gpu_utilization() -> dict | None:
         return {
             'utilization_percent': int(utilization),
             'memory_used_mb': int(memory_used),
-            'memory_total_mb': int(memory_total)
+            'memory_total_mb': int(memory_total),
+            'memory_used_per': int(memory_used) / int(memory_total) * 100
         }
 
     except FileNotFoundError:

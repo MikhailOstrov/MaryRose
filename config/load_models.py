@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from openai import OpenAI
+from openai import AsyncOpenAI
 
 # Настройка путей для RunPod (модели сохраняются в персистентный /workspace)
 os.environ['HOME'] = '/app'
@@ -35,6 +36,11 @@ hf_token = os.getenv("HUGGING_FACE_HUB_TOKEN")
 # Клиент от OpenAI моделей
 CLIENT = OpenAI(
     api_key=os.getenv("PROXY_API"),
+    base_url=os.getenv("BASE_OPENAI_URL"),
+)
+
+CLIENT_AS = AsyncOpenAI(
+    api_key=os.getenv("API_KEY"),
     base_url=os.getenv("BASE_OPENAI_URL"),
 )
 

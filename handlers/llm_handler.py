@@ -1,5 +1,5 @@
 from config.config import SUMMARY_PROMPT, TITLE_PROMPT, ASSISTANT_PROMPT, TG_PROMPT
-from config.load_models import CLIENT
+from config.load_models import CLIENT, CLIENT_AS
 
 # Функция для суммаризации
 def get_summary_response(cleaned_dialogue: str) -> str:
@@ -39,7 +39,7 @@ def get_mary_response(command: str) -> str:
 
 # Функция ответа для тг-бота
 async def tg_bot_response(command: str) -> str:
-    chat_completion = await CLIENT.chat.completions.acreate(
+    chat_completion = await CLIENT_AS.chat.completions.create(
         model="openai/gpt-4o-mini",
         messages=[
             {"role": "system", "content": TG_PROMPT},

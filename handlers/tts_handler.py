@@ -1,7 +1,6 @@
 import io
 import soundfile as sf
 from config.config import TTS_SPEAKER, TTS_SAMPLE_RATE
-
 import simpleaudio as sa
 
 # Перевод текста в аудио (пока не работает)
@@ -14,7 +13,8 @@ def synthesize_speech_to_bytes(text: str, tts_model) -> bytes:
         buffer = io.BytesIO()
         sf.write(buffer, audio_tensor.cpu().numpy(), TTS_SAMPLE_RATE, format='WAV')
         buffer.seek(0)
+        print("Речь сгенерирована")
         return buffer.read()
     except Exception as e:
-        logger.error(f"Ошибка в синтезе TTS: {e}", exc_info=True)
+        print(f"Ошибка в синтезе TTS: {e}", exc_info=True)
         return b""

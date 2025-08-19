@@ -434,7 +434,7 @@ class MeetListenerBot:
             if not audio_bytes:
                 logger.warning(f"[{self.meeting_id}] TTS вернул пустые байты для текста: '{text}'")
                 return
-
+            print("Включаю микрофон")
             toggled_on = False
             try:
                 # Включаем микрофон в Meet перед началом озвучки
@@ -693,23 +693,22 @@ class MeetListenerBot:
 
                                     segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
 
-                                    transcription = "".join([seg.text for seg in segments]).strip()
+                                    segments_t, segments_b, segments_e = zip(*[(segment.text, segment.start, segment.end) for segment in segments])
 
-                                    segments_l = list(segments)
+                                    dialog = "\n".join(
+                                        f"[{self.global_offset + start:.2f} - {self.global_offset + end:.2f}] {text.strip()}"
+                                        for text, start, end in zip(segments_t, segments_b, segments_e)
+                                    )
+                                    self.all_segments.append(dialog)
 
-                                    for seg in segments_l:
-                                        segment_data = {
-                                            "start": round(self.global_offset + seg.start, 2),
-                                            "end": round(self.global_offset + seg.end, 2),
-                                            "text": seg.text.strip()
-                                        }
-                                        self.all_segments.append(segment_data)
-                                        print("Добавлен сегмент:", segment_data)
+                                    print(dialog)
+
+                                    transcription = "\n".join(text.strip() for text in segments_t)
 
                                     chunk_duration = len(full_audio_np) / 16000.0
                                     self.global_offset += chunk_duration
 
-                                    print(f"Распознано: {transcription}")
+                                    # print(f"Распознано: {transcription}")
 
                                     if transcription.lower().lstrip().startswith(STREAM_TRIGGER_WORD):
 
@@ -724,6 +723,7 @@ class MeetListenerBot:
                                             logger.info(f"[{self.meeting_id}] Ответ от Мэри: {response}")
                                             try:
                                                 if self.enable_auto_tts and response:
+                                                    print("Сейчас сгенерирую речь...")
                                                     self._speak_via_meet(response)
                                             except Exception as tts_err:
                                                 logger.error(f"[{self.meeting_id}] Ошибка при озвучивании ответа: {tts_err}")
@@ -761,13 +761,12 @@ class MeetListenerBot:
                 logger.error(f"[{self.meeting_id}] Объединенный аудиофайл не был создан: {combined_audio_filepath}")
                 return
             
-            dialog = "\n".join(
-                f"[{seg['start']} - {seg['end']}] {seg['text']}"
-                for seg in self.all_segments
-            )
-            print("Итоговый диалог:\n", dialog)
+            full = "\n".join(self.all_segments)
+        
+            print(f"Финальный диалог: \n {full}")
 
-            cleaned_dialogue = "\n".join(seg['text'] for seg in self.all_segments)
+            import re
+            cleaned_dialogue = re.sub(r"\[\d+\.\d+\s*-\s*\d+\.\d+\]\s*", "", full)
 
             '''
             # Диаризация
@@ -796,7 +795,7 @@ class MeetListenerBot:
             print(f"Это вывод заголовка: \n{title_text}")
             
             # Отправка результатов на внешний сервер
-            self._send_results_to_backend(dialog, summary_text, title_text)
+            self._send_results_to_backend(full, summary_text, title_text)
             
             # Сохранение резюме
             # summary_filename = f"summary_{self.meeting_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"

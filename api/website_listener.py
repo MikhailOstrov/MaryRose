@@ -60,7 +60,7 @@ class WebsiteListenerBot:
         if self.is_running.is_set():
             self.audio_queue.put(chunk)
 
-    # Обработка аудиопотока -- транскрибация -- ответ (если обнаружен триггер)
+    # Обработка аудиопотока -- транскрибация
     def _process_audio_stream(self):
         threading.current_thread().name = f'VADProcessor-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] Процессор VAD запущен с моделью Silero.")
@@ -72,8 +72,8 @@ class WebsiteListenerBot:
         silent_frames_after_speech = 0
 
         while self.is_running.is_set():
+            
             try:
-
                 audio_frame_bytes = self.audio_queue.get(timeout=1)
                 if not audio_frame_bytes:
                     continue
@@ -100,6 +100,7 @@ class WebsiteListenerBot:
                         speech_buffer_for_asr.append(chunk_to_process.numpy())
                         silent_frames_after_speech = 0
                     else:
+                        
                         if is_speaking:
                             
                             silent_frames_after_speech += 1
@@ -117,24 +118,19 @@ class WebsiteListenerBot:
 
                                     segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
 
-                                    transcription = "".join([seg.text for seg in segments]).strip()
+                                    segments_t, segments_b, segments_e = zip(*[(segment.text, segment.start, segment.end) for segment in segments])
 
-                                    segments_l = list(segments)
+                                    dialog = "\n".join(
+                                        f"[{self.global_offset + start:.2f} - {self.global_offset + end:.2f}] {text.strip()}"
+                                        for text, start, end in zip(segments_t, segments_b, segments_e)
+                                    )
+                                    self.all_segments.append(dialog)
 
-                                    for seg in segments_l:
-                                        segment_data = {
-                                            "start": round(self.global_offset + seg.start, 2),
-                                            "end": round(self.global_offset + seg.end, 2),
-                                            "text": seg.text.strip()
-                                        }
-                                        self.all_segments.append(segment_data)
-                                        print("Добавлен сегмент:", segment_data)
+                                    print(dialog)
 
                                     chunk_duration = len(full_audio_np) / 16000.0
                                     self.global_offset += chunk_duration
 
-                                    print(f"Распознано: {transcription}")
-                
             except queue.Empty:
                 if is_speaking and speech_buffer_for_asr:
                     logger.info(f"[{self.meeting_id}] Тайм-аут, обрабатываем оставшуюся речь.")
@@ -143,7 +139,7 @@ class WebsiteListenerBot:
             except Exception as e:
                 logger.error(f"[{self.meeting_id}] Ошибка в цикле VAD: {e}", exc_info=True)
 
-    # Постобработка: объединение аудиочанков -- запуск диаризации и объединение с транскрибацией -- суммаризация -- генерация заголовка -- отправка результатов на внешний сервер
+    # Постобработка: объединение аудиочанков -- суммаризация -- генерация заголовка -- отправка результатов на внешний сервер
     def _perform_post_processing(self):
         """
         Выполняет всю постобработку: объединение аудио, транскрипцию,
@@ -169,19 +165,12 @@ class WebsiteListenerBot:
                 logger.error(f"[{self.meeting_id}] Объединенный аудиофайл не был создан: {combined_audio_filepath}")
                 return
             
-            # Диаризация
-            logger.info(f"[{self.meeting_id}] Запуск диаризации...")
-            rttm_path = run_diarization(str(combined_audio_filepath), str(self.output_dir))
-            
-            # Обработка RTTM и транскрипция (возможно, слияние с результатами онлайн STT)
-            logger.info(f"[{self.meeting_id}] Обработка диаризации и транскрипция...")
-            dialogue_transcript = process_rttm_and_transcribe(rttm_path, str(combined_audio_filepath))
-            print(f"Это вывод диалога: \n{dialogue_transcript}")
+            full = "\n".join(self.all_segments)
+        
+            print(f"Финальный диалог: \n {full}")
 
-            # Убираем метки спикеров, что икслючить засорение промптов
             import re
-            pattern = r"\[speaker_\d+\]:\s*"
-            cleaned_dialogue = re.sub(pattern, "", dialogue_transcript)
+            cleaned_dialogue = re.sub(r"\[\d+\.\d+\s*-\s*\d+\.\d+\]\s*", "", full)
 
             # Суммаризация
             logger.info(f"[{self.meeting_id}] Создание резюме...")
@@ -194,11 +183,7 @@ class WebsiteListenerBot:
             print(f"Это вывод заголовка: \n{title_text}")
             
             # Отправка результатов на внешний сервер
-            self._send_results_to_backend(dialogue_transcript, summary_text, title_text)
-            
-            # Сохранение резюме
-            # summary_filename = f"summary_{self.meeting_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-            # summary_filepath = self.summary_output_dir / summary_filename
+            self._send_results_to_backend(full, summary_text, title_text)
 
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка при постобработке: {e}", exc_info=True)

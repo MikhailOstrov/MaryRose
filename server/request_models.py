@@ -13,3 +13,4 @@ class WebsiteSessionStartRequest(BaseModel):
 
 class TextPayload(BaseModel):
     text: str
+    chat_id: int

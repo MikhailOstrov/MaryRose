@@ -1,4 +1,4 @@
-from config.config import SUMMARY_PROMPT, TITLE_PROMPT, ASSISTANT_PROMPT
+from config.config import SUMMARY_PROMPT, TITLE_PROMPT, ASSISTANT_PROMPT, TG_PROMPT
 from config.load_models import CLIENT
 
 # Функция для суммаризации
@@ -32,6 +32,18 @@ def get_mary_response(command: str) -> str:
         model="openai/gpt-4o-mini", 
         messages=[
             {"role": "system", "content": ASSISTANT_PROMPT},
+            {"role": "user", "content": command}
+        ]
+    )
+    return chat_completion.choices[0].message.content
+
+# Функция ответа для тг-бота
+def tg_bot_response(command: str) -> str:
+
+    chat_completion = CLIENT.chat.completions.create(
+        model="openai/gpt-4o-mini", 
+        messages=[
+            {"role": "system", "content": TG_PROMPT},
             {"role": "user", "content": command}
         ]
     )

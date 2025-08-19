@@ -688,52 +688,54 @@ class MeetListenerBot:
                         if is_speaking:
                             silence_accum_ms += (VAD_CHUNK_SIZE / sr) * 1000
                             if silence_accum_ms >= silence_duration_ms:
-                                full_audio_np = np.concatenate(speech_buffer_for_asr)
-                                speech_buffer_for_asr = []
+                                if speech_buffer_for_asr:
 
-                                chunk_duration = len(full_audio_np) / 16000.0
-                                if chunk_duration >= min_speech_duration:
+                                    full_audio_np = np.concatenate(speech_buffer_for_asr)
+                                    speech_buffer_for_asr.clear()
                                     
-                                    speech_end_walltime = speech_start_walltime + chunk_duration
+                                    chunk_duration = len(full_audio_np) / 16000.0
+                                    if chunk_duration >= min_speech_duration:
+                                        
+                                        speech_end_walltime = speech_start_walltime + chunk_duration
 
-                                    is_speaking = False
-                                    silence_accum_ms = 0
+                                        is_speaking = False
+                                        silence_accum_ms = 0
 
-                                    #self._save_chunk(full_audio_np)
+                                        #self._save_chunk(full_audio_np)
 
-                                    segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
+                                        segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
 
-                                    dialog = "\n".join(
-                                        f"[{self.format_time_hms(speech_start_walltime)} - {self.format_time_hms(speech_end_walltime)}] {segment.text.strip()}"
-                                        for segment in segments
-                                    )
-                                    self.all_segments.append(dialog)
-                                    print(dialog)
+                                        dialog = "\n".join(
+                                            f"[{self.format_time_hms(speech_start_walltime)} - {self.format_time_hms(speech_end_walltime)}] {segment.text.strip()}"
+                                            for segment in segments
+                                        )
+                                        self.all_segments.append(dialog)
+                                        print(dialog)
 
-                                    # Чистый текст без таймингов
-                                    transcription = re.sub(r"\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*", "", dialog)
+                                        # Чистый текст без таймингов
+                                        transcription = re.sub(r"\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*", "", dialog)
 
-                                    self.global_offset += chunk_duration
+                                        self.global_offset += chunk_duration
 
-                                    if transcription.lower().lstrip().startswith(STREAM_TRIGGER_WORD):
+                                        if transcription.lower().lstrip().startswith(STREAM_TRIGGER_WORD):
 
-                                        clean_transcription = ''.join(char for char in transcription.lower() if char.isalnum() or char.isspace())
+                                            clean_transcription = ''.join(char for char in transcription.lower() if char.isalnum() or char.isspace())
 
-                                        if STREAM_STOP_WORD_1 in clean_transcription or STREAM_STOP_WORD_2 in clean_transcription or STREAM_STOP_WORD_3 in clean_transcription:
-                                            logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")
-                                            response = "Дайте денек, пажэ."
-                                            self._speak_via_meet(response)
-                                            self.stop()
-                                        else:
-                                            logger.info(f"[{self.meeting_id}] Мэри услышала вас")
-                                            response = get_mary_response(transcription)
-                                            logger.info(f"[{self.meeting_id}] Ответ от Мэри: {response}")
-                                            try:
-                                                if self.enable_auto_tts and response:
-                                                    print("Сейчас сгенерирую речь...")
-                                                    self._speak_via_meet(response)
-                                            except Exception as tts_err:
-                                                logger.error(f"[{self.meeting_id}] Ошибка при озвучивании ответа: {tts_err}")
+                                            if STREAM_STOP_WORD_1 in clean_transcription or STREAM_STOP_WORD_2 in clean_transcription or STREAM_STOP_WORD_3 in clean_transcription:
+                                                logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")
+                                                response = "Дайте денек, пажэ."
+                                                self._speak_via_meet(response)
+                                                self.stop()
+                                            else:
+                                                logger.info(f"[{self.meeting_id}] Мэри услышала вас")
+                                                response = get_mary_response(transcription)
+                                                logger.info(f"[{self.meeting_id}] Ответ от Мэри: {response}")
+                                                try:
+                                                    if self.enable_auto_tts and response:
+                                                        print("Сейчас сгенерирую речь...")
+                                                        self._speak_via_meet(response)
+                                                except Exception as tts_err:
+                                                    logger.error(f"[{self.meeting_id}] Ошибка при озвучивании ответа: {tts_err}")
             except queue.Empty:
                 if is_speaking and speech_buffer_for_asr:
                     logger.info(f"[{self.meeting_id}] Тайм-аут, обрабатываем оставшуюся речь.")

@@ -17,6 +17,7 @@ def get_gpu_utilization() -> dict | None:
         'utilization_percent': 15, 
         'memory_used_mb': 2048,
         'memory_total_mb': 24576
+        'memory_used_per': 8.3
     }
     """
     try:

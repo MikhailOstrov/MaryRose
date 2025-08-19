@@ -674,7 +674,6 @@ class MeetListenerBot:
                         if not is_speaking:
                             logger.info(f"[{self.meeting_id}] ▶️ Начало речи")
                             is_speaking = True
-                            last_speech_time = time.time()
                             speech_buffer_for_asr = []
 
                         speech_buffer_for_asr.append(chunk_to_process.numpy())
@@ -696,7 +695,7 @@ class MeetListenerBot:
 
                                     self._save_chunk(full_audio_np)
 
-                                    segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
+                                    segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=3, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
 
                                     segments_t, segments_b, segments_e = zip(*[(segment.text, segment.start, segment.end) for segment in segments])
 

@@ -137,4 +137,5 @@ jobs:
             sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" /home/jzndjxjcbd/MaryRoseBot/.env
 
             sudo /home/jzndjxjcbd/restart-fastapi.sh
+            sudo /home/jzndjxjcbd/restart-telegram-bot.sh
             echo "Main service restarted successfully."

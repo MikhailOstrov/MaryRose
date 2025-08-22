@@ -5,7 +5,7 @@ from config.load_models import CLIENT, CLIENT_AS
 def get_summary_response(cleaned_dialogue: str) -> str:
 
     chat_completion = CLIENT.chat.completions.create(
-        model="openai/gpt-5-mini", 
+        model="openai/gpt-4.1-mini", 
         messages=[
             {"role": "system", "content": SUMMARY_PROMPT},
             {"role": "user", "content": cleaned_dialogue}

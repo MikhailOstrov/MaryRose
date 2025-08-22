@@ -24,7 +24,7 @@ import subprocess
 
 from config.config import (STREAM_SAMPLE_RATE,SILENCE_THRESHOLD_FRAMES, MEET_FRAME_DURATION_MS,
                            MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME, STREAM_TRIGGER_WORD, CHROME_PROFILE_DIR,
-                           MEET_GUEST_NAME, SUMMARY_OUTPUT_DIR, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, STREAM_STOP_WORD_3)
+                           MEET_GUEST_NAME, SUMMARY_OUTPUT_DIR, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, STREAM_STOP_WORD_3, WORDS_FOR_INVESTORS)
 from handlers.llm_handler import get_mary_response, get_summary_response, get_title_response
 from config.load_models import create_new_vad_model, asr_model, create_new_tts_model
 from api.utils import combine_audio_chunks
@@ -728,6 +728,10 @@ class MeetListenerBot:
                                                 response = "Дайте денек, пажэ."
                                                 self._speak_via_meet(response)
                                                 self.stop()
+                                            if WORDS_FOR_INVESTORS in clean_transcription:
+                                                logger.info(f"[{self.meeting_id}] Ща буит")
+                                                response = "Где деньги, суки, а?"
+                                                self._speak_via_meet(response)
                                             else:
                                                 logger.info(f"[{self.meeting_id}] Мэри услышала вас")
                                                 response = get_mary_response(transcription)

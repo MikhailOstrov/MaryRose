@@ -39,6 +39,8 @@ STREAM_TRIGGER_WORD = "мэри" # Триггер для работы Мэри
 STREAM_STOP_WORD_1 = "стоп"
 STREAM_STOP_WORD_2 = "закончи встречу"
 STREAM_STOP_WORD_3 = "заверши встречу"
+
+WORDS_FOR_INVESTORS = "скажи что-то инвесторам"
 #really fast 
 # Промпты для Llama 
 ASSISTANT_PROMPT = """

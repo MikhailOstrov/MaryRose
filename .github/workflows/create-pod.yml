@@ -8,7 +8,7 @@ on:
       - run-runpod
 
 env:
-  RUNPOD_TEMPLATE_ID: "ydgd23y2f5"
+  RUNPOD_TEMPLATE_ID: "9ctlpzknh8"
   DOCKER_IMAGE: "roma3213/maryrose-app:v3"
   DEFAULT_GPU_TYPE: "NVIDIA RTX A5000"
 

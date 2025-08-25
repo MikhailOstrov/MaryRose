@@ -53,7 +53,15 @@ async def websocket_endpoint(
 
                     # Обрабатываем текстовые сообщения (служебные)
                     if "text" in message:
-                        logger.info(f"[{session_id}] Получено текстовое сообщение: {message['text']}")
+                        text_message = message['text']
+                        logger.info(f"[{session_id}] Получено текстовое сообщение: {text_message}")
+                        
+                        # Если это heartbeat от клиента, отправляем ответ!
+                        if text_message == "heartbeat":
+                            await websocket.send_text("heartbeat_ack") # ack = Acknowledgment (подтверждение)
+                            logger.info(f"[{session_id}] Отправлен ответ на heartbeat.")
+                        
+                        # Продолжаем слушать дальше, не передаем текст в FFmpeg
                         continue
 
                     # Обрабатываем бинарные данные (аудио)

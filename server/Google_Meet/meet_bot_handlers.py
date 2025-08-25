@@ -68,7 +68,7 @@ async def start_website_session(request: WebsiteSessionStartRequest):
     return {"status": "success", "session_id": session_id}
 
 
-@router.post("/api/internal/audio/upload", dependencies=[Depends(get_api_key)])
+@router.post("/api/v1/internal/audio/upload", dependencies=[Depends(get_api_key)])
 async def upload_audio_file(
     meeting_id: str = Form(...),
     audio_file: UploadFile = File(...)

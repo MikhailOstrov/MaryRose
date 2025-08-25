@@ -62,3 +62,48 @@ async def start_website_session(request: WebsiteSessionStartRequest):
     session_to_meeting_map[session_id] = request.meeting_id
     logger.info(f"Создана новая сессия {session_id} для meeting_id: {request.meeting_id}")
     return {"status": "success", "session_id": session_id}
+
+
+@router.post("/api/internal/audio/upload", dependencies=[Depends(get_api_key)])
+async def upload_audio_file(
+    meeting_id: str = Form(...),
+    audio_file: UploadFile = File(...)
+):
+    """Принимает аудио файл от основного бэкенда и запускает обработку."""
+    logger.info(f"Получен файл для обработки, meeting_id: {meeting_id}, filename: {audio_file.filename}")
+
+    try:
+        # Создаем директорию для временных файлов если не существует
+        temp_dir = MEET_AUDIO_CHUNKS_DIR / f"upload_{meeting_id}"
+        temp_dir.mkdir(parents=True, exist_ok=True)
+
+        # Сохраняем файл временно
+        temp_file_path = temp_dir / f"{meeting_id}.webm"
+        with open(temp_file_path, "wb") as temp_file:
+            content = await audio_file.read()
+            temp_file.write(content)
+
+        logger.info(f"Файл сохранен временно: {temp_file_path}")
+
+        # Создаем экземпляр WebsiteListenerBot для обработки
+        # Используем meeting_id как session_id для простоты
+        listener_bot = WebsiteListenerBot(
+            session_id=f"upload_{meeting_id}",
+            meeting_id=int(meeting_id)
+        )
+
+        # Запускаем обработку файла в отдельном потоке
+        processing_thread = threading.Thread(
+            target=listener_bot.process_audio_file,
+            args=(str(temp_file_path),)
+        )
+        processing_thread.start()
+
+        return {"status": "processing_started", "meeting_id": meeting_id}
+
+    except Exception as e:
+        logger.error(f"Ошибка при обработке файла для meeting_id {meeting_id}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Не удалось обработать файл: {str(e)}"
+        )

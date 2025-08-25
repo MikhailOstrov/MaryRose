@@ -1,6 +1,8 @@
 import os
 import threading
 import logging
+import asyncio
+import subprocess
 from datetime import datetime
 from uuid import uuid4
 
@@ -8,7 +10,7 @@ import numpy as np
 import soundfile as sf
 import requests
 
-from config.config import STREAM_SAMPLE_RATE, MEET_AUDIO_CHUNKS_DIR
+from config.config import STREAM_SAMPLE_RATE, MEET_AUDIO_CHUNKS_DIR, MEET_FRAME_DURATION_MS
 from handlers.llm_handler import get_summary_response, get_title_response
 from config.load_models import asr_model
 
@@ -141,3 +143,60 @@ class WebsiteListenerBot:
         post_processing_thread.start()
 
         logger.info(f"[{self.session_id}] Сессия завершена, постобработка запущена.")
+
+    # Новый метод для обработки готового аудио файла
+    def process_audio_file(self, input_file_path: str):
+        """Обрабатывает готовый аудио файл (.webm) используя ту же логику что и вебсокет."""
+        threading.current_thread().name = f'AudioProcessor-{self.meeting_id}'
+        logger.info(f"[{self.meeting_id}] Запускаю обработку файла: {input_file_path}")
+
+        # Размер фрейма для чтения PCM данных (как в websocket_gateway.py)
+        VAD_FRAME_SIZE = int(STREAM_SAMPLE_RATE * (MEET_FRAME_DURATION_MS / 1000) * 2)
+
+        try:
+            # Запускаем FFmpeg для конвертации файла в PCM поток (как в websocket_gateway.py)
+            ffmpeg_command = [
+                "ffmpeg", "-i", input_file_path, "-f", "s16le",
+                "-ar", str(STREAM_SAMPLE_RATE), "-ac", "1", "-"
+            ]
+
+            logger.info(f"[{self.meeting_id}] Запуск FFmpeg: {' '.join(ffmpeg_command)}")
+
+            ffmpeg_process = subprocess.Popen(
+                ffmpeg_command,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE
+            )
+
+            try:
+                # Читаем PCM данные из stdout и передаем в bot (как в websocket_gateway.py)
+                while True:
+                    pcm_chunk = ffmpeg_process.stdout.read(VAD_FRAME_SIZE)
+                    if not pcm_chunk:
+                        break
+
+                    if len(pcm_chunk) < VAD_FRAME_SIZE:
+                        pcm_chunk += b'\x00' * (VAD_FRAME_SIZE - len(pcm_chunk))
+
+                    self.feed_audio_chunk(pcm_chunk)
+
+                logger.info(f"[{self.meeting_id}] Конвертация завершена, начинаем постобработку")
+
+                # Останавливаем бота для запуска постобработки
+                self.stop()
+
+                # Очищаем входной файл
+                try:
+                    os.remove(input_file_path)
+                    logger.info(f"[{self.meeting_id}] Удален входной файл: {input_file_path}")
+                except Exception as e:
+                    logger.warning(f"[{self.meeting_id}] Не удалось удалить входной файл: {e}")
+
+            finally:
+                # Останавливаем FFmpeg процесс
+                ffmpeg_process.terminate()
+                ffmpeg_process.wait()
+
+        except Exception as e:
+            logger.error(f"[{self.meeting_id}] ❌ Ошибка обработки файла: {e}", exc_info=True)

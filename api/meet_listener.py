@@ -440,7 +440,7 @@ class MeetListenerBot:
         
                 self.toggle_mic_hotkey()
                 toggled_on = True
-                time.sleep(0.3)
+                time.sleep(0.2)
 
                 logger.info(f"[{self.meeting_id}] ROUTING_CHECK: Попытка воспроизвести звук в конкретный sink: '{self.sink_name}'")
                 

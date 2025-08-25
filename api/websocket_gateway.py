@@ -49,10 +49,22 @@ async def websocket_endpoint(
         async def writer():
             try:
                 while True:
-                    audio_chunk = await websocket.receive_bytes()
-                    if ffmpeg_process.stdin:
-                        ffmpeg_process.stdin.write(audio_chunk)
-                        await ffmpeg_process.stdin.drain()
+                    message = await websocket.receive()
+
+                    # Обрабатываем текстовые сообщения (служебные)
+                    if "text" in message:
+                        logger.info(f"[{session_id}] Получено текстовое сообщение: {message['text']}")
+                        continue
+
+                    # Обрабатываем бинарные данные (аудио)
+                    if "bytes" in message:
+                        audio_chunk = message["bytes"]
+                        if ffmpeg_process.stdin:
+                            ffmpeg_process.stdin.write(audio_chunk)
+                            await ffmpeg_process.stdin.drain()
+                    else:
+                        logger.warning(f"[{session_id}] Получено неизвестное сообщение: {message}")
+
             except WebSocketDisconnect:
                 logger.info(f"[{session_id}] Клиент отключился.")
             finally:

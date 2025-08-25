@@ -6,6 +6,9 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+
+# ЭТО НАДО УДАЛЯТЬ? ------------------------------------------------------------------
+
 def combine_audio_chunks(output_dir, stream_sample_rate, meeting_id, output_filename, pattern="chunk_*.wav"):
 
     output_filepath = output_dir / output_filename

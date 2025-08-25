@@ -150,11 +150,10 @@ class WebsiteListenerBot:
         threading.current_thread().name = f'AudioProcessor-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] Запускаю обработку файла: {input_file_path}")
 
-        # Размер фрейма для чтения PCM данных (как в websocket_gateway.py)
         VAD_FRAME_SIZE = int(STREAM_SAMPLE_RATE * (MEET_FRAME_DURATION_MS / 1000) * 2)
 
         try:
-            # Запускаем FFmpeg для конвертации файла в PCM поток (как в websocket_gateway.py)
+
             ffmpeg_command = [
                 "ffmpeg", "-i", input_file_path, "-f", "s16le",
                 "-ar", str(STREAM_SAMPLE_RATE), "-ac", "1", "-"
@@ -170,7 +169,6 @@ class WebsiteListenerBot:
             )
 
             try:
-                # Читаем PCM данные из stdout и передаем в bot (как в websocket_gateway.py)
                 while True:
                     pcm_chunk = ffmpeg_process.stdout.read(VAD_FRAME_SIZE)
                     if not pcm_chunk:

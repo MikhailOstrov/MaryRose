@@ -883,7 +883,27 @@ class MeetListenerBot:
         m = int((seconds % 3600) // 60)
         s = int(seconds % 60)
         return f"{h:02d}:{m:02d}:{s:02d}"
-
+    def _dismiss_initial_popup(self):
+        """
+        Ищет и закрывает стандартные всплывающие окна после входа,
+        которые могут перекрывать интерфейс.
+        """
+        # XPath для кнопок типа "Got it", "OK", "Понятно" и т.д.
+        dismiss_button_xpath = (
+            '//button[contains(., "Got it") or contains(., "OK") or '
+            'contains(., "Понятно") or contains(., "Хорошо")]'
+        )
+        try:
+            # Ждем недолго, так как окно появляется сразу
+            dismiss_button = WebDriverWait(self.driver, 5).until(
+                EC.element_to_be_clickable((By.XPATH, dismiss_button_xpath))
+            )
+            logger.info(f"[{self.meeting_id}] Найдено и закрывается всплывающее уведомление...")
+            dismiss_button.click()
+            time.sleep(1) # Короткая пауза после клика
+        except:
+            # Это нормально, если окна нет
+            logger.info(f"[{self.meeting_id}] Всплывающее уведомление не найдено, продолжаю.")
     # Запуск работы бота
     def run(self):
         """
@@ -1071,7 +1091,7 @@ class MeetListenerBot:
     def send_chat_message(self, message: str):
         """
         Открывает чат (если он закрыт), печатает сообщение и отправляет его.
-        Панель чата остается открытой после отправки.
+        Использует JavaScript-клик для надежности.
         """
         if not self.driver or not self.joined_successfully:
             logger.warning(f"[{self.meeting_id}] Пропускаю отправку сообщения: бот не в конференции.")
@@ -1080,27 +1100,27 @@ class MeetListenerBot:
         logger.info(f"[{self.meeting_id}] Попытка отправить сообщение в чат: '{message[:30]}...'")
         
         try:
+            # --- ШАГ 0: Убираем возможные всплывающие окна ---
+            self._dismiss_initial_popup()
+
             # --- Шаг 1: Проверить, открыт ли чат. Если нет - открыть. ---
             try:
-                # Ищем поле для ввода. Если его нет, WebDriverWait вызовет исключение,
-                # и мы перейдем к блоку except, чтобы открыть чат.
                 WebDriverWait(self.driver, 2).until(
-                    EC.presence_of_element_located((By.XPATH, '//textarea[contains(@aria-label, "Send a message") or contains(@aria-label, "Отправить сообщение")]'))
+                    EC.presence_of_element_located((By.XPATH, '//textarea[contains(@aria-label, "Send a message")]'))
                 )
                 logger.info(f"[{self.meeting_id}] Панель чата уже открыта.")
             except:
                 logger.info(f"[{self.meeting_id}] Панель чата закрыта, открываю...")
-                # XPath для кнопки чата, основанный на иконке и aria-label
                 chat_button_xpath = '//button[contains(@aria-label, "Chat with everyone") or contains(@aria-label, "Чат со всеми")]'
                 chat_button = WebDriverWait(self.driver, 10).until(
                     EC.element_to_be_clickable((By.XPATH, chat_button_xpath))
                 )
-                chat_button.click()
-                time.sleep(1) # Ждем анимацию открытия панели
+                
+                # ИСПОЛЬЗУЕМ JAVASCRIPT CLICK
+                self.driver.execute_script("arguments[0].click();", chat_button)
+                time.sleep(1)
 
             # --- Шаг 2: Найти поле ввода, ввести текст и отправить ---
-            
-            # XPath для текстового поля
             textarea_xpath = '//textarea[contains(@aria-label, "Send a message") or contains(@aria-label, "Отправить сообщение")]'
             message_input = WebDriverWait(self.driver, 15).until(
                 EC.element_to_be_clickable((By.XPATH, textarea_xpath))
@@ -1110,14 +1130,14 @@ class MeetListenerBot:
             message_input.send_keys(message)
             time.sleep(0.5)
 
-            # XPath для кнопки отправки
             send_button_xpath = '//button[contains(@aria-label, "Send a message") or contains(@aria-label, "Отправить сообщение")][.//i[text()="send"]]'
             send_button = WebDriverWait(self.driver, 10).until(
                 EC.element_to_be_clickable((By.XPATH, send_button_xpath))
             )
             
-            send_button.click()
-            logger.info(f"[{self.meeting_id}] ✅ Сообщение в чат успешно отправлено. Панель чата остается открытой.")
+            # ИСПОЛЬЗУЕМ JAVASCRIPT CLICK
+            self.driver.execute_script("arguments[0].click();", send_button)
+            logger.info(f"[{self.meeting_id}] ✅ Сообщение в чат успешно отправлено.")
 
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Не удалось отправить сообщение в чат: {e}", exc_info=True)

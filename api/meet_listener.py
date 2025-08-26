@@ -1014,87 +1014,104 @@ class MeetListenerBot:
     def send_message_to_chat(self, message: str) -> bool:
         """
         Отправляет сообщение в чат Google Meet.
-        Простая функция без сложной логики - просто находит элементы и кликает.
+        Простая версия с основными селекторами.
         """
         if not self.driver or not self.joined_successfully:
-            logger.warning(f"[{self.meeting_id}] Невозможно отправить сообщение - драйвер не инициализирован или не в конференции.")
+            logger.warning(f"[{self.meeting_id}] Невозможно отправить сообщение")
             return False
 
         if not message or not message.strip():
-            logger.warning(f"[{self.meeting_id}] Невозможно отправить пустое сообщение.")
+            logger.warning(f"[{self.meeting_id}] Пустое сообщение")
             return False
 
         try:
-            logger.info(f"[{self.meeting_id}] Отправляю сообщение в чат: '{message}'")
+            logger.info(f"[{self.meeting_id}] Отправляю сообщение: '{message}'")
 
-            # 1. Ищем и кликаем кнопку чата
-            chat_button_selectors = [
+            # Открываем чат
+            chat_button = None
+            chat_selectors = [
+                '//button[@jsname="A5il2e"]',
                 '//button[@aria-label="Start a chat with all participants"]',
                 '//button[@aria-label="Начать чат со всеми участниками"]',
-                '//button[@jsname="A5il2e"]'
+                'button[data-tooltip-id="tt-c316"]'
             ]
 
-            chat_opened = False
-            for selector in chat_button_selectors:
+            for selector in chat_selectors:
                 try:
-                    chat_button = WebDriverWait(self.driver, 3).until(
-                        EC.element_to_be_clickable((By.XPATH, selector))
+                    chat_button = WebDriverWait(self.driver, 2).until(
+                        EC.element_to_be_clickable((By.XPATH if selector.startswith('//') else By.CSS_SELECTOR, selector))
                     )
                     chat_button.click()
-                    logger.info(f"[{self.meeting_id}] Кнопка чата нажата")
-                    chat_opened = True
+                    logger.info(f"[{self.meeting_id}] Чат открыт")
                     break
                 except Exception:
                     continue
 
-            if not chat_opened:
+            if not chat_button:
                 logger.error(f"[{self.meeting_id}] Не удалось открыть чат")
                 return False
 
+            time.sleep(0.3)  # Маленькая задержка
 
-            # 2. Ищем текстовое поле и вводим сообщение
-            try:
-                textarea = WebDriverWait(self.driver, 5).until(
-                    EC.element_to_be_clickable((By.ID, "bfTqV"))
-                )
-                textarea.clear()
-                textarea.send_keys(message)
-                logger.info(f"[{self.meeting_id}] Текст введен в поле чата")
-            except Exception as e:
-                logger.error(f"[{self.meeting_id}] Не удалось найти или заполнить текстовое поле: {e}")
-                return False
-
-
-            # 3. Ищем и кликаем кнопку отправки
-            send_button_selectors = [
-                '//button[@aria-label="Send a message"]',
-                '//button[@aria-label="Отправить сообщение"]',
-                '//button[@jsname="SoqoBf"]'
+            # Находим поле ввода
+            textarea = None
+            input_selectors = [
+                (By.ID, "bfTqV"),
+                (By.CSS_SELECTOR, "textarea[aria-label*='Send a message']"),
+                (By.CSS_SELECTOR, "textarea[aria-label*='Отправить сообщение']"),
+                (By.CSS_SELECTOR, "textarea"),
+                (By.CSS_SELECTOR, "[contenteditable='true']")
             ]
 
-            message_sent = False
-            for selector in send_button_selectors:
+            for by_method, selector in input_selectors:
                 try:
-                    send_button = WebDriverWait(self.driver, 3).until(
-                        EC.element_to_be_clickable((By.XPATH, selector))
+                    textarea = WebDriverWait(self.driver, 2).until(
+                        EC.element_to_be_clickable((by_method, selector))
                     )
-                    send_button.click()
-                    logger.info(f"[{self.meeting_id}] Сообщение отправлено")
-                    message_sent = True
+                    textarea.clear()
+                    textarea.send_keys(message)
+                    logger.info(f"[{self.meeting_id}] Текст введен")
                     break
                 except Exception:
                     continue
 
-            if not message_sent:
+            if not textarea:
+                logger.error(f"[{self.meeting_id}] Не удалось найти поле ввода")
+                return False
+
+
+
+            # Нажимаем кнопку отправки
+            send_button = None
+            send_selectors = [
+                '//button[@jsname="SoqoBf"]',
+                '//button[@aria-label="Send a message"]',
+                '//button[@aria-label="Отправить сообщение"]',
+                'button[data-tooltip-id="tt-c213"]',
+                'button[type="submit"]'
+            ]
+
+            for selector in send_selectors:
+                try:
+                    send_button = WebDriverWait(self.driver, 2).until(
+                        EC.element_to_be_clickable((By.XPATH if selector.startswith('//') else By.CSS_SELECTOR, selector))
+                    )
+                    send_button.click()
+                    logger.info(f"[{self.meeting_id}] Сообщение отправлено")
+                    break
+                except Exception:
+                    continue
+
+            if not send_button:
                 logger.error(f"[{self.meeting_id}] Не удалось найти кнопку отправки")
                 return False
 
 
-            logger.info(f"[{self.meeting_id}] ✅ Сообщение успешно отправлено в чат")
+            logger.info(f"[{self.meeting_id}] ✅ Готово")
             return True
 
         except Exception as e:
-            logger.error(f"[{self.meeting_id}] ❌ Ошибка при отправке сообщения в чат: {e}")
+            logger.error(f"[{self.meeting_id}] ❌ Ошибка: {e}")
             return False
 
     # Остановка бота

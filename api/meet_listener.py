@@ -423,7 +423,7 @@ class MeetListenerBot:
 
     
 
-    def _speak_via_meet(self, text: str):
+    def _speak_via_meet(self, text: str, pipeline_start_time=None):
         """
         Синтезирует TTS и проигрывает его в УНИКАЛЬНЫЙ sink этого бота.
         """
@@ -437,13 +437,13 @@ class MeetListenerBot:
             print("Включаю микрофон")
             toggled_on = False
             try:
-        
+
                 self.toggle_mic_hotkey()
                 toggled_on = True
                 time.sleep(0.2)
 
                 logger.info(f"[{self.meeting_id}] ROUTING_CHECK: Попытка воспроизвести звук в конкретный sink: '{self.sink_name}'")
-                
+
                 subprocess.run(
                     ["paplay", "-d", self.sink_name, "/dev/stdin"],
                     input=audio_bytes,
@@ -452,6 +452,11 @@ class MeetListenerBot:
                     timeout=20
                 )
                 logger.info(f"[{self.meeting_id}] ✅ Ответ ассистента успешно озвучен в '{self.sink_name}'.")
+
+                # Логируем общее время пайплайна если был передан таймер
+                if pipeline_start_time:
+                    total_pipeline_time = time.time() - pipeline_start_time
+                    logger.info(f"[{self.meeting_id}] ПАЙПЛАЙН ЗАВЕРШЕН: {total_pipeline_time:.3f} сек")
 
             except subprocess.CalledProcessError as e:
                 logger.error(f"[{self.meeting_id}] ❌ Ошибка выполнения paplay для sink '{self.sink_name}': {e.stderr.strip()}")
@@ -580,20 +585,24 @@ class MeetListenerBot:
             '--raw'                       # Вывод сырых PCM данных без заголовков
         ]
         
-        logger.info(f"[{self.meeting_id}] 🎤 Запуск аудиозахвата с помощью parec: {' '.join(command)}")
-        
+        logger.info(f"[{self.meeting_id}] 🎤 Запуск аудиозахвата с помощью parec")
+
+        # Таймер для подсчета статистики захвата
+        chunk_count = 0
+        capture_start_time = time.time()
+
         process = None
         try:
             # Запускаем подпроцесс
             process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-            
+
             # Размер чанка в байтах (int16 = 2 байта на семпл)
-            chunk_size_bytes = self.frame_size * 2 
+            chunk_size_bytes = self.frame_size * 2
 
             while self.is_running.is_set():
                 # Читаем ровно один фрейм данных из stdout процесса
                 audio_chunk_bytes = process.stdout.read(chunk_size_bytes)
-                
+
                 if not audio_chunk_bytes:
                     # Проверяем, не завершился ли процесс
                     if process.poll() is not None:
@@ -601,7 +610,13 @@ class MeetListenerBot:
                         break
                     # Если процесс жив, но данных нет, просто продолжаем цикл
                     continue
-                
+
+                # Статистика захвата (раз в 30 секунд)
+                chunk_count += 1
+                if chunk_count % 15000 == 0:  # ~30 сек при 512 семплах/чанк
+                    elapsed = time.time() - capture_start_time
+                    logger.info(f"[{self.meeting_id}] 🎤 Захвачено {chunk_count} чанков за {elapsed:.0f} сек")
+
                 # Помещаем сырые байты в очередь для дальнейшей обработки
                 self.audio_queue.put(audio_chunk_bytes)
         
@@ -648,6 +663,9 @@ class MeetListenerBot:
         silence_accum_ms = 0
         speech_start_walltime = None
 
+        # Таймер для всего пайплайна обработки речи
+        pipeline_start_time = None
+
         while self.is_running.is_set():
             try:
                 audio_frame_bytes = self.audio_queue.get(timeout=1)
@@ -681,6 +699,7 @@ class MeetListenerBot:
                             logger.info(f"[{self.meeting_id}] ▶️ Начало речи")
                             is_speaking = True
                             speech_start_walltime = meeting_elapsed_sec
+                            pipeline_start_time = time.time()  # Запуск таймера пайплайна
 
                         speech_buffer_for_asr.append(chunk_to_process.numpy())
                         silence_accum_ms = 0
@@ -697,7 +716,7 @@ class MeetListenerBot:
 
                                     chunk_duration = len(full_audio_np) / 16000.0
                                     if chunk_duration >= min_speech_duration:
-                                        
+
                                         speech_end_walltime = speech_start_walltime + chunk_duration
 
                                         is_speaking = False
@@ -726,12 +745,12 @@ class MeetListenerBot:
                                             if STREAM_STOP_WORD_1 in clean_transcription or STREAM_STOP_WORD_2 in clean_transcription or STREAM_STOP_WORD_3 in clean_transcription:
                                                 logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")
                                                 response = "Дайте денек, пажэ."
-                                                self._speak_via_meet(response)
+                                                self._speak_via_meet(response, pipeline_start_time)
                                                 self.stop()
-                                            if WORDS_FOR_INVESTORS in clean_transcription:
+                                            elif WORDS_FOR_INVESTORS in clean_transcription:
                                                 logger.info(f"[{self.meeting_id}] Ща буит")
                                                 response = "Где деньги, суки, а?"
-                                                self._speak_via_meet(response)
+                                                self._speak_via_meet(response, pipeline_start_time)
                                             else:
                                                 logger.info(f"[{self.meeting_id}] Мэри услышала вас")
                                                 response = get_mary_response(transcription)
@@ -739,9 +758,13 @@ class MeetListenerBot:
                                                 try:
                                                     if self.enable_auto_tts and response:
                                                         print("Сейчас сгенерирую речь...")
-                                                        self._speak_via_meet(response)
+                                                        self._speak_via_meet(response, pipeline_start_time)
                                                 except Exception as tts_err:
                                                     logger.error(f"[{self.meeting_id}] Ошибка при озвучивании ответа: {tts_err}")
+
+                                        # Если триггерного слова нет, сбрасываем таймер
+                                        else:
+                                            pipeline_start_time = None
             except queue.Empty:
                 if is_speaking and speech_buffer_for_asr:
                     logger.info(f"[{self.meeting_id}] Тайм-аут, обрабатываем оставшуюся речь.")

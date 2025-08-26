@@ -72,7 +72,7 @@ def create_new_tts_model():
     """
     print("Создание нового экземпляра TTS-модели из кэша...")
     model, _ = torch.hub.load(repo_or_dir='snakers4/silero-models', model='silero_tts', language='ru', speaker=TTS_MODEL_ID, trust_repo=True)
-    model.to(device)
+    # model.to(device)
     print("✅ Новый экземпляр TTS создан.")
     return model
 

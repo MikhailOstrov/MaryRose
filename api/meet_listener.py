@@ -1027,15 +1027,40 @@ class MeetListenerBot:
         try:
             logger.info(f"[{self.meeting_id}] Отправляю сообщение: '{message}'")
 
-            # Чат уже открыт, переходим к вводу сообщения
+            # Открываем чат
+            chat_button = None
+            chat_selectors = [
+                '//button[@jsname="A5il2e"]',
+                '//button[@aria-label="Start a chat with all participants"]',
+                '//button[@aria-label="Начать чат со всеми участниками"]',
+                'button[data-tooltip-id="tt-c316"]'
+            ]
+
+            for selector in chat_selectors:
+                try:
+                    chat_button = WebDriverWait(self.driver, 2).until(
+                        EC.element_to_be_clickable((By.XPATH if selector.startswith('//') else By.CSS_SELECTOR, selector))
+                    )
+                    chat_button.click()
+                    logger.info(f"[{self.meeting_id}] Чат открыт")
+                    break
+                except Exception:
+                    continue
+
+            if not chat_button:
+                logger.error(f"[{self.meeting_id}] Не удалось открыть чат")
+                return False
+
+            time.sleep(0.3)  # Маленькая задержка
 
             # Находим поле ввода
             textarea = None
             input_selectors = [
-                (By.ID, "bfTqV"),                                        # самый надежный
-                (By.CSS_SELECTOR, 'textarea[jsname="YPqjbf"]'),         # новый jsname
-                (By.CSS_SELECTOR, 'textarea[aria-label="Отправьте сообщение"]'),  # по aria-label
-                (By.CSS_SELECTOR, 'textarea[placeholder="Отправьте сообщение"]')   # по placeholder
+                (By.ID, "bfTqV"),
+                (By.CSS_SELECTOR, "textarea[aria-label*='Send a message']"),
+                (By.CSS_SELECTOR, "textarea[aria-label*='Отправить сообщение']"),
+                (By.CSS_SELECTOR, "textarea"),
+                (By.CSS_SELECTOR, "[contenteditable='true']")
             ]
 
             for by_method, selector in input_selectors:
@@ -1054,15 +1079,16 @@ class MeetListenerBot:
                 logger.error(f"[{self.meeting_id}] Не удалось найти поле ввода")
                 return False
 
-            time.sleep(0.3)  # Маленькая задержка
+
 
             # Нажимаем кнопку отправки
             send_button = None
             send_selectors = [
-                '//button[@jsname="SoqoBf"]',                           # основной
-                '//button[@aria-label="Отправьте сообщение"]',        # по aria-label
-                'button[aria-label*="Отправьте"]',                    # частичное совпадение
-                'button:not([disabled])'                              # не disabled
+                '//button[@jsname="SoqoBf"]',
+                '//button[@aria-label="Send a message"]',
+                '//button[@aria-label="Отправить сообщение"]',
+                'button[data-tooltip-id="tt-c213"]',
+                'button[type="submit"]'
             ]
 
             for selector in send_selectors:
@@ -1070,12 +1096,6 @@ class MeetListenerBot:
                     send_button = WebDriverWait(self.driver, 2).until(
                         EC.element_to_be_clickable((By.XPATH if selector.startswith('//') else By.CSS_SELECTOR, selector))
                     )
-
-                    # Проверяем, не disabled ли кнопка
-                    if send_button.get_attribute("disabled"):
-                        logger.info(f"[{self.meeting_id}] Кнопка отправки disabled, пропускаем")
-                        continue
-
                     send_button.click()
                     logger.info(f"[{self.meeting_id}] Сообщение отправлено")
                     break
@@ -1085,6 +1105,7 @@ class MeetListenerBot:
             if not send_button:
                 logger.error(f"[{self.meeting_id}] Не удалось найти кнопку отправки")
                 return False
+
 
             logger.info(f"[{self.meeting_id}] ✅ Готово")
             return True

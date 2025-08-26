@@ -88,8 +88,6 @@ class MeetListenerBot:
         self.monitor_name = self.audio_manager.monitor_name
         self.post_processing_thread = None
 
-        self.player_process = None
-
     # Отслеживание кол-ва участников
     def _monitor_participants(self):
         """Отслеживает количество участников. Если бот остается один, он завершает работу."""
@@ -423,19 +421,7 @@ class MeetListenerBot:
         except Exception as e:
             logger.error(f"[{self.meeting_id}] PULSE_DEBUG: Неожиданная ошибка при получении состояния PulseAudio: {e}")
 
-    def _start_audio_player(self):
-        """Запускает долгоживущий процесс paplay для мгновенного воспроизведения."""
-        if self.player_process and self.player_process.poll() is None:
-            return # Уже запущен
-        
-        command = ["paplay", "-d", self.sink_name, "/dev/stdin"]
-        self.player_process = subprocess.Popen(
-            command,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL
-        )
-        logger.info(f"[{self.meeting_id}] Аудиоплеер (paplay) запущен для sink: {self.sink_name}")
+    
 
     def _speak_via_meet(self, text: str):
         """
@@ -451,24 +437,26 @@ class MeetListenerBot:
             print("Включаю микрофон")
             toggled_on = False
             try:
-                # Убедимся, что плеер запущен
-                self._start_audio_player()
-                
-                # Просто пишем байты в stdin существующего процесса. ЭТО ОЧЕНЬ БЫСТРО.
-                self.player_process.stdin.write(audio_bytes)
-                self.player_process.stdin.flush()
-                logger.info(f"[{self.meeting_id}] ✅ Ответ ассистента отправлен в paplay.")
+        
+                self.toggle_mic_hotkey()
+                toggled_on = True
+                time.sleep(0.2)
 
-            except (BrokenPipeError, AttributeError):
-                logger.warning(f"[{self.meeting_id}] Пайп paplay сломан. Перезапускаю...")
-                if self.player_process:
-                    self.player_process.kill()
-                self._start_audio_player()
-                # Повторная попытка
-                self.player_process.stdin.write(audio_bytes)
-                self.player_process.stdin.flush()
+                logger.info(f"[{self.meeting_id}] ROUTING_CHECK: Попытка воспроизвести звук в конкретный sink: '{self.sink_name}'")
+                
+                subprocess.run(
+                    ["paplay", "-d", self.sink_name, "/dev/stdin"],
+                    input=audio_bytes,
+                    capture_output=True,
+                    check=True,
+                    timeout=20
+                )
+                logger.info(f"[{self.meeting_id}] ✅ Ответ ассистента успешно озвучен в '{self.sink_name}'.")
+
+            except subprocess.CalledProcessError as e:
+                logger.error(f"[{self.meeting_id}] ❌ Ошибка выполнения paplay для sink '{self.sink_name}': {e.stderr.strip()}")
             except Exception as e:
-                logger.error(f"[{self.meeting_id}] ❌ Ошибка во время воспроизведения: {e}.")
+                logger.error(f"[{self.meeting_id}] ❌ Ошибка во время автоозвучки для sink '{self.sink_name}': {e}.")
             finally:
                 if toggled_on:
                     time.sleep(0.2)

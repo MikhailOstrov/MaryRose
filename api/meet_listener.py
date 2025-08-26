@@ -1029,61 +1029,37 @@ class MeetListenerBot:
 
             # Чат уже открыт, переходим к вводу сообщения
 
-            # Находим поле ввода
-            textarea = None
-            input_selectors = [
-                (By.ID, "bfTqV"),                                        # самый надежный
-                (By.CSS_SELECTOR, 'textarea[jsname="YPqjbf"]'),         # новый jsname
-                (By.CSS_SELECTOR, 'textarea[aria-label="Отправьте сообщение"]'),  # по aria-label
-                (By.CSS_SELECTOR, 'textarea[placeholder="Отправьте сообщение"]')   # по placeholder
-            ]
+            # Используем jsname для автоматизации, как в системе получения сообщений
+            try:
+                # Находим основной контейнер чата
+                chat_container = self.driver.find_element(By.CSS_SELECTOR, '[jsname="pob9Hc"]')
 
-            for by_method, selector in input_selectors:
-                try:
-                    textarea = WebDriverWait(self.driver, 2).until(
-                        EC.element_to_be_clickable((by_method, selector))
-                    )
-                    textarea.clear()
-                    textarea.send_keys(message)
-                    logger.info(f"[{self.meeting_id}] Текст введен")
-                    break
-                except Exception:
-                    continue
+                # Находим textarea по jsname
+                textarea = chat_container.find_element(By.CSS_SELECTOR, 'textarea[jsname="YPqjbf"]')
 
-            if not textarea:
-                logger.error(f"[{self.meeting_id}] Не удалось найти поле ввода")
-                return False
+                # Используем JavaScript для ввода текста (как в системе получения)
+                self.driver.execute_script("""
+                    arguments[0].value = arguments[1];
+                    arguments[0].dispatchEvent(new Event('input', { bubbles: true }));
+                    arguments[0].dispatchEvent(new Event('change', { bubbles: true }));
+                """, textarea, message)
 
-            time.sleep(0.3)  # Маленькая задержка
+                logger.info(f"[{self.meeting_id}] Текст введен через JavaScript")
 
-            # Нажимаем кнопку отправки
-            send_button = None
-            send_selectors = [
-                '//button[@jsname="SoqoBf"]',                           # основной
-                '//button[@aria-label="Отправьте сообщение"]',        # по aria-label
-                'button[aria-label*="Отправьте"]',                    # частичное совпадение
-                'button:not([disabled])'                              # не disabled
-            ]
+                # Находим кнопку отправки по jsname
+                send_button = chat_container.find_element(By.CSS_SELECTOR, 'button[jsname="SoqoBf"]')
 
-            for selector in send_selectors:
-                try:
-                    send_button = WebDriverWait(self.driver, 2).until(
-                        EC.element_to_be_clickable((By.XPATH if selector.startswith('//') else By.CSS_SELECTOR, selector))
-                    )
+                # Проверяем, не disabled ли кнопка
+                if send_button.get_attribute("disabled"):
+                    logger.info(f"[{self.meeting_id}] Кнопка отправки disabled")
+                    return False
 
-                    # Проверяем, не disabled ли кнопка
-                    if send_button.get_attribute("disabled"):
-                        logger.info(f"[{self.meeting_id}] Кнопка отправки disabled, пропускаем")
-                        continue
+                # Имитируем клик через JavaScript
+                self.driver.execute_script("arguments[0].click();", send_button)
+                logger.info(f"[{self.meeting_id}] Сообщение отправлено через JavaScript")
 
-                    send_button.click()
-                    logger.info(f"[{self.meeting_id}] Сообщение отправлено")
-                    break
-                except Exception:
-                    continue
-
-            if not send_button:
-                logger.error(f"[{self.meeting_id}] Не удалось найти кнопку отправки")
+            except Exception as e:
+                logger.error(f"[{self.meeting_id}] Ошибка JavaScript автоматизации: {e}")
                 return False
 
             logger.info(f"[{self.meeting_id}] ✅ Готово")

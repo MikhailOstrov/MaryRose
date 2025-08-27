@@ -756,11 +756,11 @@ class MeetListenerBot:
                                                 response = get_mary_response(transcription)
                                                 logger.info(f"[{self.meeting_id}] Ответ от Мэри: {response}")
                                                 try:
-                                                    if self.enable_auto_tts and response:
-                                                        print("Сейчас сгенерирую речь...")
-                                                        self._speak_via_meet(response, pipeline_start_time)
-                                                except Exception as tts_err:
-                                                    logger.error(f"[{self.meeting_id}] Ошибка при озвучивании ответа: {tts_err}")
+                                                    if response:
+                                                        print("Отправляю ответ в чат...")
+                                                        self.send_chat_message(response)
+                                                except Exception as chat_err:
+                                                    logger.error(f"[{self.meeting_id}] Ошибка при отправке ответа в чат: {chat_err}")
 
                                         # Если триггерного слова нет, сбрасываем таймер
                                         else:
@@ -883,27 +883,6 @@ class MeetListenerBot:
         m = int((seconds % 3600) // 60)
         s = int(seconds % 60)
         return f"{h:02d}:{m:02d}:{s:02d}"
-    def _dismiss_initial_popup(self):
-        """
-        Ищет и закрывает стандартные всплывающие окна после входа,
-        которые могут перекрывать интерфейс.
-        """
-        # XPath для кнопок типа "Got it", "OK", "Понятно" и т.д.
-        dismiss_button_xpath = (
-            '//button[contains(., "Got it") or contains(., "OK") or '
-            'contains(., "Понятно") or contains(., "Хорошо")]'
-        )
-        try:
-            # Ждем недолго, так как окно появляется сразу
-            dismiss_button = WebDriverWait(self.driver, 5).until(
-                EC.element_to_be_clickable((By.XPATH, dismiss_button_xpath))
-            )
-            logger.info(f"[{self.meeting_id}] Найдено и закрывается всплывающее уведомление...")
-            dismiss_button.click()
-            time.sleep(1) # Короткая пауза после клика
-        except:
-            # Это нормально, если окна нет
-            logger.info(f"[{self.meeting_id}] Всплывающее уведомление не найдено, продолжаю.")
     # Запуск работы бота
     def run(self):
         """
@@ -931,7 +910,7 @@ class MeetListenerBot:
 
                  # --- ДОБАВЬТЕ ЭТОТ БЛОК ---
 
-                self.send_chat_message("Ассистент на связи. Готов к работе!")
+                self.send_chat_message("Дайте деняк, пж")
 
                 # Начало созвона
                 self.meeting_start_time = time.time()
@@ -1100,8 +1079,7 @@ class MeetListenerBot:
         logger.info(f"[{self.meeting_id}] Попытка отправить сообщение в чат: '{message[:30]}...'")
         
         try:
-            # --- ШАГ 0: Убираем возможные всплывающие окна ---
-            self._dismiss_initial_popup()
+           
 
             # --- Шаг 1: Проверить, открыт ли чат. Если нет - открыть. ---
             try:
@@ -1118,7 +1096,6 @@ class MeetListenerBot:
                 
                 # ИСПОЛЬЗУЕМ JAVASCRIPT CLICK
                 self.driver.execute_script("arguments[0].click();", chat_button)
-                time.sleep(1)
 
             # --- Шаг 2: Найти поле ввода, ввести текст и отправить ---
             textarea_xpath = '//textarea[contains(@aria-label, "Send a message") or contains(@aria-label, "Отправить сообщение")]'
@@ -1128,7 +1105,7 @@ class MeetListenerBot:
 
             message_input.clear()
             message_input.send_keys(message)
-            time.sleep(0.5)
+            time.sleep(0.2)
 
             send_button_xpath = '//button[contains(@aria-label, "Send a message") or contains(@aria-label, "Отправить сообщение")][.//i[text()="send"]]'
             send_button = WebDriverWait(self.driver, 10).until(

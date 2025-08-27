@@ -65,16 +65,16 @@ def create_new_vad_model():
     return model
 
 # --- НОВОЕ: Фабрика для TTS-моделей ---
-def create_new_tts_model():
-    """
-    Создает и возвращает НОВЫЙ, ИЗОЛИРОВАННЫЙ экземпляр TTS-модели Silero.
-    Это решает проблему конфликта состояний между потоками.
-    """
-    print("Создание нового экземпляра TTS-модели из кэша...")
-    model, _ = torch.hub.load(repo_or_dir='snakers4/silero-models', model='silero_tts', language='ru', speaker=TTS_MODEL_ID, trust_repo=True)
-    model.to(device)
-    print("✅ Новый экземпляр TTS создан.")
-    return model
+# def create_new_tts_model():
+#     """
+#     Создает и возвращает НОВЫЙ, ИЗОЛИРОВАННЫЙ экземпляр TTS-модели Silero.
+#     Это решает проблему конфликта состояний между потоками.
+#     """
+#     print("Создание нового экземпляра TTS-модели из кэша...")
+#     model, _ = torch.hub.load(repo_or_dir='snakers4/silero-models', model='silero_tts', language='ru', speaker=TTS_MODEL_ID, trust_repo=True)
+#     model.to(device)
+#     print("✅ Новый экземпляр TTS создан.")
+#     return model
 
 # Функция проверки, загружены ли модели
 def check_model_exists(model_identifier, model_type="whisper"):
@@ -137,16 +137,16 @@ def load_silero_vad_model():
     return model, utils, iterator
 
 # Проверка и загрузка модели TTS
-def load_tts_model():
-    if check_model_exists("silero-models", "torch_hub"):
-        print(f"TTS модель {TTS_MODEL_ID} найдена в /workspace, загружаем...")
-    else:
-        print(f"TTS модель {TTS_MODEL_ID} не найдена, загружаем в /workspace...")
+# def load_tts_model():
+#     if check_model_exists("silero-models", "torch_hub"):
+#         print(f"TTS модель {TTS_MODEL_ID} найдена в /workspace, загружаем...")
+#     else:
+#         print(f"TTS модель {TTS_MODEL_ID} не найдена, загружаем в /workspace...")
     
-    tts_model, _ = torch.hub.load(repo_or_dir='snakers4/silero-models', model='silero_tts', language='ru', speaker=TTS_MODEL_ID, trust_repo=True)
-    tts_model.to(device)
-    print("TTS model loaded.")
-    return tts_model
+#     tts_model, _ = torch.hub.load(repo_or_dir='snakers4/silero-models', model='silero_tts', language='ru', speaker=TTS_MODEL_ID, trust_repo=True)
+#     tts_model.to(device)
+#     print("TTS model loaded.")
+#     return tts_model
 
 # Проверка и загрузка конфига диаризации
 def load_diarizer_config():
@@ -165,9 +165,9 @@ def load_diarizer_config():
 print("=== Начинаем загрузку моделей в /workspace ===")
 asr_model = load_asr_model()
 
-tts_model = load_tts_model()
+# tts_model = load_tts_model()
 diarizer_config = load_diarizer_config()
 print("=== Все модели успешно загружены ===")
 
 # Экспортируем загруженные модели
-__all__ = ['llm_model', 'asr_model', 'create_new_tts_model', 'diarizer_config', 'create_new_vad_model', 'create_new_tts_model']
+__all__ = ['llm_model', 'asr_model', 'diarizer_config', 'create_new_vad_model']

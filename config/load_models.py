@@ -99,7 +99,7 @@ def load_asr_model():
             token=hf_token
         )
         print(f"ASR модель скачана в: {local_path}")
-    asr_model = WhisperModel(local_path, compute_type="float16")   # compute_type="int8_float16" Подумать над этим
+    asr_model = WhisperModel(local_path, compute_type="float32")   # compute_type="int8_float16" Подумать над этим
     print("ASR model loaded.")
     return asr_model
 
@@ -126,4 +126,4 @@ asr_model = load_asr_model()
 print("=== Все модели успешно загружены ===")
 
 # Экспортируем загруженные модели
-__all__ = ['llm_model', 'asr_model', 'create_new_tts_model', 'diarizer_config', 'create_new_vad_model', 'create_new_tts_model']
+__all__ = ['llm_model', 'asr_model', 'create_new_vad_model']

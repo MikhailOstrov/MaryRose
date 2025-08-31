@@ -1,7 +1,6 @@
 import logging
 from fastapi import FastAPI
 
-from api import websocket_gateway
 
 from server.TG_Bot.tg_bot_handlers import router as tg_bot_router
 from server.Google_Meet.meet_bot_handlers import router as bot_control_router
@@ -19,7 +18,6 @@ app = FastAPI(
 
 app.include_router(bot_control_router)
 
-app.include_router(websocket_gateway.router, prefix="/ws")
 
 app.include_router(tg_bot_router)
 

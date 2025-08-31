@@ -1,4 +1,4 @@
-from config.config import SUMMARY_PROMPT, TITLE_PROMPT, ASSISTANT_PROMPT, TG_PROMPT
+from config.config import SUMMARY_PROMPT, TITLE_PROMPT, ASSISTANT_PROMPT
 from config.load_models import CLIENT
 
 # Функция для суммаризации

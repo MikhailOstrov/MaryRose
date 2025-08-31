@@ -26,9 +26,7 @@ from config.config import (STREAM_SAMPLE_RATE,SILENCE_THRESHOLD_FRAMES, MEET_FRA
                            MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME, STREAM_TRIGGER_WORD, CHROME_PROFILE_DIR,
                            MEET_GUEST_NAME, SUMMARY_OUTPUT_DIR, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, STREAM_STOP_WORD_3, WORDS_FOR_INVESTORS)
 from handlers.llm_handler import get_mary_response, get_summary_response, get_title_response
-from config.load_models import create_new_vad_model, asr_model, create_new_tts_model
-from api.utils import combine_audio_chunks
-from handlers.tts_handler import synthesize_speech_to_bytes
+from config.load_models import create_new_vad_model, asr_model
 from api.audio_manager import VirtualAudioManager
 import shutil
 from pathlib import Path
@@ -51,7 +49,6 @@ class MeetListenerBot:
         self.is_running.set()
 
         self.vad = create_new_vad_model()
-        self.tts = create_new_tts_model()
         self.asr_model = asr_model # Whisper (from config.load_models import asr_model)
         self.summary_output_dir = SUMMARY_OUTPUT_DIR # Директория сохранения summary
         self.joined_successfully = False 
@@ -420,50 +417,6 @@ class MeetListenerBot:
             logger.warning(f"[{self.meeting_id}] PULSE_DEBUG: Команда 'pactl list sink-inputs' не вернула успешный результат. Возможно, нет активных потоков. Output: {e.stdout.strip()} Stderr: {e.stderr.strip()}")
         except Exception as e:
             logger.error(f"[{self.meeting_id}] PULSE_DEBUG: Неожиданная ошибка при получении состояния PulseAudio: {e}")
-
-    
-
-    def _speak_via_meet(self, text: str):
-        """
-        Синтезирует TTS и проигрывает его в УНИКАЛЬНЫЙ sink этого бота.
-        """
-        if not text:
-            return
-        try:
-            audio_bytes = synthesize_speech_to_bytes(text, self.tts)
-            if not audio_bytes:
-                logger.warning(f"[{self.meeting_id}] TTS вернул пустые байты для текста: '{text}'")
-                return
-            print("Включаю микрофон")
-            toggled_on = False
-            try:
-        
-                self.toggle_mic_hotkey()
-                toggled_on = True
-                time.sleep(0.3)
-
-                logger.info(f"[{self.meeting_id}] ROUTING_CHECK: Попытка воспроизвести звук в конкретный sink: '{self.sink_name}'")
-                
-                subprocess.run(
-                    ["paplay", "-d", self.sink_name, "/dev/stdin"],
-                    input=audio_bytes,
-                    capture_output=True,
-                    check=True,
-                    timeout=20
-                )
-                logger.info(f"[{self.meeting_id}] ✅ Ответ ассистента успешно озвучен в '{self.sink_name}'.")
-
-            except subprocess.CalledProcessError as e:
-                logger.error(f"[{self.meeting_id}] ❌ Ошибка выполнения paplay для sink '{self.sink_name}': {e.stderr.strip()}")
-            except Exception as e:
-                logger.error(f"[{self.meeting_id}] ❌ Ошибка во время автоозвучки для sink '{self.sink_name}': {e}.")
-            finally:
-                if toggled_on:
-                    time.sleep(0.2)
-                    self.toggle_mic_hotkey()
-
-        except Exception as e:
-            logger.error(f"[{self.meeting_id}] ❌ Критическая ошибка в _speak_via_meet: {e}")
 
     # Присоединение в Google Meet
     def join_meet_as_guest(self):

@@ -25,7 +25,7 @@ from huggingface_hub import login, snapshot_download
 from omegaconf import OmegaConf
 import torch
 import wget
-from config import ASR_MODEL_NAME, TTS_MODEL_ID, DIAR_SPEAKER_MODEL, DIAR_CONFIG_URL
+from config import ASR_MODEL_NAME
 from dotenv import load_dotenv
 
 load_dotenv() 
@@ -35,11 +35,6 @@ hf_token = os.getenv("HUGGING_FACE_HUB_TOKEN")
 
 # Клиент от OpenAI моделей
 CLIENT = OpenAI(
-    api_key=os.getenv("PROXY_API"),
-    base_url=os.getenv("BASE_OPENAI_URL"),
-)
-
-CLIENT_AS = AsyncOpenAI(
     api_key=os.getenv("PROXY_API"),
     base_url=os.getenv("BASE_OPENAI_URL"),
 )
@@ -62,18 +57,6 @@ def create_new_vad_model():
                               model='silero_vad',
                               force_reload=False)
     print("✅ Новый экземпляр VAD создан.")
-    return model
-
-# --- НОВОЕ: Фабрика для TTS-моделей ---
-def create_new_tts_model():
-    """
-    Создает и возвращает НОВЫЙ, ИЗОЛИРОВАННЫЙ экземпляр TTS-модели Silero.
-    Это решает проблему конфликта состояний между потоками.
-    """
-    print("Создание нового экземпляра TTS-модели из кэша...")
-    model, _ = torch.hub.load(repo_or_dir='snakers4/silero-models', model='silero_tts', language='ru', speaker=TTS_MODEL_ID, trust_repo=True)
-    #model.to(device)
-    print("✅ Новый экземпляр TTS создан.")
     return model
 
 # Функция проверки, загружены ли модели
@@ -136,37 +119,10 @@ def load_silero_vad_model():
                            threshold=0.1)
     return model, utils, iterator
 
-# Проверка и загрузка модели TTS
-def load_tts_model():
-    if check_model_exists("silero-models", "torch_hub"):
-        print(f"TTS модель {TTS_MODEL_ID} найдена в /workspace, загружаем...")
-    else:
-        print(f"TTS модель {TTS_MODEL_ID} не найдена, загружаем в /workspace...")
-    
-    tts_model, _ = torch.hub.load(repo_or_dir='snakers4/silero-models', model='silero_tts', language='ru', speaker=TTS_MODEL_ID, trust_repo=True)
-    tts_model.to(device)
-    print("TTS model loaded.")
-    return tts_model
-
-# Проверка и загрузка конфига диаризации
-def load_diarizer_config():
-    config_path = Path("/workspace/models/diar_infer_telephonic.yaml")
-    if not config_path.exists():
-        print("Diarizer конфигурация не найдена, загружаем...")
-        wget.download(DIAR_CONFIG_URL, str(config_path))
-    else:
-        print("Diarizer конфигурация найдена в /workspace")
-    
-    config = OmegaConf.load(config_path)
-    config.diarizer.speaker_embeddings.model_path = DIAR_SPEAKER_MODEL
-    return config
 
 # Загрузка моделей при импорте модуля
 print("=== Начинаем загрузку моделей в /workspace ===")
 asr_model = load_asr_model()
-
-tts_model = load_tts_model()
-diarizer_config = load_diarizer_config()
 print("=== Все модели успешно загружены ===")
 
 # Экспортируем загруженные модели

@@ -10,7 +10,3 @@ class StopRequest(BaseModel):
 
 class WebsiteSessionStartRequest(BaseModel):
     meeting_id: int
-
-class TextPayload(BaseModel):
-    text: str
-    chat_id: int

@@ -4,7 +4,6 @@ BASE_DIR = Path(__file__).resolve().parent
 AUDIO_FILES_DIR = BASE_DIR / "audio_files"
 USER_DATA_DIR = BASE_DIR / "user_data"
 MEETINGS_DIR = AUDIO_FILES_DIR / "meetings" # Для записей встреч
-TTS_OUTPUT_DIR = BASE_DIR / "static" / "tts_output"
 CHROME_PROFILE_DIR = BASE_DIR / "chrome_profile" # Для хранения сессии  Google
 SUMMARY_OUTPUT_DIR = BASE_DIR / "summary"
 MEET_INPUT_DEVICE_NAME = "pulse"
@@ -18,20 +17,10 @@ def ensure_dirs_exist():
 
 ASR_MODEL_NAME = "deepdml/faster-whisper-large-v3-turbo-ct2" # Модель Whisper 
 
-TTS_MODEL_ID = 'v4_ru' # Модель TTS
-TTS_SPEAKER = 'xenia' # Спикер TTS
-TTS_SAMPLE_RATE = 48000 # Частота TTS
-
-# Модели и файлы для диаризации
-SPEAKER_MODEL_NAME = "titanet_large"
-DIAR_CONFIG_URL = 'https://raw.githubusercontent.com/NVIDIA/NeMo/main/examples/speaker_tasks/diarization/conf/inference/diar_infer_telephonic.yaml'
-DIAR_SPEAKER_MODEL = 'ecapa_tdnn'
-
 STREAM_SAMPLE_RATE = 16000 # Частота для аудиочанков
 MEET_FRAME_DURATION_MS = 30 # Размер чанка
 MEET_PAUSE_THRESHOLD_S = 1  # Пауза в секундах перед завершением записи
 SILENCE_THRESHOLD_FRAMES = 16 # Для определения пауз в речи
-#ladno --- sosi pisku Roma
 
 STREAM_TRIGGER_WORD = "мэри" # Триггер для работы Мэри
 
@@ -88,7 +77,3 @@ SUMMARY_PROMPT = '''
 Очень важно, чтобы задачи дл участников были вно указаны в разговоре (пример: Михаилу до завтра нужно разработать прототип приложения), иначе не записывай ничего в задачи.
 Оформление таблицы — в Markdown.
 '''
-
-TG_PROMPT = """
-Ты — умный русскоязычный помощник по имени Мэри. Отвечай только на русском языке, кратко и по существу. Дай четкий и полезный ответ. Не используй символов markdown, максимум ----- между абзацами.
-"""

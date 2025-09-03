@@ -24,9 +24,10 @@ import subprocess
 
 from config.config import (STREAM_SAMPLE_RATE,SILENCE_THRESHOLD_FRAMES, MEET_FRAME_DURATION_MS,
                            MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME, STREAM_TRIGGER_WORD, CHROME_PROFILE_DIR,
-                           MEET_GUEST_NAME, SUMMARY_OUTPUT_DIR, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, STREAM_STOP_WORD_3, WORDS_FOR_INVESTORS)
-from handlers.llm_handler import get_mary_response, get_summary_response, get_title_response
+                           MEET_GUEST_NAME, SUMMARY_OUTPUT_DIR, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, STREAM_STOP_WORD_3)
+from handlers.llm_handler import llm_response, llm_response_after_kb, get_summary_response, get_title_response
 from config.load_models import create_new_vad_model, asr_model
+from utils.kb_requests import get_info_from_kb, save_info_in_kb
 from api.audio_manager import VirtualAudioManager
 import shutil
 from pathlib import Path
@@ -49,7 +50,6 @@ class MeetListenerBot:
         self.is_running.set()
 
         self.vad = create_new_vad_model()
-        self.tts = create_new_tts_model()
         self.asr_model = asr_model # Whisper (from config.load_models import asr_model)
         self.summary_output_dir = SUMMARY_OUTPUT_DIR # Директория сохранения summary
         self.joined_successfully = False 
@@ -672,25 +672,29 @@ class MeetListenerBot:
 
                                             if STREAM_STOP_WORD_1 in clean_transcription or STREAM_STOP_WORD_2 in clean_transcription or STREAM_STOP_WORD_3 in clean_transcription:
                                                 logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")
-                                                response = "Дайте денек, пажэ."
                                                 # self._speak_via_meet(response, pipeline_start_time)
                                                 self.stop()
-                                            elif WORDS_FOR_INVESTORS in clean_transcription:
-                                                logger.info(f"[{self.meeting_id}] Ща буит")
-                                                response = "Где деньги, суки, а?"
-                                                # self._speak_via_meet(response, pipeline_start_time)
                                             else:
                                                 logger.info(f"[{self.meeting_id}] Мэри услышала вас")
-                                                response = get_mary_response(transcription)
-                                                logger.info(f"[{self.meeting_id}] Ответ от Мэри: {response}")
                                                 try:
+                                                    key, response = llm_response(transcription)
+                                                    logger.info(f"Ответ от LLM: {key, response}")
                                                     if response:
                                                         print("Отправляю ответ в чат...")
+
+                                                    if key == 0:
+                                                        save_info_in_kb(response, self.email)
+                                                        self.send_chat_message("Текст сохранен.")
+                                                    elif key == 1:
+                                                        info_from_kb = get_info_from_kb(response, self.email)
+                                                        if info_from_kb == None:
+                                                            self.send_chat_message("Не нашла информации в вашей базе знаний.")
+                                                    elif key == 3:
                                                         self.send_chat_message(response)
+
                                                 except Exception as chat_err:
                                                     logger.error(f"[{self.meeting_id}] Ошибка при отправке ответа в чат: {chat_err}")
 
-                                        # Если триггерного слова нет, сбрасываем таймер
                                         else:
                                             pipeline_start_time = None
             except queue.Empty:

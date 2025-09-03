@@ -35,7 +35,7 @@ async def start_processing(request: StartRequest):
     if get_bot_status(request.meeting_id) == "active":
         raise HTTPException(status_code=400, detail=f"Бот для встречи {request.meeting_id} уже запущен.")
 
-    success = start_bot_process(request.meeting_id, request.meet_url)
+    success = start_bot_process(request.meeting_id, request.meet_url, request.email)
     
     if not success:
         raise HTTPException(status_code=500, detail="Не удалось запустить процесс бота.")

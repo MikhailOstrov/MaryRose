@@ -39,10 +39,11 @@ CHROME_LAUNCH_LOCK = threading.Lock()
 class MeetListenerBot:
 
     # Определение атрибутов класса
-    def __init__(self, meeting_url: str, meeting_id: str):
+    def __init__(self, meeting_url: str, meeting_id: str, email: str):
 
         self.meeting_url = meeting_url # Ссылка на Google Meet
         self.meeting_id = meeting_id # ID для отслеживания сессии
+        self.email = email # Email пользователя
         self.driver = None 
         self.audio_queue = queue.Queue() # Для аудиопотока
 

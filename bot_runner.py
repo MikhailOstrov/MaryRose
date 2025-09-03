@@ -38,6 +38,7 @@ def main():
     parser = argparse.ArgumentParser(description="Запускает изолированный экземпляр бота для Google Meet.")
     parser.add_argument("--meeting-id", required=True, help="Уникальный ID для сессии бота.")
     parser.add_argument("--meet-url", required=True, help="URL для подключения к встрече Google Meet.")
+    parser.add_argument("--email", required=True, help="Email пользователя для поиска.")
     args = parser.parse_args()
 
     # Устанавливаем обработчики сигналов
@@ -48,7 +49,11 @@ def main():
 
     try:
         # Создаем экземпляр бота и сохраняем его в глобальную переменную
-        bot_instance = MeetListenerBot(meeting_url=args.meet_url, meeting_id=args.meeting_id)
+        bot_instance = MeetListenerBot(
+            meeting_url=args.meet_url,
+            meeting_id=args.meeting_id,
+            email=args.email
+        )
         # Запускаем основной цикл работы бота. Этот вызов блокирующий.
         bot_instance.run()
     except Exception as e:

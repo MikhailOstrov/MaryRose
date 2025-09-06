@@ -19,7 +19,7 @@ async def save_info_in_kb(text: str, email: str):
 
 async def get_info_from_kb(query: str, text: str, email: str):
 
-    url = "https://maryrose.by/meetings/knowledge/search"
+    url = "https://maryrose.by/knowledge/search"
     async with httpx.AsyncClient() as client:
         response = await client.post(
             url, json={"query": query, "chat_id": email}, timeout=30.0

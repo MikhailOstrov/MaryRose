@@ -23,7 +23,7 @@ from huggingface_hub import snapshot_download
 from dotenv import load_dotenv
 import torch
 
-from config import ASR_MODEL_NAME, hf_token
+from config.config import ASR_MODEL_NAME, hf_token
 
 load_dotenv() 
 

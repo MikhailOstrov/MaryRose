@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime
 import json
 
 from config.config import SUMMARY_PROMPT, TITLE_PROMPT, CLIENT

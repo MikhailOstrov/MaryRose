@@ -1,4 +1,8 @@
+import os
 from pathlib import Path
+from openai import OpenAI
+from huggingface_hub import login, snapshot_download
+import torch
 
 BASE_DIR = Path(__file__).resolve().parent
 AUDIO_FILES_DIR = BASE_DIR / "audio_files"
@@ -15,6 +19,21 @@ def ensure_dirs_exist():
     for path in [USER_DATA_DIR, MEETINGS_DIR, CHROME_PROFILE_DIR, MEET_AUDIO_CHUNKS_DIR]:
         path.mkdir(parents=True, exist_ok=True)
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+hf_token = os.getenv("HUGGING_FACE_HUB_TOKEN")
+
+# Клиент от OpenAI моделей
+CLIENT = OpenAI(
+    api_key=os.getenv("PROXY_API"),
+    base_url=os.getenv("BASE_OPENAI_URL"),
+)
+
+if hf_token:
+    login(token=hf_token)
+    print("Успешный вход в Hugging Face.")
+else:
+    print(f"Токен Hugging Face не найден в переменных окружения. {hf_token}")
+
 ASR_MODEL_NAME = "deepdml/faster-whisper-large-v3-turbo-ct2" # Модель Whisper 
 
 STREAM_SAMPLE_RATE = 16000 # Частота для аудиочанков
@@ -29,9 +48,6 @@ STREAM_STOP_WORD_1 = "стоп"
 STREAM_STOP_WORD_2 = "закончи встречу"
 STREAM_STOP_WORD_3 = "заверши встречу"
 
-WORDS_FOR_INVESTORS = "скажи что-то инвесторам"
-#really fast 
-# Промпты для Llama 
 ASSISTANT_PROMPT = """
 Ты — умный русскоязычный помощник по имени Мэри. Отвечай только на русском языке, кратко и по существу. Дай четкий и полезный ответ.
 Все цифры нужно писать словами, например: два, двадцать три и т.п.

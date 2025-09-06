@@ -1,8 +1,7 @@
 import datetime
 import json
 
-from config.config import SUMMARY_PROMPT, TITLE_PROMPT, ASSISTANT_PROMPT
-from config.load_models import CLIENT
+from config.config import SUMMARY_PROMPT, TITLE_PROMPT, CLIENT
 
 # Функция для суммаризации
 def get_summary_response(cleaned_dialogue: str) -> str:
@@ -27,20 +26,6 @@ def get_title_response(cleaned_dialogue: str) -> str:
         ]
     )
     return chat_completion.choices[0].message.content
-
-'''
-# Функция ответа от Мэри
-def get_mary_response(command: str) -> str:
-
-    chat_completion = CLIENT.chat.completions.create(
-        model="openai/gpt-4o-mini", 
-        messages=[
-            {"role": "system", "content": ASSISTANT_PROMPT},
-            {"role": "user", "content": command}
-        ]
-    )
-    return chat_completion.choices[0].message.content
-'''
 
 now = datetime.now()
 date = now.strftime("%d.%m.%Y")

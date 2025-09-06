@@ -1,7 +1,5 @@
 import os
 from pathlib import Path
-from openai import OpenAI
-from openai import AsyncOpenAI
 
 # Настройка путей для RunPod (модели сохраняются в персистентный /workspace)
 os.environ['HOME'] = '/app'
@@ -21,38 +19,17 @@ for dir_path in workspace_dirs:
     print(f"Создана директория: {dir_path}")
 
 from faster_whisper import WhisperModel
-from huggingface_hub import login, snapshot_download
-from omegaconf import OmegaConf
-import torch
-import wget
-from config import ASR_MODEL_NAME
+from huggingface_hub import snapshot_download
 from dotenv import load_dotenv
+import torch
+
+from config import ASR_MODEL_NAME, hf_token
 
 load_dotenv() 
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-hf_token = os.getenv("HUGGING_FACE_HUB_TOKEN")
-
-# Клиент от OpenAI моделей
-CLIENT = OpenAI(
-    api_key=os.getenv("PROXY_API"),
-    base_url=os.getenv("BASE_OPENAI_URL"),
-)
-
-if hf_token:
-    login(token=hf_token)
-    print("Успешный вход в Hugging Face.")
-else:
-    print(f"Токен Hugging Face не найден в переменных окружения. {hf_token}")
-
-# --- ИЗМЕНЕНИЕ 1: Создаем "фабрику" для VAD-моделей ---
+# Создает и возвращает НОВЫЙ, ИЗОЛИРОВАННЫЙ экземпляр VAD-модели Silero. Использует кэш, чтобы не скачивать модель каждый раз.
 def create_new_vad_model():
-    """
-    Создает и возвращает НОВЫЙ, ИЗОЛИРОВАННЫЙ экземпляр VAD-модели Silero.
-    Использует кэш, чтобы не скачивать модель каждый раз.
-    """
     print("Создание нового экземпляра VAD-модели из кэша...")
-    # force_reload=False гарантирует использование кэша, если он есть
     model, _ = torch.hub.load(repo_or_dir='snakers4/silero-vad',
                               model='silero_vad',
                               force_reload=False)
@@ -80,7 +57,6 @@ def check_model_exists(model_identifier, model_type="whisper"):
 
 # Проверка и загрузка Whisper
 def load_asr_model():
-    # Пытаемся найти локально, иначе скачиваем и кэшируем
     print(f"Проверка локального кэша для ASR модели: {ASR_MODEL_NAME}")
     try:
         local_path = snapshot_download(
@@ -99,26 +75,9 @@ def load_asr_model():
             token=hf_token
         )
         print(f"ASR модель скачана в: {local_path}")
-    asr_model = WhisperModel(local_path, compute_type="float32")   # compute_type="int8_float16" Подумать над этим
+    asr_model = WhisperModel(local_path, compute_type="float16")
     print("ASR model loaded.")
     return asr_model
-
-# Проверка и загрузка Whisper
-def load_silero_vad_model():
-    if check_model_exists("silero-vad", "torch_hub"):
-        print("Silero VAD модель найдена в /workspace, загружаем...")
-    else:
-        print("Silero VAD модель не найдена, загружаем в /workspace...")
-    
-    model, utils = torch.hub.load(repo_or_dir='snakers4/silero-vad',
-                                  model='silero_vad',
-                                  force_reload=False)
-    print("Silero VAD model loaded.")
-    (get_speech_timestamps, _, _, VADIterator, _) = utils
-    iterator = VADIterator(model,
-                           threshold=0.1)
-    return model, utils, iterator
-
 
 # Загрузка моделей при импорте модуля
 print("=== Начинаем загрузку моделей в /workspace ===")

@@ -17,7 +17,7 @@ async def save_info_in_kb(text: str, email: str):
 
     logging.info(f"Текст '{text}' успешно отправлен в БЗ")
 
-async def get_info_from_kb(query: str, text: str, email: str):
+async def get_info_from_kb(query: str, email: str):
 
     url = "https://maryrose.by/knowledge/search"
     async with httpx.AsyncClient() as client:

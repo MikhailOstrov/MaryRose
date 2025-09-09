@@ -55,7 +55,6 @@ class MeetListenerBot:
         meeting_id=self.meeting_id,
         audio_queue=self.audio_queue,
         is_running=self.is_running,
-        meeting_start_time=self.meeting_start_time,
         email=self.email,
         send_chat_message=self.send_chat_message,
         stop=self.stop

@@ -1,6 +1,7 @@
 import requests
-from config.config import logger
 import os
+
+from config.config import logger
 
 # Функция отправки результатов на внешний сервер
 def send_results_to_backend(meeting_id: int, full_text: str, summary: str, title: str):

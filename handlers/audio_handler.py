@@ -6,7 +6,7 @@ import numpy as np
 import torch
 import re
 
-from llm_handler import llm_response, get_summary_response, get_title_response
+from handlers.llm_handler import llm_response, get_summary_response, get_title_response
 from utils.kb_requests import save_info_in_kb, get_info_from_kb
 from config.config import (STREAM_SAMPLE_RATE, STREAM_TRIGGER_WORD, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, MEET_AUDIO_CHUNKS_DIR,
                         STREAM_STOP_WORD_3, SILENCE_THRESHOLD_FRAMES, MEET_FRAME_DURATION_MS, SUMMARY_OUTPUT_DIR)

@@ -10,12 +10,13 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 import subprocess
+import shutil
+from pathlib import Path
 
 from config.config import STREAM_SAMPLE_RATE, logger, CHROME_PROFILE_DIR, MEET_GUEST_NAME, MEET_AUDIO_CHUNKS_DIR
 from handlers.audio_handler import AudioHandler
 from api.audio_manager import VirtualAudioManager
-import shutil
-from pathlib import Path
+
 
 CHROME_LAUNCH_LOCK = threading.Lock()
 

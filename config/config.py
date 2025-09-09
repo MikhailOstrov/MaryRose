@@ -3,6 +3,7 @@ from pathlib import Path
 from openai import OpenAI
 from huggingface_hub import login, snapshot_download
 import torch
+import logging
 
 BASE_DIR = Path(__file__).resolve().parent
 AUDIO_FILES_DIR = BASE_DIR / "audio_files"
@@ -13,6 +14,8 @@ SUMMARY_OUTPUT_DIR = BASE_DIR / "summary"
 MEET_INPUT_DEVICE_NAME = "pulse"
 MEET_GUEST_NAME = "Mary" # Имя ассистента
 MEET_AUDIO_CHUNKS_DIR = AUDIO_FILES_DIR / "meet_chunks" 
+
+logger = logging.getLogger(__name__)
 
 def ensure_dirs_exist():
     """Создает все необходимые директории."""

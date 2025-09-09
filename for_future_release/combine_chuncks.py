@@ -1,3 +1,4 @@
+'''
 import glob
 import os
 import logging
@@ -24,3 +25,17 @@ def combine_audio_chunks(output_dir, stream_sample_rate, meeting_id, output_file
 
     sf.write(output_filepath, combined_audio, stream_sample_rate)
     logger.info(f"[{meeting_id}] Все аудиофрагменты успешно объединены в: '{output_filepath}'")
+
+    # Сохранение аудиочанков
+    def _save_chunk(self, audio_np):
+        """Сохраняет аудио-чанк в файл WAV."""
+        if audio_np.size == 0:
+            return
+        filename = f'chunk_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{uuid4().hex[:6]}.wav'
+        file_path = self.output_dir / filename
+        try:
+            sf.write(file_path, audio_np, STREAM_SAMPLE_RATE)
+            logger.info(f"💾 Фрагмент сохранен: {filename} (длительность: {len(audio_np)/STREAM_SAMPLE_RATE:.2f} сек)")
+        except Exception as e:
+            logger.error(f"❌ Ошибка при сохранении аудиофрагмента: {e}")
+'''

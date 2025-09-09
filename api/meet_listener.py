@@ -1,38 +1,21 @@
 import os
-import re
 import time
 import queue
 import threading
-import logging
 import random
-import requests
 from undetected_chromedriver.patcher import Patcher
 from datetime import datetime
-from uuid import uuid4
-import torch
-import numpy as np
-from scipy.io.wavfile import write
-import sounddevice as sd
-import soundfile as sf
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.common.action_chains import ActionChains
 import subprocess
 
-from config.config import (STREAM_SAMPLE_RATE,SILENCE_THRESHOLD_FRAMES, MEET_FRAME_DURATION_MS,
-                           MEET_AUDIO_CHUNKS_DIR, MEET_INPUT_DEVICE_NAME, STREAM_TRIGGER_WORD, CHROME_PROFILE_DIR,
-                           MEET_GUEST_NAME, SUMMARY_OUTPUT_DIR, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, STREAM_STOP_WORD_3)
-from handlers.llm_handler import llm_response, llm_response_after_kb, get_summary_response, get_title_response
-from config.load_models import create_new_vad_model, asr_model
-from utils.kb_requests import get_info_from_kb, save_info_in_kb
+from config.config import STREAM_SAMPLE_RATE, logger, CHROME_PROFILE_DIR, MEET_GUEST_NAME, MEET_AUDIO_CHUNKS_DIR
+from handlers.audio_handler import AudioHandler
 from api.audio_manager import VirtualAudioManager
 import shutil
 from pathlib import Path
-
-logger = logging.getLogger(__name__)
 
 CHROME_LAUNCH_LOCK = threading.Lock()
 
@@ -49,41 +32,33 @@ class MeetListenerBot:
 
         self.is_running = threading.Event()
         self.is_running.set()
-
-        self.vad = create_new_vad_model()
-        self.asr_model = asr_model # Whisper (from config.load_models import asr_model)
-        self.summary_output_dir = SUMMARY_OUTPUT_DIR # Директория сохранения summary
+        self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.meeting_id 
         self.joined_successfully = False 
 
-        self.frame_size = int(STREAM_SAMPLE_RATE * MEET_FRAME_DURATION_MS / 1000) # Для VAD-модели (длительность чанка)
-        self.silent_frames_threshold = SILENCE_THRESHOLD_FRAMES # Пауза в речи в сек.
-
-        self.global_offset = 0.0
-        self.all_segments = []
-
-        # --- ИЗМЕНЕНИЕ 1: Создание уникальных путей для изоляции ---
-        # Уникальная директория для аудио-чанков этой сессии
-        self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.meeting_id 
         os.makedirs(self.output_dir, exist_ok=True)
         logger.info(f"[{self.meeting_id}] Аудиофрагменты будут сохраняться в: '{self.output_dir}'")
         
-        # Уникальная директория для профиля Chrome этой сессии
         self.chrome_profile_path = Path(CHROME_PROFILE_DIR) / self.meeting_id
-        # Гарантированно очищаем старый профиль, если он остался от предыдущего сбойного запуска
+
         if self.chrome_profile_path.exists():
             shutil.rmtree(self.chrome_profile_path)
         os.makedirs(self.chrome_profile_path, exist_ok=True)
         logger.info(f"[{self.meeting_id}] Временный профиль Chrome создан в: '{self.chrome_profile_path}'")
-        # --- КОНЕЦ ИЗМЕНЕНИЯ 1 ---
 
-        
-        # Инициализация нашего менеджера аудиоустройств
         self.audio_manager = VirtualAudioManager(self.meeting_id)
-        # Эти имена будут использоваться для привязки Chrome и воспроизведения звука
         self.sink_name = self.audio_manager.sink_name
-        # self.source_name = self.audio_manager.source_name
         self.monitor_name = self.audio_manager.monitor_name
         self.post_processing_thread = None
+
+        self.audio_handler = AudioHandler(
+            meeting_id=self.meeting_id,
+            audio_queue=self.audio_queue,
+            is_running=self.is_running,
+            meeting_start_time=self.meeting_start_time,
+            email=self.email,
+            send_chat_message=self.send_chat_message,
+            stop=self.stop
+        )
 
     # Отслеживание кол-ва участников
     def _monitor_participants(self):
@@ -130,16 +105,9 @@ class MeetListenerBot:
     
     # Инициализация драйвера для подключения
     def _initialize_driver(self):
-        """
-        Инициализирует драйвер с ПОЛНОЙ ИЗОЛЯЦИЕЙ:
-        1. Использует уникальную копию бинарного файла chromedriver.
-        2. Использует уникальный порт для remote debugging.
-        3. Использует переменные окружения PulseAudio для изоляции звука.
-        """
+
         logger.info(f"[{self.meeting_id}] Полная изоляция и запуск Chrome...")
 
-        # --- ШАГ 1: Создаем уникальную копию chromedriver ---
-        # Это предотвратит конфликт, когда несколько ботов пытаются патчить один и тот же файл
         try:
             # Находим путь к оригинальному, кэшированному chromedriver
             patcher = Patcher()
@@ -154,9 +122,6 @@ class MeetListenerBot:
             logger.error(f"[{self.meeting_id}] Не удалось создать копию chromedriver: {e}. Продолжаю с драйвером по умолчанию.")
             driver_copy_path = None
 
-
-        # --- ШАГ 2: Блокировка для безопасного изменения os.environ ---
-        # Эта часть остается, так как изменение env переменных - глобальная операция
         with CHROME_LAUNCH_LOCK:
             logger.info(f"[{self.meeting_id}] Блокировка получена. Настройка PulseAudio env vars...")
             
@@ -174,9 +139,7 @@ class MeetListenerBot:
                 opt.add_argument('--disable-dev-shm-usage')
                 opt.add_argument('--window-size=1280,720')
                 opt.add_argument(f'--user-data-dir={self.chrome_profile_path}')
-                
-                # --- ШАГ 3: Используем уникальный порт ---
-                # Это дополнительная мера гигиены для предотвращения конфликтов
+
                 port = random.randint(10000, 20000)
                 opt.add_argument(f'--remote-debugging-port={port}')
                 logger.info(f"[{self.meeting_id}] Используется порт для отладки: {port}")
@@ -234,35 +197,8 @@ class MeetListenerBot:
         except Exception as e:
             logger.warning(f"[{self.meeting_id}] Не удалось сохранить скриншот '{name}': {e}")
 
-    # def toggle_mic_hotkey(self):
-    #     """Простая эмуляция Ctrl+D для переключения микрофона в Meet.
-    #     Без дополнительных проверок состояния и наличия кнопки.
-    #     """
-    #     try:
-    #         # Стараемся сфокусировать страницу и убрать возможный фокус с инпутов
-    #         try:
-    #             self.driver.execute_script("window.focus();")
-    #         except Exception:
-    #             pass
-    #         try:
-    #             body = self.driver.find_element(By.TAG_NAME, 'body')
-    #             body.click()
-    #         except Exception:
-    #             pass
-
-    #         actions = ActionChains(self.driver)
-    #         actions.key_down(Keys.CONTROL).send_keys('d').key_up(Keys.CONTROL).perform()
-    #         logger.info(f"[{self.meeting_id}] Отправлено сочетание Ctrl+D (toggle mic)")
-    #     except Exception as e:
-    #         logger.warning(f"[{self.meeting_id}] Не удалось отправить Ctrl+D: {e}")
-
     def _handle_mic_dialog(self) -> bool:
-        """
-        Быстрый JS-скан диалога выбора микрофона с общим лимитом ~7-8 секунд.
-        1) До 5 сек ищем кнопку "с микрофоном" (RU/EN) и кликаем.
-        2) Если не нашли — до 2 сек пробуем "без микрофона".
-        Возвращает True, если был найден и нажат любой вариант (с/без микрофона), иначе False.
-        """
+
         logger.info(f"[{self.meeting_id}] [MicDialog] Старт обработки диалога микрофона")
         with_mic_variants = [
             "use microphone", "join with microphone", "use your microphone",
@@ -305,70 +241,6 @@ class MeetListenerBot:
         logger.info(f"[{self.meeting_id}] Диалог микрофона не найден за {time.time()-t0:.2f}s — продолжаю.")
         return False
 
-
-    # def _handle_chrome_permission_prompt(self):
-    #     """
-    #     Обрабатывает всплывающее окно разрешений Chrome: пытается разрешить доступ к микрофону.
-    #     Безопасно выходим, если промпт отсутствует.
-    #     """
-    #     allow_site_ru = [
-    #         "Разрешить при нахождении на сайте",
-    #     ]
-    #     allow_site_en = [
-    #         "Allow on every visit",
-    #         "Allow while on site",
-    #         "Always allow on this site",
-    #     ]
-    #     allow_once_ru = [
-    #         "Разрешить в этот раз",
-    #     ]
-    #     allow_once_en = [
-    #         "Allow this time",
-    #         "Allow once",
-    #     ]
-
-    #     def try_click_phrases(phrases, timeout_each=2):
-    #         for phrase in phrases:
-    #             xpaths = [
-    #                 f"//button[normalize-space()='{phrase}']",
-    #                 f"//button[contains(., '{phrase}')]",
-    #                 f"//div[@role='button' and normalize-space()='{phrase}']",
-    #                 f"//div[@role='button' and contains(., '{phrase}')]",
-    #                 f"//span[normalize-space()='{phrase}']/ancestor::button",
-    #             ]
-    #             for xp in xpaths:
-    #                 try:
-    #                     btn = WebDriverWait(self.driver, timeout_each).until(
-    #                         EC.element_to_be_clickable((By.XPATH, xp))
-    #                     )
-    #                     self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
-    #                     btn.click()
-    #                     logger.info(f"[{self.meeting_id}] Нажал кнопку разрешения: '{phrase}'")
-    #                     return True
-    #                 except Exception:
-    #                     continue
-    #         return False
-
-    #     try:
-    #         exists = self.driver.execute_script(
-    #             "return !!document.querySelector('button, div[role\\'button\\']') && Array.from(document.querySelectorAll('button, div[role\\'button\\']')).some(el => (el.innerText||'').includes('Разрешить при нахождении') || (el.innerText||'').includes('Allow'));"
-    #         )
-    #         if not exists:
-    #             logger.info(f"[{self.meeting_id}] Баннер разрешений не виден — пропускаю обработку.")
-    #             return
-    #     except Exception:
-    #         pass
-
-    #     if try_click_phrases(allow_site_ru, timeout_each=3) or try_click_phrases(allow_site_en, timeout_each=3):
-    #         # time.sleep(0.1)
-    #         self._save_screenshot("02b_permission_allowed_site")
-    #         return
-    #     if try_click_phrases(allow_once_ru, timeout_each=2) or try_click_phrases(allow_once_en, timeout_each=2):
-    #         # time.sleep(0.1)
-    #         self._save_screenshot("02b_permission_allowed_once")
-    #         return
-    #     logger.info(f"[{self.meeting_id}] Всплывающее окно разрешений не обнаружено.")
-
     def _log_pulse_audio_state(self):
         """
         Выполняет команду 'pactl list sink-inputs', чтобы получить информацию
@@ -377,7 +249,6 @@ class MeetListenerBot:
         try:
             logger.info(f"[{self.meeting_id}] PULSE_DEBUG: Получение снимка состояния аудиопотоков...")
             
-            # Команда 'pactl list sink-inputs' показывает только активные аудиопотоки приложений.
             result = subprocess.run(
                 ["pactl", "list", "sink-inputs"],
                 capture_output=True,
@@ -497,10 +368,7 @@ class MeetListenerBot:
     
     # Поиск и определение аудиоустройства
     def _audio_capture_thread(self):
-        """
-        Запускает `parec` в подпроцессе и читает из него аудиопоток.
-        Это надежная замена для sounddevice.
-        """
+
         threading.current_thread().name = f'AudioCapture-{self.meeting_id}'
         
         # Команда для запуска PulseAudio Recorder (parec)
@@ -572,263 +440,12 @@ class MeetListenerBot:
                 if stderr_output:
                     logger.warning(f"[{self.meeting_id}] stderr от parec: {stderr_output}")
 
-    # Обработка аудиопотока -- транскрибация -- ответ (если обнаружен триггер)
-    def _process_audio_stream(self):
-        threading.current_thread().name = f'VADProcessor-{self.meeting_id}'
-        logger.info(f"[{self.meeting_id}] VAD процессор запущен (Silero).")
-
-        vad_buffer = None
-        VAD_CHUNK_SIZE = 512
-        speech_buffer_for_asr = []
-        is_speaking = False
-        recent_probs = []                     # для сглаживания
-
-        # Настройки
-        vad_threshold = 0.1                   # вероятность речи
-        silence_duration_ms = 600             # сколько тишины нужно для конца речи
-        min_speech_duration = 0.5             # минимальная длина речи
-        sr = STREAM_SAMPLE_RATE
-
-        silence_accum_ms = 0
-        speech_start_walltime = None
-
-        # Таймер для всего пайплайна обработки речи
-        pipeline_start_time = None
-
-        while self.is_running.is_set():
-            try:
-                audio_frame_bytes = self.audio_queue.get(timeout=1)
-                if not audio_frame_bytes:
-                    continue
-
-                audio_np = np.frombuffer(audio_frame_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-                new_audio_tensor = torch.from_numpy(audio_np)
-
-                if vad_buffer is None:
-                    vad_buffer = new_audio_tensor
-                else:
-                    vad_buffer = torch.cat([vad_buffer, new_audio_tensor])
-
-                while vad_buffer is not None and vad_buffer.shape[0] >= VAD_CHUNK_SIZE:
-                    chunk_to_process = vad_buffer[:VAD_CHUNK_SIZE]
-                    vad_buffer = vad_buffer[VAD_CHUNK_SIZE:]
-
-                    speech_prob = self.vad(chunk_to_process, sr).item()
-
-                    recent_probs.append(speech_prob)
-                    if len(recent_probs) > 3:
-                        recent_probs.pop(0)
-                    smooth_prob = sum(recent_probs) / len(recent_probs)
-
-                    now = time.time()
-                    meeting_elapsed_sec = now - self.meeting_start_time
-
-                    if smooth_prob > vad_threshold:
-                        if not is_speaking:
-                            logger.info(f"[{self.meeting_id}] ▶️ Начало речи")
-                            is_speaking = True
-                            speech_start_walltime = meeting_elapsed_sec
-                            pipeline_start_time = time.time()  # Запуск таймера пайплайна
-
-                        speech_buffer_for_asr.append(chunk_to_process.numpy())
-                        silence_accum_ms = 0
-
-                    else:
-                        if is_speaking:
-                            silence_accum_ms += (VAD_CHUNK_SIZE / sr) * 1000
-                            if silence_accum_ms >= silence_duration_ms:
-
-                                if speech_buffer_for_asr:
-
-                                    full_audio_np = np.concatenate(speech_buffer_for_asr)
-                                    speech_buffer_for_asr.clear()
-
-                                    chunk_duration = len(full_audio_np) / 16000.0
-                                    if chunk_duration >= min_speech_duration:
-
-                                        speech_end_walltime = speech_start_walltime + chunk_duration
-
-                                        is_speaking = False
-                                        silence_accum_ms = 0
-
-                                        #self._save_chunk(full_audio_np)
-
-                                        segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
-
-                                        dialog = "\n".join(
-                                            f"[{self.format_time_hms(speech_start_walltime)} - {self.format_time_hms(speech_end_walltime)}] {segment.text.strip()}"
-                                            for segment in segments
-                                        )
-                                        self.all_segments.append(dialog)
-                                        print(dialog)
-
-                                        # Чистый текст без таймингов
-                                        transcription = re.sub(r"\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*", "", dialog)
-
-                                        self.global_offset += chunk_duration
-
-                                        if transcription.lower().lstrip().startswith(STREAM_TRIGGER_WORD):
-
-                                            clean_transcription = ''.join(char for char in transcription.lower() if char.isalnum() or char.isspace())
-
-                                            if STREAM_STOP_WORD_1 in clean_transcription or STREAM_STOP_WORD_2 in clean_transcription or STREAM_STOP_WORD_3 in clean_transcription:
-                                                logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")
-                                                # self._speak_via_meet(response, pipeline_start_time)
-                                                self.stop()
-                                            else:
-                                                logger.info(f"[{self.meeting_id}] Мэри услышала вас")
-                                                try:
-                                                    key, response = llm_response(transcription)
-                                                    logger.info(f"Ответ от LLM: {key, response}")
-                                                    if response:
-                                                        print("Отправляю ответ в чат...")
-
-                                                    if key == 0:
-                                                        save_info_in_kb(response, self.email)
-                                                        self.send_chat_message("Текст сохранен.")
-                                                    elif key == 1:
-                                                        info_from_kb = get_info_from_kb(response, self.email)
-                                                        if info_from_kb == None:
-                                                            self.send_chat_message("Не нашла информации в вашей базе знаний.")
-                                                    elif key == 3:
-                                                        self.send_chat_message(response)
-
-                                                except Exception as chat_err:
-                                                    logger.error(f"[{self.meeting_id}] Ошибка при отправке ответа в чат: {chat_err}")
-
-                                        else:
-                                            pipeline_start_time = None
-            except queue.Empty:
-                if is_speaking and speech_buffer_for_asr:
-                    logger.info(f"[{self.meeting_id}] Тайм-аут, обрабатываем оставшуюся речь.")
-                    is_speaking = False
-                continue
-            except Exception as e:
-                logger.error(f"[{self.meeting_id}] Ошибка в цикле VAD: {e}", exc_info=True)
-
-    # Постобработка: объединение аудиочанков -- запуск диаризации и объединение с транскрибацией -- суммаризация -- генерация заголовка -- отправка результатов на внешний сервер
-    def _perform_post_processing(self):
-        """
-        Выполняет всю постобработку: объединение аудио, транскрипцию,
-        диаризацию и суммаризацию. Вызывается в отдельном потоке.
-        """
-        threading.current_thread().name = f'PostProcessor-{self.meeting_id}'
-        logger.info(f"[{self.meeting_id}] Начинаю постобработку...")
-
-        try:
-            '''
-            # Объединение аудио чанков
-            combined_audio_filename = f"combined_meeting_{self.meeting_id}.wav"
-            combined_audio_filepath = self.output_dir / combined_audio_filename
-
-            combine_audio_chunks(
-                output_dir=self.output_dir,
-                stream_sample_rate=STREAM_SAMPLE_RATE,
-                meeting_id=self.meeting_id,
-                output_filename=combined_audio_filename,
-                pattern="chunk_*.wav"
-            )
-            
-            if not os.path.exists(combined_audio_filepath):
-                logger.error(f"[{self.meeting_id}] Объединенный аудиофайл не был создан: {combined_audio_filepath}")
-                return
-            '''
-
-            full = "\n".join(self.all_segments)
-        
-            print(f"Финальный диалог: \n {full}")
-
-            # Очистка диалога от временных меток
-            cleaned_dialogue = re.sub(r"\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*", "", full)
-
-            # Суммаризация
-            logger.info(f"[{self.meeting_id}] Создание резюме...")
-            summary_text = get_summary_response(cleaned_dialogue)
-            print(f"Это вывод summary: \n{summary_text}")
-            
-            # Генерация заголовка
-            logger.info(f"[{self.meeting_id}] Создание заголовка...")
-            title_text = get_title_response(cleaned_dialogue)
-            print(f"Это вывод заголовка: \n{title_text}")
-            
-            # Отправка результатов на внешний сервер
-            self._send_results_to_backend(full, summary_text, title_text)
-
-        except Exception as e:
-            logger.error(f"[{self.meeting_id}] ❌ Ошибка при постобработке: {e}", exc_info=True)
-        finally:
-            logger.info(f"[{self.meeting_id}] Постобработка завершена.")
-
-    # Функция отправки результатов на внешний сервер
-    def _send_results_to_backend(self, full_text: str, summary: str, title: str):
-        try:
-            meeting_id_int = int(self.meeting_id) if isinstance(self.meeting_id, str) else self.meeting_id
-            
-            payload = {
-                "meeting_id": meeting_id_int,
-                "full_text": full_text,
-                "summary": summary,
-                "title": title
-            }
-            headers = {
-                "X-Internal-Api-Key": "key",
-                "Content-Type": "application/json"
-            }
-            backend_url = os.getenv('MAIN_BACKEND_URL', 'https://maryrose.by')
-            url = f"{backend_url}/meetings/internal/result"
-            
-            logger.info(f"[{self.meeting_id}] Отправляю результаты на backend...")
-            response = requests.post(
-                url,
-                json=payload,
-                headers=headers,
-                timeout=30
-            )
-            
-            response.raise_for_status()
-            logger.info(f"[{self.meeting_id}] ✅ Результаты успешно отправлены на backend")
-            
-        except requests.exceptions.RequestException as e:
-            print(f"❌ Ошибка при отправке результатов на backend: {e}")
-            logger.error(f"[{self.meeting_id}] ❌ Ошибка при отправке результатов: {e}")
-        except ValueError as e:
-            print(f"❌ Ошибка преобразования meeting_id в число: {e}")
-            logger.error(f"[{self.meeting_id}] ❌ Ошибка meeting_id: {e}")
-        except Exception as e:
-            print(f"❌ Неожиданная ошибка при отправке результатов: {e}")
-            logger.error(f"[{self.meeting_id}] ❌ Неожиданная ошибка: {e}")
-
-    # Сохранение аудиочанков
-    def _save_chunk(self, audio_np):
-        """Сохраняет аудио-чанк в файл WAV."""
-        if audio_np.size == 0:
-            return
-        filename = f'chunk_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{uuid4().hex[:6]}.wav'
-        file_path = self.output_dir / filename
-        try:
-            sf.write(file_path, audio_np, STREAM_SAMPLE_RATE)
-            logger.info(f"💾 Фрагмент сохранен: {filename} (длительность: {len(audio_np)/STREAM_SAMPLE_RATE:.2f} сек)")
-        except Exception as e:
-            logger.error(f"❌ Ошибка при сохранении аудиофрагмента: {e}")
-
-    def format_time_hms(self, seconds: float) -> str:
-        h = int(seconds // 3600)
-        m = int((seconds % 3600) // 60)
-        s = int(seconds % 60)
-        return f"{h:02d}:{m:02d}:{s:02d}"
     # Запуск работы бота
     def run(self):
-        """
-        Основной метод, управляющий жизненным циклом бота.
-        1. Инициализирует ресурсы.
-        2. Запускает рабочие потоки (аудио, VAD, мониторинг).
-        3. Ждет их естественного завершения (когда is_running станет False).
-        4. В блоке finally гарантированно ждет завершения постобработки.
-        5. Выполняет финальную очистку.
-        """
+
         logger.info(f"[{self.meeting_id}] Бот запускается...")
         try:
-            # Инициализация
+
             if not self.audio_manager.create_devices():
                 logger.error(f"[{self.meeting_id}] ❌ Не удалось создать аудиоустройства. Завершение работы.")
                 return
@@ -837,27 +454,18 @@ class MeetListenerBot:
             
             self.joined_successfully = self.join_meet_as_guest()
             
-            # Основной цикл работы
             if self.joined_successfully:
                 logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")
 
-                 # --- ДОБАВЬТЕ ЭТОТ БЛОК ---
-
-                self.send_chat_message("Дайте деняк, пж")
-
-                # Начало созвона
                 self.meeting_start_time = time.time()
 
-                processor_thread = threading.Thread(target=self._process_audio_stream, name=f'VADProcessor-{self.meeting_id}')
+                processor_thread = threading.Thread(target=self.audio_handler._process_audio_stream, name=f'VADProcessor-{self.meeting_id}')
                 monitor_thread = threading.Thread(target=self._monitor_participants, name=f'ParticipantMonitor-{self.meeting_id}')
                 capture_thread = threading.Thread(target=self._audio_capture_thread, name=f'AudioCapture-{self.meeting_id}')
                 
                 processor_thread.start()
                 monitor_thread.start()
                 capture_thread.start()
-                
-                # ПОЯСНЕНИЕ: Главный поток останавливается здесь и ждет, пока ВСЕ рабочие потоки
-                # завершат свою работу. Они завершатся только после вызова stop() из любого места.
                 capture_thread.join()
                 processor_thread.join()
                 monitor_thread.join()
@@ -869,25 +477,17 @@ class MeetListenerBot:
         except Exception as e:
             logger.critical(f"[{self.meeting_id}] ❌ Критическая ошибка в работе бота: {e}", exc_info=True)
         finally:
-            # ПОЯСНЕНИЕ: Этот блок выполняется ВСЕГДА, независимо от того, как завершился бот.
-            # Это самое надежное место для ожидания постобработки.
+
             if self.post_processing_thread:
                 logger.info(f"[{self.meeting_id}] Ожидание завершения потока постобработки...")
-                # Главный поток блокируется здесь и ждет, пока постобработка не будет выполнена до конца.
                 self.post_processing_thread.join()
                 logger.info(f"[{self.meeting_id}] Поток постобработки успешно завершен.")
 
-            # ПОЯСНЕНИЕ: Вызываем stop() здесь еще раз на всякий случай. Если он уже был вызван,
-            # он ничего не сделает. Но если `run` завершился из-за критической ошибки,
-            # этот вызов гарантирует, что все ресурсы будут корректно очищены.
             self.stop()
             logger.info(f"[{self.meeting_id}] Основной метод run завершен. Процесс готов к выходу.")
 
     def _leave_meeting(self):
-        """
-        Нажимает кнопку "Покинуть видеовстречу" в Google Meet.
-        Использует надежные селекторы по aria-label для русского и английского интерфейса.
-        """
+
         if not self.driver or not self.joined_successfully:
             logger.info(f"[{self.meeting_id}] Пропускаю выход из встречи - драйвер не инициализирован или не был в конференции.")
             return
@@ -915,14 +515,13 @@ class MeetListenerBot:
             button_found = False
             for selector in leave_button_selectors:
                 try:
-                    # Ждем появления кнопки до 5 секунд
-                    leave_button = WebDriverWait(self.driver, 5).until(
+
+                    leave_button = WebDriverWait(self.driver, 3).until(
                         EC.element_to_be_clickable((By.XPATH, selector))
                     )
                     
-                    # Прокручиваем к кнопке и кликаем
                     self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", leave_button)
-                    time.sleep(0.5)  # Небольшая пауза для стабилизации
+                    time.sleep(0.5)
                     leave_button.click()
                     
                     logger.info(f"[{self.meeting_id}] ✅ Кнопка 'Покинуть встречу' успешно нажата (селектор: {selector})")
@@ -936,50 +535,34 @@ class MeetListenerBot:
             if not button_found:
                 logger.warning(f"[{self.meeting_id}] ⚠️ Не удалось найти кнопку 'Покинуть встречу' ни одним из селекторов.")
             
-            # Небольшая пауза после нажатия кнопки
             time.sleep(2)
             
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка при попытке покинуть встречу: {e}")
-            # Продолжаем завершение работы даже при ошибке
 
     # Остановка бота
     def stop(self):
-        """
-        Инициирует процесс остановки бота.
-        1. Устанавливает флаг is_running в False, чтобы все рабочие потоки начали завершаться.
-        2. Запускает поток постобработки в фоновом режиме (если нужно).
-        3. Очищает немедленные ресурсы (драйвер, аудиоустройства, временные папки).
-        """
-        # ПОЯСНЕНИЕ: Эта проверка предотвращает повторный вызов stop().
+
         if not self.is_running.is_set():
             return
         
         logger.info(f"[{self.meeting_id}] Получена команда на завершение...")
 
-        # ПОЯСНЕНИЕ: Это сигнал для всех циклов while self.is_running.is_set() о том,
-        # что им пора прекращать работу. Это нужно сделать в самом начале.
         self.is_running.clear()
-        
-        # Пытаемся корректно покинуть встречу
+
         if self.joined_successfully:
             self._leave_meeting()
         
-        # ПОЯСНЕНИЕ: Здесь ключевое изменение. Мы создаем и запускаем поток,
-        # но, что важно, СОХРАНЯЕМ его в свойство self.post_processing_thread.
-        # Это позволит методу run() позже найти этот поток и дождаться его.
         if self.joined_successfully:
             logger.info(f"[{self.meeting_id}] Инициализация потока постобработки...")
             self.post_processing_thread = threading.Thread(
-                target=self._perform_post_processing,
+                target=self.audio_handler._perform_post_processing,
                 name=f'PostProcessor-{self.meeting_id}'
             )
             self.post_processing_thread.start()
         else:
             logger.info(f"[{self.meeting_id}] Пропускаю постобработку, так как вход в конференцию не был успешен.")
 
-        # ПОЯСНЕНИЕ: Эти ресурсы можно и нужно освобождать немедленно,
-        # так как постобработка их не использует.
         if self.driver:
             try:
                 logger.info(f"[{self.meeting_id}] Закрытие WebDriver...")
@@ -1001,10 +584,7 @@ class MeetListenerBot:
         logger.info(f"[{self.meeting_id}] Процедура остановки инициирована, основные ресурсы освобождены.")
 
     def send_chat_message(self, message: str):
-        """
-        Открывает чат (если он закрыт), печатает сообщение и отправляет его.
-        Использует JavaScript-клик для надежности.
-        """
+
         if not self.driver or not self.joined_successfully:
             logger.warning(f"[{self.meeting_id}] Пропускаю отправку сообщения: бот не в конференции.")
             return
@@ -1012,9 +592,7 @@ class MeetListenerBot:
         logger.info(f"[{self.meeting_id}] Попытка отправить сообщение в чат: '{message[:30]}...'")
         
         try:
-           
 
-            # --- Шаг 1: Проверить, открыт ли чат. Если нет - открыть. ---
             try:
                 WebDriverWait(self.driver, 2).until(
                     EC.presence_of_element_located((By.XPATH, '//textarea[contains(@aria-label, "Send a message")]'))

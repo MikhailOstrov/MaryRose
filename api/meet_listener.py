@@ -51,16 +51,6 @@ class MeetListenerBot:
         self.monitor_name = self.audio_manager.monitor_name
         self.post_processing_thread = None
 
-        self.audio_handler = AudioHandler(
-            meeting_id=self.meeting_id,
-            audio_queue=self.audio_queue,
-            is_running=self.is_running,
-            meeting_start_time=self.meeting_start_time,
-            email=self.email,
-            send_chat_message=self.send_chat_message,
-            stop=self.stop
-        )
-
     # Отслеживание кол-ва участников
     def _monitor_participants(self):
         """Отслеживает количество участников. Если бот остается один, он завершает работу."""
@@ -457,8 +447,18 @@ class MeetListenerBot:
             
             if self.joined_successfully:
                 logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")
-
+                
                 self.meeting_start_time = time.time()
+
+                self.audio_handler = AudioHandler(
+                meeting_id=self.meeting_id,
+                audio_queue=self.audio_queue,
+                is_running=self.is_running,
+                meeting_start_time=self.meeting_start_time,
+                email=self.email,
+                send_chat_message=self.send_chat_message,
+                stop=self.stop
+                )
 
                 processor_thread = threading.Thread(target=self.audio_handler._process_audio_stream, name=f'VADProcessor-{self.meeting_id}')
                 monitor_thread = threading.Thread(target=self._monitor_participants, name=f'ParticipantMonitor-{self.meeting_id}')

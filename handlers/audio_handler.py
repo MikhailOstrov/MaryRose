@@ -9,7 +9,7 @@ import re
 from handlers.llm_handler import llm_response, get_summary_response, get_title_response
 from utils.kb_requests import save_info_in_kb, get_info_from_kb
 from config.config import (STREAM_SAMPLE_RATE, STREAM_TRIGGER_WORD, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, MEET_AUDIO_CHUNKS_DIR,
-                        STREAM_STOP_WORD_3, SILENCE_THRESHOLD_FRAMES, MEET_FRAME_DURATION_MS, SUMMARY_OUTPUT_DIR)
+                        STREAM_STOP_WORD_3, MEET_FRAME_DURATION_MS, SUMMARY_OUTPUT_DIR)
 from config.load_models import create_new_vad_model, asr_model
 from utils.backend_request import send_results_to_backend
 
@@ -23,9 +23,6 @@ class AudioHandler:
         self.vad = create_new_vad_model()
         self.asr_model = asr_model
         self.email = email
-
-        self.frame_size = int(STREAM_SAMPLE_RATE * MEET_FRAME_DURATION_MS / 1000) # Для VAD-модели (длительность чанка)
-        self.silent_frames_threshold = SILENCE_THRESHOLD_FRAMES # Пауза в речи в сек.
 
         self.global_offset = 0.0
         self.all_segments = []

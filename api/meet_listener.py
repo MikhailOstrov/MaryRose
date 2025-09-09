@@ -13,7 +13,7 @@ import subprocess
 import shutil
 from pathlib import Path
 
-from config.config import STREAM_SAMPLE_RATE, logger, CHROME_PROFILE_DIR, MEET_GUEST_NAME, MEET_AUDIO_CHUNKS_DIR
+from config.config import STREAM_SAMPLE_RATE, logger, CHROME_PROFILE_DIR, MEET_GUEST_NAME, MEET_AUDIO_CHUNKS_DIR, MEET_FRAME_DURATION_MS
 from handlers.audio_handler import AudioHandler
 from api.audio_manager import VirtualAudioManager
 
@@ -36,6 +36,8 @@ class MeetListenerBot:
         self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.meeting_id 
         self.joined_successfully = False 
 
+        self.frame_size = int(STREAM_SAMPLE_RATE * MEET_FRAME_DURATION_MS / 1000) # Для VAD-модели (длительность чанка)
+        
         os.makedirs(self.output_dir, exist_ok=True)
         logger.info(f"[{self.meeting_id}] Аудиофрагменты будут сохраняться в: '{self.output_dir}'")
         

@@ -5,6 +5,7 @@ import queue
 import numpy as np 
 import torch
 import re
+import asyncio
 
 from handlers.llm_handler import llm_response, get_summary_response, get_title_response
 from utils.kb_requests import save_info_in_kb, get_info_from_kb
@@ -152,10 +153,10 @@ class AudioHandler:
                                                     if response:
                                                         print("Отправляю ответ в чат...")
                                                     if key == 0:
-                                                        save_info_in_kb(response, self.email)
+                                                        asyncio.run(save_info_in_kb(response, self.email))
                                                         self.send_chat_message("Ваша информация сохранена.")
                                                     elif key == 1:
-                                                        info_from_kb = get_info_from_kb(response, self.email)
+                                                        info_from_kb = asyncio.run(get_info_from_kb(response, self.email))
                                                         if info_from_kb == None:
                                                             self.send_chat_message("Не нашла информации в вашей базе знаний.")
                                                     elif key == 3:

@@ -159,6 +159,8 @@ class AudioHandler:
                                                         info_from_kb = asyncio.run(get_info_from_kb(response, self.email))
                                                         if info_from_kb == None:
                                                             self.send_chat_message("Не нашла информации в вашей базе знаний.")
+                                                        else:
+                                                            self.send_chat_message(info_from_kb)
                                                     elif key == 3:
                                                         self.send_chat_message(response)
 

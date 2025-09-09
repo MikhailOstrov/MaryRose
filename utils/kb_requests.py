@@ -10,7 +10,7 @@ async def save_info_in_kb(text: str, email: str):
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            url, json={"text": text, "chat_id": email}, timeout=30.0
+            url, json={"text": text, "email": email}, timeout=30.0
         )
         response.raise_for_status()
         result = response.json()
@@ -22,7 +22,7 @@ async def get_info_from_kb(query: str, email: str):
     url = "https://maryrose.by/knowledge/search"
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            url, json={"query": query, "chat_id": email}, timeout=30.0
+            url, json={"query": query, "email": email}, timeout=30.0
         )
         response.raise_for_status()
         result = response.json()

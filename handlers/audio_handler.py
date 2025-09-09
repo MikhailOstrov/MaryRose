@@ -16,13 +16,12 @@ from utils.backend_request import send_results_to_backend
 logger = logging.getLogger(__name__)
 
 class AudioHandler:
-    def __init__(self, meeting_id, audio_queue, is_running, meeting_start_time, email, send_chat_message, stop):
+    def __init__(self, meeting_id, audio_queue, is_running, email, send_chat_message, stop):
         self.meeting_id = meeting_id
         self.audio_queue = audio_queue
         self.is_running = is_running
         self.vad = create_new_vad_model()
         self.asr_model = asr_model
-        self.meeting_start_time = meeting_start_time
         self.email = email
 
         self.frame_size = int(STREAM_SAMPLE_RATE * MEET_FRAME_DURATION_MS / 1000) # Для VAD-модели (длительность чанка)
@@ -35,7 +34,6 @@ class AudioHandler:
         self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.meeting_id 
 
         self.send_chat_message = send_chat_message
-        self.send_results_to_backend = send_results_to_backend()
         self.stop = stop
 
     # Преобразование временных меток
@@ -46,7 +44,7 @@ class AudioHandler:
         return f"{h:02d}:{m:02d}:{s:02d}"
 
     # Обработка аудиопотока -- транскрибация -- ответ (если обнаружен триггер)
-    def _process_audio_stream(self):
+    def _process_audio_stream(self, meeting_start_time):
         threading.current_thread().name = f'VADProcessor-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] VAD процессор запущен (Silero).")
 
@@ -94,7 +92,7 @@ class AudioHandler:
                     smooth_prob = sum(recent_probs) / len(recent_probs)
 
                     now = time.time()
-                    meeting_elapsed_sec = now - self.meeting_start_time
+                    meeting_elapsed_sec = now - meeting_start_time
 
                     if smooth_prob > vad_threshold:
                         if not is_speaking:
@@ -204,7 +202,7 @@ class AudioHandler:
             print(f"Это вывод заголовка: \n{title_text}")
             
             # Отправка результатов на внешний сервер
-            self.send_results_to_backend(self.meeting_id, full, summary_text, title_text)
+            send_results_to_backend(self.meeting_id, full, summary_text, title_text)
 
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка при постобработке: {e}", exc_info=True)

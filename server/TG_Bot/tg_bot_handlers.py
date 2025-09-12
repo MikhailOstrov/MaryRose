@@ -16,7 +16,7 @@ async def receive_audio(chat_id: int = Form(...), audio: UploadFile = File(...))
             transcription = await transcribe_audio_async(audio_bytes)
 
         logging.info(f"[chat_id={chat_id}] Транскрибация завершена.")
-
+        logging.info(transcription)
         return {"status": "ok", "chat_id": chat_id, "text": transcription}
 
     except Exception as e:

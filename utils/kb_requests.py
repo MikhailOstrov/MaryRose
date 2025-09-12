@@ -15,7 +15,7 @@ async def save_info_in_kb(text: str, email: str):
         response.raise_for_status()
         result = response.json()
 
-    logging.info(f"Текст '{text}' успешно отправлен в БЗ")
+    logging.info(f"Текст '{text}' успешно добавлен в БЗ.")
 
 async def get_info_from_kb(query: str, email: str):
 

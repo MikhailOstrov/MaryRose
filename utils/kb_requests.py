@@ -1,16 +1,19 @@
 import httpx
 import logging
 from dotenv import load_dotenv
+from config.config import INTERNAL_API_KEY, BACKEND_URL
+
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
 async def save_info_in_kb(text: str, email: str):
 
-    url = "https://maryrose.by/knowledge/add-text"
+    url = f"{BACKEND_URL}/knowledge/add-text"
+    headers = {"X-Internal-Api-Key": INTERNAL_API_KEY}
 
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            url, json={"text": text, "email": email}, timeout=30.0
+            url, headers=headers, json={"text": text, "email": email}, timeout=30.0
         )
         response.raise_for_status()
         result = response.json()
@@ -19,10 +22,12 @@ async def save_info_in_kb(text: str, email: str):
 
 async def get_info_from_kb(query: str, email: str):
 
-    url = "https://maryrose.by/knowledge/search"
+    url = f"{BACKEND_URL}/knowledge/search"
+    headers = {"X-Internal-Api-Key": INTERNAL_API_KEY}
+    
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            url, json={"query": query, "email": email}, timeout=30.0
+            url, headers=headers, json={"query": query, "email": email}, timeout=30.0
         )
         response.raise_for_status()
         result = response.json()

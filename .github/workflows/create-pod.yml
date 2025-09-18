@@ -19,7 +19,20 @@ jobs:
     steps:
       - name: Install RunPodCTL and jq
         run: |
-          curl -fsSL https://raw.githubusercontent.com/runpod/runpodctl/main/install.sh | sudo bash
+          curl -L https://github.com/runpod/runpodctl/releases/download/v1.14.4/runpodctl-linux-amd64 -o runpodctl
+
+          # Check if the download was successful (file size > 0)
+          if [ ! -s runpodctl ]; then
+            echo "Fatal: Failed to download runpodctl binary."
+            exit 1
+          fi
+
+          sudo install -m 0755 runpodctl /usr/local/bin/runpodctl
+
+          # Verify that the installation was successful
+          echo "runpodctl version:"
+          runpodctl --version
+
           sudo apt-get update && sudo apt-get install -y jq
       - name: Terminate Existing Pods
         env:

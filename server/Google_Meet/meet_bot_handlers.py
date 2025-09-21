@@ -17,6 +17,7 @@ router = APIRouter()
 # Проверка сервера
 @router.get("/health")
 async def health_check():
+    logger.info("Health check requested")
     return {"status": "ok", "message": "Server is running and models are loaded."}
 
 # Проверка бота по ID

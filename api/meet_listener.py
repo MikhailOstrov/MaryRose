@@ -23,12 +23,17 @@ CHROME_LAUNCH_LOCK = threading.Lock()
 class MeetListenerBot:
 
     # Определение атрибутов класса
-    def __init__(self, meeting_url: str, meeting_id: str, email: str):
+    def __init__(self, meeting_url: str, meeting_id: str, email: str, remaining_seconds: int):
 
         self.meeting_url = meeting_url # Ссылка на Google Meet
         self.meeting_id = meeting_id # ID для отслеживания сессии
         self.email = email # Email пользователя
-        self.driver = None 
+        self.remaining_seconds = remaining_seconds # Оставшееся время для работы бота
+
+        
+        self.notified_10_min = remaining_seconds <= 600
+        self.notified_5_min = False
+        self.driver = None  
         self.audio_queue = queue.Queue() # Для аудиопотока
 
         self.is_running = threading.Event()
@@ -62,6 +67,38 @@ class MeetListenerBot:
         stop=self.stop
         )
 
+
+    def _monitor_remaining_seconds(self):
+        threading.current_thread().name = f'RemainingSecondsMonitor-{self.meeting_id}'
+        logger.info(f"[{self.meeting_id}] Мониторинг оставшегося времени запущен.")
+        while self.is_running.is_set() and self.remaining_seconds > 0:
+            if self.remaining_seconds <= 600 and not self.notified_10_min:
+                self.send_chat_message("🔔 Оставшееся время: 10 минут. Через 10 минут ассистент завершит работу.")
+                logger.info(f"[{self.meeting_id}] Оставшееся время: {self.remaining_seconds} секунд. Через 10 минут ассистент завершит работу.")
+                self.notified_10_min = True
+            if self.remaining_seconds <= 300 and not self.notified_5_min:
+                self.send_chat_message("🔔 Оставшееся время: 5 минут. Через 5 минут ассистент завершит работу.")
+                logger.info(f"[{self.meeting_id}] Оставшееся время: {self.remaining_seconds} секунд. Через 5 минут ассистент завершит работу.")
+                self.notified_5_min = True
+
+            if self.remaining_seconds >= 13*60:
+                time.sleep(60)
+                self.remaining_seconds -= 60
+            else:
+                time.sleep(1)
+                self.remaining_seconds -= 1
+            
+        if self.remaining_seconds <= 0 and self.is_running.is_set():
+            logger.info(f"[{self.meeting_id}] Оставшееся время закончилось. Завершаю работу.")
+            try:
+                self.send_chat_message("🔔 Оставшееся время закончилось. Ассистент завершает работу.")
+                time.sleep(2)
+            except Exception as e:
+                logger.warning(f"[{self.meeting_id}] Не удалось отправить сообщение в чат: {e}")
+            finally:
+                self.stop()
+        else:
+            logger.info(f"[{self.meeting_id}] Мониторинг оставшегося времени остановлен.")
     # Отслеживание кол-ва участников
     def _monitor_participants(self):
         """Отслеживает количество участников. Если бот остается один, он завершает работу."""
@@ -464,13 +501,17 @@ class MeetListenerBot:
                 processor_thread = threading.Thread(target=self.audio_handler._process_audio_stream, args=(self.meeting_start_time,), name=f'VADProcessor-{self.meeting_id}')
                 monitor_thread = threading.Thread(target=self._monitor_participants, name=f'ParticipantMonitor-{self.meeting_id}')
                 capture_thread = threading.Thread(target=self._audio_capture_thread, name=f'AudioCapture-{self.meeting_id}')
-                
+                remaining_seconds_thread = threading.Thread(target=self._monitor_remaining_seconds, name=f'RemainingSecondsMonitor-{self.meeting_id}')
+
                 processor_thread.start()
                 monitor_thread.start()
                 capture_thread.start()
+                remaining_seconds_thread.start()
+
                 capture_thread.join()
                 processor_thread.join()
                 monitor_thread.join()
+                remaining_seconds_thread.join()
                 
                 logger.info(f"[{self.meeting_id}] Основные рабочие потоки завершены.")
             else:

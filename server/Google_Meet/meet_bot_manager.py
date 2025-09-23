@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 # Словарь для хранения активных ботов: {meeting_id: process_pid}
 active_bots: Dict[str, int] = {}
 
-def start_bot_process(meeting_id: str, meet_url: str, email: str) -> bool:
+def start_bot_process(meeting_id: str, meet_url: str, email: str, remaining_seconds: int) -> bool:
     """
     Запускает бота в отдельном процессе с собственным виртуальным дисплеем.
     """
@@ -31,7 +31,8 @@ def start_bot_process(meeting_id: str, meet_url: str, email: str) -> bool:
         "bot_runner.py",
         "--meeting-id", meeting_id,
         "--meet-url", meet_url,
-        "--email", email
+        "--email", email,
+        "--remaining-seconds", str(remaining_seconds)
     ]
     
     logger.info(f"Запуск дочернего процесса командой: {' '.join(command)}")

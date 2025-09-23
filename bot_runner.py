@@ -39,6 +39,7 @@ def main():
     parser.add_argument("--meeting-id", required=True, help="Уникальный ID для сессии бота.")
     parser.add_argument("--meet-url", required=True, help="URL для подключения к встрече Google Meet.")
     parser.add_argument("--email", required=True, help="Email пользователя для поиска.")
+    parser.add_argument("--remaining-seconds", required=True, help="Оставшееся время для работы бота.")
     args = parser.parse_args()
 
     # Устанавливаем обработчики сигналов
@@ -52,7 +53,8 @@ def main():
         bot_instance = MeetListenerBot(
             meeting_url=args.meet_url,
             meeting_id=args.meeting_id,
-            email=args.email
+            email=args.email,
+            remaining_seconds=args.remaining_seconds
         )
         # Запускаем основной цикл работы бота. Этот вызов блокирующий.
         bot_instance.run()

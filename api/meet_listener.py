@@ -192,7 +192,6 @@ class MeetListenerBot:
                     options=opt,
                     headless=False,
                     use_subprocess=True,
-                    version_main=138,
                     # --- ШАГ 4: Указываем путь к НАШЕЙ КОПИИ драйвера ---
                     driver_executable_path=str(driver_copy_path) if driver_copy_path else None
                 )

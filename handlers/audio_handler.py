@@ -24,6 +24,7 @@ class AudioHandler:
         self.vad = create_new_vad_model()
         self.asr_model = asr_model
         self.email = email
+        self.start_time = start_time
 
         self.global_offset = 0.0
         self.all_segments = []
@@ -188,6 +189,9 @@ class AudioHandler:
         
             print(f"Финальный диалог: \n {full}")
 
+            now = time.time()
+            meeting_elapsed_sec = now - self.start_time
+
             # Очистка диалога от временных меток
             cleaned_dialogue = re.sub(r"\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*", "", full)
 
@@ -202,7 +206,7 @@ class AudioHandler:
             print(f"Это вывод заголовка: \n{title_text}")
             
             # Отправка результатов на внешний сервер
-            send_results_to_backend(self.meeting_id, full, summary_text, title_text)
+            send_results_to_backend(self.meeting_id, full, summary_text, title_text, meeting_elapsed_sec)
 
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка при постобработке: {e}", exc_info=True)

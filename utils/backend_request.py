@@ -4,7 +4,7 @@ import os
 from config.config import logger
 
 # Функция отправки результатов на внешний сервер
-def send_results_to_backend(meeting_id: int, full_text: str, summary: str, title: str):
+def send_results_to_backend(meeting_id: int, full_text: str, summary: str, title: str, meeting_elapsed_sec: int):
     try:
         meeting_id_int = int(meeting_id) if isinstance(meeting_id, str) else meeting_id
         
@@ -12,7 +12,8 @@ def send_results_to_backend(meeting_id: int, full_text: str, summary: str, title
             "meeting_id": meeting_id_int,
             "full_text": full_text,
             "summary": summary,
-            "title": title
+            "title": title,
+            "meeting_elapsed_sec": meeting_elapsed_sec
         }
         headers = {
             "X-Internal-Api-Key": "key",

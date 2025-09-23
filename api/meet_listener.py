@@ -73,11 +73,11 @@ class MeetListenerBot:
         logger.info(f"[{self.meeting_id}] Мониторинг оставшегося времени запущен.")
         while self.is_running.is_set() and self.remaining_seconds > 0:
             if self.remaining_seconds <= 600 and not self.notified_10_min:
-                self.send_chat_message("🔔 Оставшееся время: 10 минут. Через 10 минут ассистент завершит работу.")
+                self.send_chat_message("Оставшееся время: 10 минут. Через 10 минут ассистент завершит работу.")
                 logger.info(f"[{self.meeting_id}] Оставшееся время: {self.remaining_seconds} секунд. Через 10 минут ассистент завершит работу.")
                 self.notified_10_min = True
             if self.remaining_seconds <= 300 and not self.notified_5_min:
-                self.send_chat_message("🔔 Оставшееся время: 5 минут. Через 5 минут ассистент завершит работу.")
+                self.send_chat_message(" Оставшееся время: 5 минут. Через 5 минут ассистент завершит работу.")
                 logger.info(f"[{self.meeting_id}] Оставшееся время: {self.remaining_seconds} секунд. Через 5 минут ассистент завершит работу.")
                 self.notified_5_min = True
 
@@ -91,7 +91,7 @@ class MeetListenerBot:
         if self.remaining_seconds <= 0 and self.is_running.is_set():
             logger.info(f"[{self.meeting_id}] Оставшееся время закончилось. Завершаю работу.")
             try:
-                self.send_chat_message("🔔 Оставшееся время закончилось. Ассистент завершает работу.")
+                self.send_chat_message(" Оставшееся время закончилось. Ассистент завершает работу.")
                 time.sleep(2)
             except Exception as e:
                 logger.warning(f"[{self.meeting_id}] Не удалось отправить сообщение в чат: {e}")

@@ -495,9 +495,9 @@ class MeetListenerBot:
             if self.joined_successfully:
                 logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")
 
-                self.meeting_start_time = time.time()
+                
 
-                processor_thread = threading.Thread(target=self.audio_handler._process_audio_stream, args=(self.meeting_start_time,), name=f'VADProcessor-{self.meeting_id}')
+                processor_thread = threading.Thread(target=self.audio_handler._process_audio_stream,name=f'VADProcessor-{self.meeting_id}')
                 monitor_thread = threading.Thread(target=self._monitor_participants, name=f'ParticipantMonitor-{self.meeting_id}')
                 capture_thread = threading.Thread(target=self._audio_capture_thread, name=f'AudioCapture-{self.meeting_id}')
                 remaining_seconds_thread = threading.Thread(target=self._monitor_remaining_seconds, name=f'RemainingSecondsMonitor-{self.meeting_id}')

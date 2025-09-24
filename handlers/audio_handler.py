@@ -24,7 +24,7 @@ class AudioHandler:
         self.vad = create_new_vad_model()
         self.asr_model = asr_model
         self.email = email
-        self.start_time = start_time
+        self.start_time = time.time()
 
         self.global_offset = 0.0
         self.all_segments = []
@@ -43,7 +43,7 @@ class AudioHandler:
         return f"{h:02d}:{m:02d}:{s:02d}"
 
     # Обработка аудиопотока -- транскрибация -- ответ (если обнаружен триггер)
-    def _process_audio_stream(self, meeting_start_time):
+    def _process_audio_stream(self):
         threading.current_thread().name = f'VADProcessor-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] VAD процессор запущен (Silero).")
 
@@ -91,7 +91,7 @@ class AudioHandler:
                     smooth_prob = sum(recent_probs) / len(recent_probs)
 
                     now = time.time()
-                    meeting_elapsed_sec = now - meeting_start_time
+                    meeting_elapsed_sec = now - self.start_time
 
                     if smooth_prob > vad_threshold:
                         if not is_speaking:

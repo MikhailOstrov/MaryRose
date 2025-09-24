@@ -13,7 +13,7 @@ def send_results_to_backend(meeting_id: int, full_text: str, summary: str, title
             "full_text": full_text,
             "summary": summary,
             "title": title,
-            "duration": meeting_elapsed_sec
+            "meeting_elapsed_sec": int(meeting_elapsed_sec)
         }
         headers = {
             "X-Internal-Api-Key": "key",

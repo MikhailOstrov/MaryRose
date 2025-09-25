@@ -44,4 +44,4 @@ python-dotenv==1.0.0
 packaging
 Cython
 simpleaudio
-openai==1.14.3
+openai>=1.99.6

@@ -131,22 +131,31 @@ jobs:
       - name: Update main VM with new URLs
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ secrets.MAIN_SERVICE_SSH_HOST }}
+          host: ${{ secrets.MAIN_SERVICE_SSH_HOST }} # <-- Убедитесь, что это правильные секреты для ВМ с Docker
           username: ${{ secrets.MAIN_SERVICE_SSH_USER }}
           key: ${{ secrets.MAIN_SERVICE_SSH_PRIVATE_KEY }}
           script: |
             set -e
             NEW_AI_URL="${{ steps.wait_for_health.outputs.AI_BACKEND_URL }}"
             NEW_WS_URL="${{ steps.wait_for_health.outputs.AI_WEBSOCKET_URL }}"
+            DEPLOY_DIR="/home/jzndjxjcbd/mary-deployment" # <-- Указываем путь к папке с docker-compose
 
             echo "New AI Backend URL: $NEW_AI_URL"
-            echo "Updating .env file on the main VM..."
+            echo "Updating .env.prod file on the main VM at $DEPLOY_DIR/.env.prod..."
 
-            sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" /home/jzndjxjcbd/mary-assistant/backend/.env
-            sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" /home/jzndjxjcbd/mary-assistant/backend/.env
-            sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" /home/jzndjxjcbd/MaryRoseBot/.env
-            sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" /home/jzndjxjcbd/MaryRoseBot/.env
+            # --- ИЗМЕНЕНИЕ №1: Правильный путь к .env.prod ---
+            # Так как и бэкенд, и бот используют один и тот же .env.prod,
+            # нам нужно обновить переменные только в одном файле.
+            sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" $DEPLOY_DIR/.env.prod
+            sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" $DEPLOY_DIR/.env.prod
 
-            sudo /home/jzndjxjcbd/restart-fastapi.sh
-            sudo /home/jzndjxjcbd/restart-telegram-bot.sh
-            echo "Main service restarted successfully."
+            echo ".env.prod updated successfully."
+
+            # --- ИЗМЕНЕНИЕ №2: Правильная команда перезапуска ---
+            # Переходим в директорию и перезапускаем нужные сервисы с помощью Docker Compose.
+            # Docker Compose сам пересоздаст контейнеры с новыми переменными.
+            cd $DEPLOY_DIR
+            echo "Restarting prod_backend and prod_bot services..."
+            sudo docker compose --env-file .env.prod up -d prod_backend prod_bot
+
+            echo "Services have been restarted successfully with new URLs."

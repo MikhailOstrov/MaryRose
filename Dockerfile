@@ -26,25 +26,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # ОРИГИНАЛЬНАЯ УСТАНОВКА PIP (НЕ ТРОНУТА)
 RUN wget https://bootstrap.pypa.io/get-pip.py && python3.11 get-pip.py && rm get-pip.py
 
-# --- ШАГ 3: УСТАНОВКА GOOGLE CHROME И CHROMEDRIVER (надежный метод из join_meet) ---
-RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
-    && sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list' \
-    && apt-get update \
-    && apt-get install -y google-chrome-stable --no-install-recommends \
-    && rm -rf /var/lib/apt/lists/*
+# --- ШАГ 3: УСТАНОВКА GOOGLE CHROME И CHROMEDRIVER (Фиксированная версия 140) ---
+# Устанавливаем Chrome v140.0.7339.185 из официального репозитория для тестирования
+RUN mkdir -p /opt/google/chrome && \
+    wget -q --continue -P /tmp/ "https://storage.googleapis.com/chrome-for-testing-public/140.0.7339.185/linux64/chrome-linux64.zip" && \
+    unzip -q /tmp/chrome-linux64.zip -d /tmp/ && \
+    mv /tmp/chrome-linux64/* /opt/google/chrome/ && \
+    ln -s /opt/google/chrome/chrome /usr/bin/google-chrome-stable && \
+    rm /tmp/chrome-linux64.zip
 
-RUN CHROME_VERSION=$(google-chrome --version | cut -d " " -f 3 | cut -d "." -f 1-3) && \
-    DRIVER_URL=$(wget -qO- "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json" | jq -r ".versions[] | select(.version | startswith(\"$CHROME_VERSION\")) | .downloads.chromedriver[] | select(.platform==\"linux64\") | .url" | tail -n 1) && \
-    wget -q --continue -P /tmp/ $DRIVER_URL && \
-    unzip /tmp/chromedriver-linux64.zip -d /tmp/ && \
+# Устанавливаем соответствующий ChromeDriver v140.0.7339.185
+RUN wget -q --continue -P /tmp/ "https://storage.googleapis.com/chrome-for-testing-public/140.0.7339.185/linux64/chromedriver-linux64.zip" && \
+    unzip -q /tmp/chromedriver-linux64.zip -d /tmp/ && \
     mv /tmp/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver && \
     chmod +x /usr/local/bin/chromedriver && \
     rm -rf /tmp/chromedriver-linux64* && \
-    chromedriver --version
+    \
+    # Проверяем, что версии установлены корректно
+    echo "Chrome version:" && google-chrome-stable --version && \
+    echo "ChromeDriver version:" && chromedriver --version
 
 # --- ШАГ 4: УСТАНОВКА PYTORCH (ОРИГИНАЛЬНАЯ ВЕРСИЯ, НЕ ТРОНУТА) ---
 RUN python3.11 -m pip install --no-cache-dir \
-torch==2.3.1+cu121 torchaudio==2.3.1+cu121 torchvision==0.18.1+cu121 \
+    torch==2.3.1+cu121 torchaudio==2.3.1+cu121 torchvision==0.18.1+cu121 \
 --index-url https://download.pytorch.org/whl/cu121
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

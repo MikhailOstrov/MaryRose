@@ -180,7 +180,7 @@ class WebsiteListenerBot:
             print(f"Это вывод заголовка: \n{title_text}")
             
             # Отправка результатов на внешний сервер
-            self._send_results_to_backend(dialogue_transcript, summary_text, title_text)
+            self._send_results_to_backend(dialogue_transcript, summary_text, title_text, 30)
             
             # Сохранение резюме
             # summary_filename = f"summary_{self.meeting_id}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
@@ -199,20 +199,24 @@ class WebsiteListenerBot:
         filename = f'chunk_{datetime.now().strftime("%Y%m%d_%H%M%S")}_{uuid4().hex[:6]}.wav'
         file_path = self.output_dir / filename
         try:
-            sf.write(file_path, audio_np, STREAM_SAMPLE_RATE)
+            write(str(file_path), STREAM_SAMPLE_RATE, audio_np)
             logger.info(f"💾 Фрагмент сохранен: {filename} (длительность: {len(audio_np)/STREAM_SAMPLE_RATE:.2f} сек)")
         except Exception as e:
-            logger.infog(f"❌ Ошибка при сохранении аудиофрагмента: {e}")
+            logger.error(f"❌ Ошибка при сохранении аудиофрагмента: {e}")
 
     # Функция отправки результатов на внешний сервер
-    def _send_results_to_backend(self, full_text: str, summary: str, title: str):
+    def _send_results_to_backend(self, full_text: str, summary: str, title: str, meeting_elapsed_sec: int):
         try:
-            payload = {"meeting_id": self.meeting_id, "full_text": full_text, "summary": summary, "title": title}
+            payload = {
+                "meeting_id": self.meeting_id,
+                "full_text": full_text,
+                "summary": summary,
+                "title": title,
+                "meeting_elapsed_sec": meeting_elapsed_sec
+            }
             headers = {"X-Internal-Api-Key": "key", "Content-Type": "application/json"}
 
-            backend_url = os.getenv('MAIN_BACKEND_URL', 'https://puny-goats-smell.loca.lt')
-
-            # backend_url = os.getenv('MAIN_BACKEND_URL', 'https://maryrose.by')
+            backend_url = os.getenv('MAIN_BACKEND_URL', 'https://maryrose.by')
             
             url = f"{backend_url}/meetings/internal/result"
             response = requests.post(url, json=payload, headers=headers, timeout=30)

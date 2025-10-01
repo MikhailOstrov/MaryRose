@@ -60,6 +60,10 @@ class WebsiteListenerBot:
         logger.info(f"[{self.meeting_id}] Запускаю постобработку...")
 
         try:
+            # --- ИЗМЕНЕНИЕ: Получение длительности аудиозаписи ---
+           
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+            
             # Запускаем ASR на полном файле
             segments, _ = self.asr_model.transcribe(
                 str(self.full_audio_path),
@@ -86,7 +90,7 @@ class WebsiteListenerBot:
             title_text = get_title_response(cleaned_dialogue)
 
             # Отправляем результат
-            self._send_results_to_backend(full_text, summary_text, title_text)
+            self._send_results_to_backend(full_text, summary_text, title_text, 30)
 
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка постобработки: {e}", exc_info=True)
@@ -94,7 +98,7 @@ class WebsiteListenerBot:
             logger.info(f"[{self.meeting_id}] Постобработка завершена.")
 
     # Отправка результатов на backend
-    def _send_results_to_backend(self, full_text: str, summary: str, title: str):
+    def _send_results_to_backend(self, full_text: str, summary: str, title: str, meeting_elapsed_sec: int):
         try:
             meeting_id_int = int(self.meeting_id) if isinstance(self.meeting_id, str) else self.meeting_id
 
@@ -102,7 +106,8 @@ class WebsiteListenerBot:
                 "meeting_id": meeting_id_int,
                 "full_text": full_text,
                 "summary": summary,
-                "title": title
+                "title": title,
+                "meeting_elapsed_sec": meeting_elapsed_sec
             }
             headers = {
                 "X-Internal-Api-Key": "key",

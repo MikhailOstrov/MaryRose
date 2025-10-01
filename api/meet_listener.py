@@ -3,7 +3,6 @@ import time
 import queue
 import threading
 import random
-from undetected_chromedriver.patcher import Patcher
 from datetime import datetime
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
@@ -144,21 +143,23 @@ class MeetListenerBot:
     
     # Инициализация драйвера для подключения
     def _initialize_driver(self):
+        """Инициализирует Chrome WebDriver с использованием фиксированной версии драйвера из системы."""
+        logger.info(f"[{self.meeting_id}] Создание изолированной копии chromedriver...")
 
-        logger.info(f"[{self.meeting_id}] Полная изоляция и запуск Chrome...")
-
+        # Путь к системному драйверу из Dockerfile
+        system_driver_path = "/usr/local/bin/chromedriver"
+        driver_copy_path = None
+        
         try:
-            # Находим путь к оригинальному, кэшированному chromedriver
-            patcher = Patcher()
-            original_driver_path = patcher.executable_path
-            
-            # Создаем уникальный путь для копии драйвера этого бота
+            # Создаем уникальную копию драйвера для этого бота (для изоляции)
             driver_copy_path = self.chrome_profile_path / "chromedriver"
-            shutil.copy(original_driver_path, driver_copy_path)
+            shutil.copy(system_driver_path, driver_copy_path)
+            # Делаем копию исполняемой
+            driver_copy_path.chmod(0o755)
             
             logger.info(f"[{self.meeting_id}] Создана изолированная копия chromedriver в: {driver_copy_path}")
         except Exception as e:
-            logger.error(f"[{self.meeting_id}] Не удалось создать копию chromedriver: {e}. Продолжаю с драйвером по умолчанию.")
+            logger.error(f"[{self.meeting_id}] Не удалось создать копию chromedriver: {e}. Буду использовать системный драйвер.")
             driver_copy_path = None
 
         with CHROME_LAUNCH_LOCK:
@@ -192,8 +193,8 @@ class MeetListenerBot:
                     options=opt,
                     headless=False,
                     use_subprocess=True,
-                    # --- ШАГ 4: Указываем путь к НАШЕЙ КОПИИ драйвера ---
-                    driver_executable_path=str(driver_copy_path) if driver_copy_path else None
+                    driver_executable_path=str(driver_copy_path) if driver_copy_path else "/usr/local/bin/chromedriver",
+                    version_main=140  # Явно указываем версию Chrome из Dockerfile, чтобы не скачивалась новая
                 )
                 
                 logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен с полной изоляцией.")

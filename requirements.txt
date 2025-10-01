@@ -27,9 +27,9 @@ transformers
 huggingface_hub
 faster_whisper
 
-# Браузер автоматизация (версии не закреплены для совместимости)
-selenium
-undetected-chromedriver
+# Браузер автоматизация (закрепленные версии для стабильности)
+selenium==4.27.1
+undetected-chromedriver==3.5.5
 
 # Аудио (дополнительно для meet_listener)
 sounddevice==0.4.6

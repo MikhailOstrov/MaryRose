@@ -13,6 +13,7 @@ import requests
 from config.config import STREAM_SAMPLE_RATE, MEET_AUDIO_CHUNKS_DIR, MEET_FRAME_DURATION_MS
 from handlers.llm_handler import get_summary_response, get_title_response
 from config.load_models import asr_model
+from utils.backend_request import send_results_to_backend
 
 logger = logging.getLogger(__name__)
 
@@ -89,40 +90,19 @@ class WebsiteListenerBot:
             logger.info(f"[{self.meeting_id}] Создание title...")
             title_text = get_title_response(cleaned_dialogue)
 
-            # Отправляем результат
-            self._send_results_to_backend(full_text, summary_text, title_text, 30)
+            # Отправляем результат, используя централизованную функцию
+            send_results_to_backend(
+                meeting_id=self.meeting_id,
+                full_text=full_text,
+                summary=summary_text or "",  # Гарантируем, что отправляется строка
+                title=title_text or "",      # Гарантируем, что отправляется строка
+                meeting_elapsed_sec=30       # Фиксированное значение
+            )
 
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка постобработки: {e}", exc_info=True)
         finally:
             logger.info(f"[{self.meeting_id}] Постобработка завершена.")
-
-    # Отправка результатов на backend
-    def _send_results_to_backend(self, full_text: str, summary: str, title: str, meeting_elapsed_sec: int):
-        try:
-            meeting_id_int = int(self.meeting_id) if isinstance(self.meeting_id, str) else self.meeting_id
-
-            payload = {
-                "meeting_id": meeting_id_int,
-                "full_text": full_text,
-                "summary": summary,
-                "title": title,
-                "meeting_elapsed_sec": meeting_elapsed_sec
-            }
-            headers = {
-                "X-Internal-Api-Key": "key",
-                "Content-Type": "application/json"
-            }
-            backend_url = os.getenv('MAIN_BACKEND_URL', 'https://maryrose.by')
-            url = f"{backend_url}/meetings/internal/result"
-
-            logger.info(f"[{self.meeting_id}] Отправка результатов на backend...")
-            response = requests.post(url, json=payload, headers=headers, timeout=30)
-            response.raise_for_status()
-            logger.info(f"[{self.meeting_id}] ✅ Результаты отправлены успешно")
-
-        except Exception as e:
-            logger.error(f"[{self.meeting_id}] ❌ Ошибка при отправке на backend: {e}")
 
     def format_time_hms(self, seconds: float) -> str:
         """Перевод секунд в формат HH:MM:SS"""

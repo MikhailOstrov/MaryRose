@@ -1,5 +1,5 @@
 import requests
-import os
+from config.config import BACKEND_URL
 
 from config.config import logger
 
@@ -19,7 +19,7 @@ def send_results_to_backend(meeting_id: int, full_text: str, summary: str, title
             "X-Internal-Api-Key": "key",
             "Content-Type": "application/json"
         }
-        backend_url = os.getenv('MAIN_BACKEND_URL', 'https://maryrose.by')
+        backend_url = BACKEND_URL
         url = f"{backend_url}/meetings/internal/result"
         
         logger.info(f"[{meeting_id}] Отправляю результаты на backend...")

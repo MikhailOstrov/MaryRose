@@ -35,14 +35,23 @@ jobs:
             echo "Pulling latest code..."
             git pull origin main
 
+
             echo "Logging into Docker Hub..."
             echo ${{ secrets.DOCKER_PASSWORD }} | sudo docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
+
+
 
             echo "Building Docker image: ${{ env.DOCKER_IMAGE_FULL_TAG }}..."
             sudo docker build -t ${{ env.DOCKER_IMAGE_FULL_TAG }} .
 
             echo "Pushing Docker image: ${{ env.DOCKER_IMAGE_FULL_TAG }} to Docker Hub..."
             sudo docker push ${{ env.DOCKER_IMAGE_FULL_TAG }}
+
+            sudo docker rm anchor-for-maryrose-app-v3 || true
+
+            sudo docker create --name=anchor-for-maryrose-app-v3 --label "do-not-prune=true" roma3213/maryrose-app:v3
+
+            sudo docker image prune -a -f
 
             echo "--- Docker image build and push completed successfully ---"
 

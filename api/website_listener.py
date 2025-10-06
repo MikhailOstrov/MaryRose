@@ -61,10 +61,6 @@ class WebsiteListenerBot:
         logger.info(f"[{self.meeting_id}] Запускаю постобработку...")
 
         try:
-            # --- ИЗМЕНЕНИЕ: Получение длительности аудиозаписи ---
-           
-            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-            
             # Запускаем ASR на полном файле
             segments, _ = self.asr_model.transcribe(
                 str(self.full_audio_path),
@@ -95,8 +91,7 @@ class WebsiteListenerBot:
                 meeting_id=self.meeting_id,
                 full_text=full_text,
                 summary=summary_text or "",  # Гарантируем, что отправляется строка
-                title=title_text or "",      # Гарантируем, что отправляется строка
-                meeting_elapsed_sec=30       # Фиксированное значение
+                title=title_text or ""      # Гарантируем, что отправляется строка
             )
 
         except Exception as e:

@@ -2,9 +2,19 @@ import requests
 from config.config import BACKEND_URL, INTERNAL_API_KEY
 
 from config.config import logger
+from typing import Optional
 
 # Функция отправки результатов на внешний сервер
-def send_results_to_backend(meeting_id: int, full_text: str, summary: str, title: str, meeting_elapsed_sec: int):
+def send_results_to_backend(
+    meeting_id: int,
+    full_text: str,
+    summary: str,
+    title: str,
+    meeting_elapsed_sec: Optional[int] = None
+):
+    """Отправляет результаты обработки митинга (текст, саммари, заголовок) на основной бэкенд."""
+    
+
     try:
         meeting_id_int = int(meeting_id) if isinstance(meeting_id, str) else meeting_id
         
@@ -13,8 +23,10 @@ def send_results_to_backend(meeting_id: int, full_text: str, summary: str, title
             "full_text": full_text,
             "summary": summary,
             "title": title,
-            "meeting_elapsed_sec": int(meeting_elapsed_sec)
         }
+        if meeting_elapsed_sec is not None:
+            payload["meeting_elapsed_sec"] = meeting_elapsed_sec
+
         headers = {
             "X-Internal-Api-Key": INTERNAL_API_KEY,
             "Content-Type": "application/json"

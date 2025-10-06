@@ -1,5 +1,5 @@
 import requests
-from config.config import BACKEND_URL
+from config.config import BACKEND_URL, INTERNAL_API_KEY
 
 from config.config import logger
 
@@ -16,7 +16,7 @@ def send_results_to_backend(meeting_id: int, full_text: str, summary: str, title
             "meeting_elapsed_sec": int(meeting_elapsed_sec)
         }
         headers = {
-            "X-Internal-Api-Key": "key",
+            "X-Internal-Api-Key": INTERNAL_API_KEY,
             "Content-Type": "application/json"
         }
         backend_url = BACKEND_URL

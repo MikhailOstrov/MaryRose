@@ -138,7 +138,7 @@ jobs:
             set -e
             NEW_AI_URL="${{ steps.wait_for_health.outputs.AI_BACKEND_URL }}"
             NEW_WS_URL="${{ steps.wait_for_health.outputs.AI_WEBSOCKET_URL }}"
-            DEPLOY_DIR="/home/jzndjxjcbd/mary-deployment" # <-- Указываем путь к папке с docker-compose
+            DEPLOY_DIR="/home/turikroma15/mary-deployment" # <-- Указываем путь к папке с docker-compose
 
             echo "New AI Backend URL: $NEW_AI_URL"
             echo "Updating .env.prod file on the main VM at $DEPLOY_DIR/.env.prod..."

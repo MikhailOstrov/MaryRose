@@ -119,13 +119,13 @@ jobs:
             NEW_AI_URL="${{ steps.get_url.outputs.AI_BACKEND_URL }}"
             NEW_WS_URL="${{ steps.get_url.outputs.AI_WEBSOCKET_URL }}"
 
-            sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" /home/jzndjxjcbd/MaryRoseBot/.env
-            sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" /home/jzndjxjcbd/MaryRoseBot/.env
-            sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" /home/jzndjxjcbd/mary-assistant/backend/.env
-            sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" /home/jzndjxjcbd/mary-assistant/backend/.env
+            sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" /home/turikroma15/MaryRoseBot/.env
+            sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" /home/turikroma15/MaryRoseBot/.env
+            sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" /home/turikroma15/mary-assistant/backend/.env
+            sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" /home/turikroma15/mary-assistant/backend/.env
 
 
             echo ".env file updated. Restarting main service..."
-            sudo /home/jzndjxjcbd/restart-fastapi.sh
+            sudo /home/turikroma15/restart-fastapi.sh
             sudo systemctl restart telegram-bot.service
             echo "Main service restarted successfully."

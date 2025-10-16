@@ -194,12 +194,12 @@ jobs:
             NEW_AI_URL="https://$(echo $POD_ID)-8001.proxy.runpod.net"
             NEW_WS_URL="wss://$(echo $POD_ID)-8001.proxy.runpod.net/ws/listen/"
 
-            CURRENT_AI_URL=$(grep "^AI_BACKEND_URL=" /home/jzndjxjcbd/mary-assistant/backend/.env | cut -d'=' -f2)
+            CURRENT_AI_URL=$(grep "^AI_BACKEND_URL=" /home/turikroma15/mary-assistant/backend/.env | cut -d'=' -f2)
             if [ "$CURRENT_AI_URL" != "$NEW_AI_URL" ]; then
               echo "AI Backend URL has changed. Updating .env file..."
-              sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" /home/jzndjxjcbd/mary-assistant/backend/.env
-              sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" /home/jzndjxjcbd/mary-assistant/backend/.env
-              sudo /home/jzndjxjcbd/restart-fastapi.sh
+              sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" /home/turikroma15/mary-assistant/backend/.env
+              sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" /home/turikroma15/mary-assistant/backend/.env
+              sudo /home/turikroma15/restart-fastapi.sh
               echo "Main service restarted successfully."
             else
               echo "AI Backend URL is unchanged. Skipping .env update and FastAPI restart."

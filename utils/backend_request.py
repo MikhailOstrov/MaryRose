@@ -25,7 +25,7 @@ def send_results_to_backend(
             "title": title,
         }
         if meeting_elapsed_sec is not None:
-            payload["meeting_elapsed_sec"] = meeting_elapsed_sec
+            payload["duration_seconds"] = meeting_elapsed_sec
 
         headers = {
             "X-Internal-Api-Key": INTERNAL_API_KEY,

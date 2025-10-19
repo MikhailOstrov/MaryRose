@@ -208,11 +208,12 @@ class AudioHandler:
                 logger.info(f"[{self.meeting_id}] Создание заголовка...")
                 title_text = get_title_response(cleaned_dialogue)
                 print(f"Это вывод заголовка: \n{title_text}")
+
+                # Отправка результатов на внешний сервер
+                send_results_to_backend(self.meeting_id, full, summary_text, title_text, meeting_elapsed_sec)
             else:
                 logger.warning(f"[{self.meeting_id}] Диалог пуст, пропускаю создание резюме и заголовка.")
             
-            # Отправка результатов на внешний сервер
-            send_results_to_backend(self.meeting_id, full, summary_text, title_text, meeting_elapsed_sec)
 
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка при постобработке: {e}", exc_info=True)

@@ -14,7 +14,11 @@ def send_results_to_backend(
 ):
     """Отправляет результаты обработки митинга (текст, саммари, заголовок) на основной бэкенд."""
     
-
+    logger.info(f"[{meeting_id}] Отправляю результаты на backend...")
+    logger.info(f"[{meeting_id}] Full text: {full_text}")
+    logger.info(f"[{meeting_id}] Summary: {summary}")
+    logger.info(f"[{meeting_id}] Title: {title}")
+    logger.info(f"[{meeting_id}] Meeting elapsed sec: {meeting_elapsed_sec}")
     try:
         meeting_id_int = int(meeting_id) if isinstance(meeting_id, str) else meeting_id
         

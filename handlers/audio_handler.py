@@ -210,7 +210,7 @@ class AudioHandler:
                 print(f"Это вывод заголовка: \n{title_text}")
 
                 # Отправка результатов на внешний сервер
-                send_results_to_backend(self.meeting_id, full, summary_text, title_text, meeting_elapsed_sec)
+                send_results_to_backend(self.meeting_id, full, summary_text, title_text, int(meeting_elapsed_sec))
             else:
                 logger.warning(f"[{self.meeting_id}] Диалог пуст, пропускаю создание резюме и заголовка.")
             

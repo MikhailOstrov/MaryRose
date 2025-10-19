@@ -4,7 +4,7 @@ from config.config import BACKEND_URL, INTERNAL_API_KEY
 from config.config import logger
 from typing import Optional
 
-# Функция отправки результатов на внешний сервер
+# Функция отправки результатов на внешний сервер.
 def send_results_to_backend(
     meeting_id: int,
     full_text: str,

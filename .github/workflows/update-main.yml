@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - main
+      - dev
 
 env:
   DOCKER_IMAGE_FULL_TAG: roma3213/maryrose-app:v3
@@ -19,6 +20,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Determine Environment
+        id: get_env
+        run: |
+          if [ "${{ github.ref_name }}" == "main" ]; then
+            echo "Production environment detected from 'main' branch."
+            echo "env_prefix=prod" >> $GITHUB_OUTPUT
+            echo "env_file=.env.prod" >> $GITHUB_OUTPUT
+            echo "docker_services=prod_backend prod_bot" >> $GITHUB_OUTPUT
+            echo "docker_image_tag=roma3213/maryrose-app:prod" >> $GITHUB_OUTPUT
+            echo "docker_image_repo=roma3213/maryrose-app" >> $GITHUB_OUTPUT
+          else
+            echo "Development environment detected from '${{ github.ref_name }}' branch."
+            echo "env_prefix=dev" >> $GITHUB_OUTPUT
+            echo "env_file=.env.dev" >> $GITHUB_OUTPUT
+            echo "docker_services=dev_backend dev_bot" >> $GITHUB_OUTPUT
+            echo "docker_image_tag=roma3213/maryrose-app:dev" >> $GITHUB_OUTPUT
+            echo "docker_image_repo=roma3213/maryrose-app" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build and Push Docker Image on Main VM
         if: success()
         uses: appleboy/ssh-action@master
@@ -29,27 +49,26 @@ jobs:
           script: |
             set -e
 
-            echo "--- Starting build on Main VM ---"
+            echo "--- Starting build on Main VM for ${{ steps.get_env.outputs.env_prefix }} environment ---"
             cd MaryRose
 
-            echo "Pulling latest code..."
-            git pull origin main
-
+            echo "Pulling latest code from ${{ github.ref_name }} branch..."
+            git checkout ${{ github.ref_name }}
+            git pull origin ${{ github.ref_name }}
 
             echo "Logging into Docker Hub..."
             echo ${{ secrets.DOCKER_PASSWORD }} | sudo docker login -u ${{ secrets.DOCKER_USERNAME }} --password-stdin
 
+            echo "Building Docker image: ${{ steps.get_env.outputs.docker_image_tag }}..."
+            sudo docker build -t ${{ steps.get_env.outputs.docker_image_tag }} .
 
+            echo "Pushing Docker image: ${{ steps.get_env.outputs.docker_image_tag }} to Docker Hub..."
+            sudo docker push ${{ steps.get_env.outputs.docker_image_tag }}
 
-            echo "Building Docker image: ${{ env.DOCKER_IMAGE_FULL_TAG }}..."
-            sudo docker build -t ${{ env.DOCKER_IMAGE_FULL_TAG }} .
-
-            echo "Pushing Docker image: ${{ env.DOCKER_IMAGE_FULL_TAG }} to Docker Hub..."
-            sudo docker push ${{ env.DOCKER_IMAGE_FULL_TAG }}
-
-            sudo docker rm anchor-for-maryrose-app-v3 || true
-
-            sudo docker create --name=anchor-for-maryrose-app-v3 --label "do-not-prune=true" roma3213/maryrose-app:v3
+            # Using dynamic anchor name based on environment
+            ANCHOR_NAME="anchor-for-maryrose-app-${{ steps.get_env.outputs.env_prefix }}"
+            sudo docker rm $ANCHOR_NAME || true
+            sudo docker create --name=$ANCHOR_NAME --label "do-not-prune=true" ${{ steps.get_env.outputs.docker_image_tag }}
 
             sudo docker image prune -a -f
 
@@ -58,12 +77,12 @@ jobs:
       - name: Cleanup old untagged images on Docker Hub via API
         if: success()
         run: |
-          IMAGE_REPO=${{ env.DOCKER_IMAGE_REPO_NAME }}
+          IMAGE_REPO=${{ steps.get_env.outputs.docker_image_repo }}
           USERNAME=${{ secrets.DOCKER_USERNAME }}
           PASSWORD=${{ secrets.DOCKER_PASSWORD }}
 
           # --- ИСПРАВЛЕНИЕ: ИЗВЛЕКАЕМ ТЕГ ВНУТРИ run: БЛОКА ---
-          DOCKER_IMAGE_TAG=$(echo "${{ env.DOCKER_IMAGE_FULL_TAG }}" | cut -d: -f2)
+          DOCKER_IMAGE_TAG=$(echo "${{ steps.get_env.outputs.docker_image_tag }}" | cut -d: -f2)
 
           TOKEN=$(curl -s -H "Content-Type: application/json" -X POST -d '{"username": "'$USERNAME'", "password": "'$PASSWORD'"}' https://hub.docker.com/v2/users/login/ | jq -r .token)
 
@@ -109,11 +128,12 @@ jobs:
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         run: |
-          echo "Searching for existing pods to redeploy..."
-          POD_ID=$(runpodctl get pod | tail -n +3 | sed '/^$/d' | head -n 1 | awk '{print $1}')
+          ENV_PREFIX="${{ steps.get_env.outputs.env_prefix }}"
+          echo "Searching for existing pod with prefix '${ENV_PREFIX}' to redeploy..."
+          POD_ID=$(runpodctl get pod | grep "${ENV_PREFIX}-ai-backend" | head -n 1 | awk '{print $1}')
 
           if [ -z "$POD_ID" ]; then
-            echo "Error: No existing pod found to redeploy. This workflow requires an existing pod. Aborting."
+            echo "Error: No existing pod found with prefix '${ENV_PREFIX}'. Aborting."
             exit 1
           fi
 
@@ -181,7 +201,7 @@ jobs:
           echo "Fatal: Application did not become healthy in time."
           exit 1
 
-      - name: Update main VM with URLs (if changed)
+      - name: Update main VM with new URLs
         if: success()
         uses: appleboy/ssh-action@master
         with:
@@ -190,17 +210,22 @@ jobs:
           key: ${{ secrets.MAIN_SERVICE_SSH_PRIVATE_KEY }}
           script: |
             set -e
-            POD_ID=${{ steps.get_existing_pod.outputs.pod_id }}
-            NEW_AI_URL="https://$(echo $POD_ID)-8001.proxy.runpod.net"
-            NEW_WS_URL="wss://$(echo $POD_ID)-8001.proxy.runpod.net/ws/listen/"
+            NEW_AI_URL="${{ steps.wait_for_health.outputs.AI_BACKEND_URL }}"
+            NEW_WS_URL="${{ steps.wait_for_health.outputs.AI_WEBSOCKET_URL }}"
+            ENV_FILE="${{ steps.get_env.outputs.env_file }}"
+            DOCKER_SERVICES="${{ steps.get_env.outputs.docker_services }}"
+            DEPLOY_DIR="/home/turikroma15/mary-deployment"
 
-            CURRENT_AI_URL=$(grep "^AI_BACKEND_URL=" /home/turikroma15/mary-assistant/backend/.env | cut -d'=' -f2)
-            if [ "$CURRENT_AI_URL" != "$NEW_AI_URL" ]; then
-              echo "AI Backend URL has changed. Updating .env file..."
-              sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" /home/turikroma15/mary-assistant/backend/.env
-              sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" /home/turikroma15/mary-assistant/backend/.env
-              sudo /home/turikroma15/restart-fastapi.sh
-              echo "Main service restarted successfully."
-            else
-              echo "AI Backend URL is unchanged. Skipping .env update and FastAPI restart."
-            fi
+            echo "New AI Backend URL for ${{ steps.get_env.outputs.env_prefix }}: $NEW_AI_URL"
+            echo "Updating $ENV_FILE file on the main VM at $DEPLOY_DIR/$ENV_FILE..."
+
+            sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" "$DEPLOY_DIR/$ENV_FILE"
+            sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" "$DEPLOY_DIR/$ENV_FILE"
+
+            echo "$ENV_FILE updated successfully."
+
+            cd $DEPLOY_DIR
+            echo "Restarting $DOCKER_SERVICES services..."
+            sudo docker compose --env-file "$ENV_FILE" up -d $DOCKER_SERVICES
+
+            echo "Services for ${{ steps.get_env.outputs.env_prefix }} have been restarted successfully."

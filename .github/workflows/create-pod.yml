@@ -64,7 +64,7 @@ jobs:
           # Получаем список ВСЕХ подов, но с помощью grep фильтруем только те,
           # которые относятся к нашему окружению по префиксу в имени.
           # Это гарантирует, что мы не затронем другое окружение.
-          POD_LIST=$(runpodctl get pod | grep "${ENV_PREFIX}-ai-backend")
+          POD_LIST=$(runpodctl get pod | grep "${ENV_PREFIX}-ai-backend" || true)
 
           if [ -z "$POD_LIST" ]; then
             echo "No existing pods found for '${ENV_PREFIX}' environment. Proceeding."

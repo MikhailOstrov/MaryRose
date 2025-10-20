@@ -29,7 +29,7 @@ API_KEY = 'key'
 API_KEY_NAME = "X-Internal-Api-Key"
 api_key_header = APIKeyHeader(name=API_KEY_NAME, auto_error=False)
 
-# Проверка ключа
+# Проверка ключа.
 async def get_api_key(api_key: str = Depends(api_key_header)):
     if api_key == API_KEY:
         return api_key

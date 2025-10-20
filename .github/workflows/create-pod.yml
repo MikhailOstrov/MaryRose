@@ -14,37 +14,63 @@ env:
 
 jobs:
   create-pod-and-update:
-    name: Create Pod and Update Main VM
+    name: Create Pod and Update Services
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Determine Environment from Commit Message
+        id: prepare_env
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          echo "Last commit message: $COMMIT_MSG"
+
+          if [[ "$COMMIT_MSG" == *"[prod]"* ]]; then
+            echo "Found '[prod]' keyword. Setting environment to PRODUCTION."
+            echo "env_prefix=prod" >> $GITHUB_OUTPUT
+            echo "env_file=.env.prod" >> $GITHUB_OUTPUT
+            echo "docker_services=prod_backend prod_bot" >> $GITHUB_OUTPUT
+          else
+            # По умолчанию всегда используем DEV для безопасности
+            if [[ "$COMMIT_MSG" == *"[dev]"* ]]; then
+              echo "Found '[dev]' keyword. Setting environment to DEVELOPMENT."
+            else
+              echo "No specific keyword found. Defaulting to DEVELOPMENT environment for safety."
+            fi
+            echo "env_prefix=dev" >> $GITHUB_OUTPUT
+            echo "env_file=.env.dev" >> $GITHUB_OUTPUT
+            echo "docker_services=dev_backend dev_bot" >> $GITHUB_OUTPUT
+          fi
+
       - name: Install RunPodCTL and jq
         run: |
           curl -L https://github.com/runpod/runpodctl/releases/download/v1.14.4/runpodctl-linux-amd64 -o runpodctl
-
-          # Check if the download was successful (file size > 0)
           if [ ! -s runpodctl ]; then
             echo "Fatal: Failed to download runpodctl binary."
             exit 1
           fi
-
           sudo install -m 0755 runpodctl /usr/local/bin/runpodctl
-
-          # Verify that the installation was successful
-          echo "runpodctl version:"
-          runpodctl --version
-
           sudo apt-get update && sudo apt-get install -y jq
-      - name: Terminate Existing Pods
+
+      # --- ИСПРАВЛЕННЫЙ И БЕЗОПАСНЫЙ ШАГ УДАЛЕНИЯ ---
+      - name: Terminate Existing Pods for the Environment
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         run: |
-          echo "Checking for existing pods to terminate..."
-          POD_LIST=$(runpodctl get pod | tail -n +3 | sed '/^$/d')
+          ENV_PREFIX="${{ steps.prepare_env.outputs.env_prefix }}"
+          echo "Checking for existing pods to terminate with prefix '${ENV_PREFIX}-ai-backend'..."
+
+          # Получаем список ВСЕХ подов, но с помощью grep фильтруем только те,
+          # которые относятся к нашему окружению по префиксу в имени.
+          # Это гарантирует, что мы не затронем другое окружение.
+          POD_LIST=$(runpodctl get pod | grep "${ENV_PREFIX}-ai-backend")
 
           if [ -z "$POD_LIST" ]; then
-            echo "No existing pods found. Proceeding to create a new one."
+            echo "No existing pods found for '${ENV_PREFIX}' environment. Proceeding."
           else
-            echo "Found existing pods. Removing them now..."
+            echo "Found existing pods for '${ENV_PREFIX}'. Removing them now..."
+            # Команда awk '{print $1}' надежно извлекает ID из первой колонки
             POD_IDS=$(echo "$POD_LIST" | awk '{print $1}')
             
             for ID in $POD_IDS; do
@@ -52,14 +78,15 @@ jobs:
               runpodctl remove pod $ID
             done
             
-            echo "All existing pods have been scheduled for removal. Waiting 15 seconds..."
+            echo "All pods for '${ENV_PREFIX}' have been scheduled for removal. Waiting 10 seconds..."
             sleep 10
           fi
 
       - name: Determine GPU Type
         id: get_gpu
         run: |
-          GPU_FROM_COMMIT=$(git log -1 --pretty=%B | tail -n 1)
+          # Эта логика остается прежней, она работает корректно
+          GPU_FROM_COMMIT=$(git log -1 --pretty=%B)
           if [[ "$GPU_FROM_COMMIT" == *"RTX"* ]] || [[ "$GPU_FROM_COMMIT" == *"A"* ]]; then
             echo "Found GPU in commit message: '$GPU_FROM_COMMIT'. Using it."
             echo "gpu_type=$GPU_FROM_COMMIT" >> $GITHUB_OUTPUT
@@ -74,21 +101,20 @@ jobs:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         run: |
           GPU_TO_CREATE="${{ steps.get_gpu.outputs.gpu_type }}"
-          POD_NAME="ai-backend-$(date +%s)"
-          echo "Attempting to create a new pod named '$POD_NAME' from template ${{ env.RUNPOD_TEMPLATE_ID }} with GPU: '$GPU_TO_CREATE'"
+          # --- ИМЯ ПОДА ТЕПЕРЬ ДИНАМИЧЕСКОЕ И ЗАВИСИТ ОТ ОКРУЖЕНИЯ ---
+          POD_NAME="${{ steps.prepare_env.outputs.env_prefix }}-ai-backend-$(date +%s)"
+
+          echo "Attempting to create a new pod named '$POD_NAME' with GPU: '$GPU_TO_CREATE'"
 
           CREATE_OUTPUT=$(runpodctl create pod \
             --templateId "${{ env.RUNPOD_TEMPLATE_ID }}" \
             --imageName "${{ env.DOCKER_IMAGE }}" \
             --gpuType "$GPU_TO_CREATE" \
             --name "$POD_NAME" \
-            --volumePath "/workspace" \
-            --volumeSize 50 \
-            --containerDiskSize 50 \
             --secureCloud)
             
           echo "Response from RunPod: $CREATE_OUTPUT"
-
+          # Эта команда для парсинга ID надежна
           POD_ID=$(echo "$CREATE_OUTPUT" | grep -o 'pod "[^"]*"' | sed 's/pod "//;s/"//')
 
           if [ -z "$POD_ID" ]; then
@@ -99,63 +125,59 @@ jobs:
           echo "Found pod. New Pod ID: $POD_ID"
           echo "pod_id=$POD_ID" >> $GITHUB_OUTPUT
 
-      # --- ИЗМЕНЕННЫЙ ШАГ ОЖИДАНИЯ С HEALTH CHECK ---
       - name: Wait for pod to become healthy
         id: wait_for_health
         run: |
+          # Этот шаг не требует изменений, он универсален
           POD_ID=${{ steps.create_pod.outputs.pod_id }}
           HEALTH_URL="https://${POD_ID}-8001.proxy.runpod.net/health"
-
           echo "Waiting for application to become healthy at: $HEALTH_URL"
-
-          # Ждем до 10 минут, пытаясь получить успешный ответ от /health
           for i in {1..40}; do
             HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" $HEALTH_URL)
-            
             if [ "$HTTP_CODE" -eq 200 ]; then
               echo "Health check successful! Application is ready."
-              AI_URL="https://$(echo $POD_ID)-8001.proxy.runpod.net"
-              WEBSOCKET_URL="wss://$(echo $POD_ID)-8001.proxy.runpod.net/ws/listen/"
-              echo "AI_BACKEND_URL=$AI_URL" >> $GITHUB_OUTPUT
-              echo "AI_WEBSOCKET_URL=$WEBSOCKET_URL" >> $GITHUB_OUTPUT
+              echo "AI_BACKEND_URL=https://$(echo $POD_ID)-8001.proxy.runpod.net" >> $GITHUB_OUTPUT
+              echo "AI_WEBSOCKET_URL=wss://$(echo $POD_ID)-8001.proxy.runpod.net/ws/listen/" >> $GITHUB_OUTPUT
               exit 0
             fi
-            
             echo "Health check failed with status code $HTTP_CODE. Waiting 15 seconds..."
             sleep 15
           done
-
           echo "Fatal: Application did not become healthy in time."
           exit 1
 
+      # --- САМЫЙ ВАЖНЫЙ ШАГ ОБНОВЛЕНИЯ НА СЕРВЕРЕ ---
       - name: Update main VM with new URLs
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ secrets.MAIN_SERVICE_SSH_HOST }} # <-- Убедитесь, что это правильные секреты для ВМ с Docker
+          host: ${{ secrets.MAIN_SERVICE_SSH_HOST }}
           username: ${{ secrets.MAIN_SERVICE_SSH_USER }}
           key: ${{ secrets.MAIN_SERVICE_SSH_PRIVATE_KEY }}
           script: |
             set -e
+            # Получаем переменные, определенные на первом шаге
+            ENV_FILE="${{ steps.prepare_env.outputs.env_file }}"
+            DOCKER_SERVICES="${{ steps.prepare_env.outputs.docker_services }}"
             NEW_AI_URL="${{ steps.wait_for_health.outputs.AI_BACKEND_URL }}"
             NEW_WS_URL="${{ steps.wait_for_health.outputs.AI_WEBSOCKET_URL }}"
-            DEPLOY_DIR="/home/turikroma15/mary-deployment" # <-- Указываем путь к папке с docker-compose
+            DEPLOY_DIR="/home/turikroma15/mary-deployment"
 
             echo "New AI Backend URL: $NEW_AI_URL"
-            echo "Updating .env.prod file on the main VM at $DEPLOY_DIR/.env.prod..."
+            echo "Updating file '$ENV_FILE' on the main VM at $DEPLOY_DIR/$ENV_FILE..."
 
-            # --- ИЗМЕНЕНИЕ №1: Правильный путь к .env.prod ---
-            # Так как и бэкенд, и бот используют один и тот же .env.prod,
-            # нам нужно обновить переменные только в одном файле.
-            sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" $DEPLOY_DIR/.env.prod
-            sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" $DEPLOY_DIR/.env.prod
+            # Команда sed абсолютно корректна.
+            # ^ - ищет строку, которая начинается с AI_BACKEND_URL=
+            # .* - заменяет всю остальную часть строки
+            # Использование | в качестве разделителя - хорошая практика для URL, чтобы не экранировать /
+            sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" $DEPLOY_DIR/$ENV_FILE
+            sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" $DEPLOY_DIR/$ENV_FILE
 
-            echo ".env.prod updated successfully."
+            echo "$ENV_FILE updated successfully."
 
-            # --- ИЗМЕНЕНИЕ №2: Правильная команда перезапуска ---
-            # Переходим в директорию и перезапускаем нужные сервисы с помощью Docker Compose.
-            # Docker Compose сам пересоздаст контейнеры с новыми переменными.
             cd $DEPLOY_DIR
-            echo "Restarting prod_backend and prod_bot services..."
-            sudo docker compose --env-file .env.prod up -d prod_backend prod_bot
+            echo "Restarting services: $DOCKER_SERVICES..."
+            # Команда docker compose теперь точно перезапускает только нужные сервисы
+            # с правильным файлом конфигурации.
+            sudo docker compose --env-file $ENV_FILE up -d $DOCKER_SERVICES
 
             echo "Services have been restarted successfully with new URLs."

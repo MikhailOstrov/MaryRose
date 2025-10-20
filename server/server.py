@@ -15,6 +15,7 @@ app = FastAPI(
     version="1.0.0"
 )
 
+logger.info("Server started")
 
 app.include_router(bot_control_router)
 

@@ -17,6 +17,11 @@ jobs:
     name: Create Pod and Update Main VM
     runs-on: ubuntu-latest
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 1 # We only need the last commit for its message
+
       - name: Install RunPodCTL and jq
         run: |
           curl -L https://github.com/runpod/runpodctl/releases/download/v1.14.4/runpodctl-linux-amd64 -o runpodctl
@@ -34,15 +39,32 @@ jobs:
           runpodctl --version
 
           sudo apt-get update && sudo apt-get install -y jq
+      - name: Determine Environment
+        id: get_env
+        run: |
+          COMMIT_MSG=$(git log -1 --pretty=%B)
+          if [[ "$COMMIT_MSG" == *"[prod]"* ]]; then
+            echo "Production environment detected."
+            echo "env_prefix=prod" >> $GITHUB_OUTPUT
+            echo "env_file=.env.prod" >> $GITHUB_OUTPUT
+            echo "docker_services=prod_backend prod_bot" >> $GITHUB_OUTPUT
+          else
+            echo "Development environment detected (default)."
+            echo "env_prefix=dev" >> $GITHUB_OUTPUT
+            echo "env_file=.env.dev" >> $GITHUB_OUTPUT
+            echo "docker_services=dev_backend dev_bot" >> $GITHUB_OUTPUT
+          fi
       - name: Terminate Existing Pods
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         run: |
-          echo "Checking for existing pods to terminate..."
-          POD_LIST=$(runpodctl get pod | tail -n +3 | sed '/^$/d')
+          ENV_PREFIX="${{ steps.get_env.outputs.env_prefix }}"
+          echo "Checking for existing pods with prefix '${ENV_PREFIX}' to terminate..."
+          # Use '|| true' to prevent failure if no pods are found
+          POD_LIST=$(runpodctl get pod | grep "${ENV_PREFIX}-ai-backend" || true)
 
           if [ -z "$POD_LIST" ]; then
-            echo "No existing pods found. Proceeding to create a new one."
+            echo "No existing pods with prefix '${ENV_PREFIX}' found. Proceeding to create a new one."
           else
             echo "Found existing pods. Removing them now..."
             POD_IDS=$(echo "$POD_LIST" | awk '{print $1}')
@@ -52,7 +74,7 @@ jobs:
               runpodctl remove pod $ID
             done
             
-            echo "All existing pods have been scheduled for removal. Waiting 15 seconds..."
+            echo "All matching pods have been scheduled for removal. Waiting 10 seconds..."
             sleep 10
           fi
 
@@ -73,8 +95,9 @@ jobs:
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         run: |
+          ENV_PREFIX="${{ steps.get_env.outputs.env_prefix }}"
           GPU_TO_CREATE="${{ steps.get_gpu.outputs.gpu_type }}"
-          POD_NAME="ai-backend-$(date +%s)"
+          POD_NAME="${ENV_PREFIX}-ai-backend-$(date +%s)"
           echo "Attempting to create a new pod named '$POD_NAME' from template ${{ env.RUNPOD_TEMPLATE_ID }} with GPU: '$GPU_TO_CREATE'"
 
           CREATE_OUTPUT=$(runpodctl create pod \
@@ -138,24 +161,24 @@ jobs:
             set -e
             NEW_AI_URL="${{ steps.wait_for_health.outputs.AI_BACKEND_URL }}"
             NEW_WS_URL="${{ steps.wait_for_health.outputs.AI_WEBSOCKET_URL }}"
+            ENV_FILE="${{ steps.get_env.outputs.env_file }}"
+            DOCKER_SERVICES="${{ steps.get_env.outputs.docker_services }}"
             DEPLOY_DIR="/home/turikroma15/mary-deployment" # <-- Указываем путь к папке с docker-compose
 
             echo "New AI Backend URL: $NEW_AI_URL"
-            echo "Updating .env.prod file on the main VM at $DEPLOY_DIR/.env.prod..."
+            echo "Updating $ENV_FILE file on the main VM at $DEPLOY_DIR/$ENV_FILE..."
 
-            # --- ИЗМЕНЕНИЕ №1: Правильный путь к .env.prod ---
-            # Так как и бэкенд, и бот используют один и тот же .env.prod,
-            # нам нужно обновить переменные только в одном файле.
-            sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" $DEPLOY_DIR/.env.prod
-            sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" $DEPLOY_DIR/.env.prod
+            # --- ИЗМЕНЕНИЕ №1: Динамический путь к .env файлу ---
+            # Обновляем переменные в файле, соответствующем окружению.
+            sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" "$DEPLOY_DIR/$ENV_FILE"
+            sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" "$DEPLOY_DIR/$ENV_FILE"
 
-            echo ".env.prod updated successfully."
+            echo "$ENV_FILE updated successfully."
 
-            # --- ИЗМЕНЕНИЕ №2: Правильная команда перезапуска ---
-            # Переходим в директорию и перезапускаем нужные сервисы с помощью Docker Compose.
-            # Docker Compose сам пересоздаст контейнеры с новыми переменными.
+            # --- ИЗМЕНЕНИЕ №2: Динамический перезапуск сервисов ---
+            # Переходим в директорию и перезапускаем нужные сервисы.
             cd $DEPLOY_DIR
-            echo "Restarting prod_backend and prod_bot services..."
-            sudo docker compose --env-file .env.prod up -d prod_backend prod_bot
+            echo "Restarting $DOCKER_SERVICES services..."
+            sudo docker compose --env-file "$ENV_FILE" up -d $DOCKER_SERVICES
 
             echo "Services have been restarted successfully with new URLs."

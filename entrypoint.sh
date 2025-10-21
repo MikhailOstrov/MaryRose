@@ -48,4 +48,4 @@ echo "Chrome version: $(google-chrome --version 2>/dev/null || echo 'Chrome не
 
 # --- 6. Запуск основного приложения ---
 echo "=== [Entrypoint] Запуск основного приложения... ==="
-exec "$@" 2>&1 | tee -a /workspace/logs/fastapi_app.log
+exec "$@"

@@ -1,4 +1,4 @@
-from config.logging import setup_logging
+from config.logging_config import get_logger
 import logging
 from fastapi import FastAPI
 
@@ -8,16 +8,15 @@ from server.Google_Meet.meet_bot_handlers import router as bot_control_router
 from utils.gpu_monitor import get_gpu_utilization
 
 
-setup_logging()
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
+logger.info("Logger configured successfully.")
+
 
 app = FastAPI(
     title="MaryRose API",
     description="API для управления ботом MaryRose и получения результатов встреч.",
     version="1.0.0"
 )
-
-logger.info("Server started-------------------------------------------")
 
 app.include_router(bot_control_router)
 
@@ -29,6 +28,7 @@ async def health_check_extended():
     """
     Возвращает статус сервера, загруженных моделей и текущую загрузку GPU.
     """
+    logger.info("Health check extended endpoint was called.")
     gpu_status = get_gpu_utilization()
     
     return {

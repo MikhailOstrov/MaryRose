@@ -1,10 +1,12 @@
 from config.logging import setup_logging
+import logging
 from fastapi import FastAPI
 
 
 from server.TG_Bot.tg_bot_handlers import router as tg_bot_router
 from server.Google_Meet.meet_bot_handlers import router as bot_control_router
 from utils.gpu_monitor import get_gpu_utilization
+
 
 setup_logging()
 logger = logging.getLogger(__name__)

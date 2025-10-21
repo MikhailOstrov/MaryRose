@@ -2,17 +2,14 @@
 
 name: Create New RunPod Pod via Branch Push
 
-# Триггер: запускается при любом пуше в ветку 'run-runpod'
 on:
   push:
     branches:
       - run-runpod
 
-# Переменные окружения для легкой настройки
 env:
-  # ЗАМЕНИТЕ на ID вашего темплейта
-  RUNPOD_TEMPLATE_ID: ydgd23y2f5
-  # GPU, которая будет использоваться по умолчанию
+  RUNPOD_TEMPLATE_ID: "9ctlpzknh8"
+  DOCKER_IMAGE: "roma3213/maryrose-app:v3"
   DEFAULT_GPU_TYPE: "NVIDIA RTX A5000"
 
 jobs:
@@ -20,8 +17,7 @@ jobs:
     name: Create Pod and Update Main VM
     runs-on: ubuntu-latest
     steps:
-      # Шаг 1: Устанавливаем необходимые утилиты
-      - name: Install RunPod CLI and jq
+      - name: Install RunPodCTL and jq
         run: |
           curl -L https://github.com/runpod/runpodctl/releases/download/v1.14.4/runpodctl-linux-amd64 -o runpodctl
 
@@ -38,94 +34,128 @@ jobs:
           runpodctl --version
 
           sudo apt-get update && sudo apt-get install -y jq
+      - name: Terminate Existing Pods
+        env:
+          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+        run: |
+          echo "Checking for existing pods to terminate..."
+          POD_LIST=$(runpodctl get pod | tail -n +3 | sed '/^$/d')
 
-      # Шаг 2: Определяем, какую GPU использовать
+          if [ -z "$POD_LIST" ]; then
+            echo "No existing pods found. Proceeding to create a new one."
+          else
+            echo "Found existing pods. Removing them now..."
+            POD_IDS=$(echo "$POD_LIST" | awk '{print $1}')
+            
+            for ID in $POD_IDS; do
+              echo "Removing pod with ID: $ID"
+              runpodctl remove pod $ID
+            done
+            
+            echo "All existing pods have been scheduled for removal. Waiting 15 seconds..."
+            sleep 10
+          fi
+
       - name: Determine GPU Type
         id: get_gpu
         run: |
-          # Извлекаем последнюю строку из сообщения коммита
           GPU_FROM_COMMIT=$(git log -1 --pretty=%B | tail -n 1)
-
-          # Проверяем, указана ли GPU в коммите
-          if [[ "$GPU_FROM_COMMIT" == *"RTX"* ]] || [[ "$GPU_FROM_COMMIT" == *"A100"* ]] || [[ "$GPU_FROM_COMMIT" == *"H100"* ]]; then
+          if [[ "$GPU_FROM_COMMIT" == *"RTX"* ]] || [[ "$GPU_FROM_COMMIT" == *"A"* ]]; then
             echo "Found GPU in commit message: '$GPU_FROM_COMMIT'. Using it."
             echo "gpu_type=$GPU_FROM_COMMIT" >> $GITHUB_OUTPUT
           else
-            # Если в коммите нет GPU, используем значение по умолчанию
             echo "No valid GPU type in commit message. Using default: '${{ env.DEFAULT_GPU_TYPE }}'"
             echo "gpu_type=${{ env.DEFAULT_GPU_TYPE }}" >> $GITHUB_OUTPUT
           fi
 
-      # Шаг 3: Создаем новый под из темплейта с выбранной GPU
-      - name: Create new pod from template
+      - name: Create new pod and get its ID
         id: create_pod
         env:
           RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
         run: |
           GPU_TO_CREATE="${{ steps.get_gpu.outputs.gpu_type }}"
-          echo "Attempting to create a new pod with GPU: '$GPU_TO_CREATE'"
+          POD_NAME="ai-backend-$(date +%s)"
+          echo "Attempting to create a new pod named '$POD_NAME' from template ${{ env.RUNPOD_TEMPLATE_ID }} with GPU: '$GPU_TO_CREATE'"
 
-          # Выполняем команду с указанием и темплейта, и типа GPU
-          POD_JSON=$(runpod pod create \
+          CREATE_OUTPUT=$(runpodctl create pod \
             --templateId "${{ env.RUNPOD_TEMPLATE_ID }}" \
-            --gpuType "$GPU_TO_CREATE")
+            --imageName "${{ env.DOCKER_IMAGE }}" \
+            --gpuType "$GPU_TO_CREATE" \
+            --name "$POD_NAME" \
+            --volumePath "/workspace" \
+            --volumeSize 50 \
+            --containerDiskSize 50 \
+            --secureCloud)
             
-          echo "Pod creation initiated."
+          echo "Response from RunPod: $CREATE_OUTPUT"
 
-          POD_ID=$(echo "$POD_JSON" | jq -r '.id')
-          echo "New Pod ID: $POD_ID"
+          POD_ID=$(echo "$CREATE_OUTPUT" | grep -o 'pod "[^"]*"' | sed 's/pod "//;s/"//')
+
+          if [ -z "$POD_ID" ]; then
+            echo "Fatal: Could not parse Pod ID from the creation output."
+            exit 1
+          fi
+
+          echo "Found pod. New Pod ID: $POD_ID"
           echo "pod_id=$POD_ID" >> $GITHUB_OUTPUT
 
-      # Шаг 4: Ждем, пока под запустится, и получаем его URL
-      - name: Wait for pod to run and get URLs
-        id: get_url
-        env:
-          RUNPOD_API_KEY: ${{ secrets.RUNPOD_API_KEY }}
+      # --- ИЗМЕНЕННЫЙ ШАГ ОЖИДАНИЯ С HEALTH CHECK ---
+      - name: Wait for pod to become healthy
+        id: wait_for_health
         run: |
           POD_ID=${{ steps.create_pod.outputs.pod_id }}
-          echo "Waiting for pod $POD_ID to enter 'Running' state..."
+          HEALTH_URL="https://${POD_ID}-8001.proxy.runpod.net/health"
 
-          for i in {1..20}; do # Ждем до 5 минут
-            STATUS=$(runpod pod find --id $POD_ID | jq -r '.desiredStatus')
-            if [ "$STATUS" == "Running" ]; then
-              echo "Pod is running!"
-              break
+          echo "Waiting for application to become healthy at: $HEALTH_URL"
+
+          # Ждем до 10 минут, пытаясь получить успешный ответ от /health
+          for i in {1..40}; do
+            HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" $HEALTH_URL)
+            
+            if [ "$HTTP_CODE" -eq 200 ]; then
+              echo "Health check successful! Application is ready."
+              AI_URL="https://$(echo $POD_ID)-8001.proxy.runpod.net"
+              WEBSOCKET_URL="wss://$(echo $POD_ID)-8001.proxy.runpod.net/ws/listen/"
+              echo "AI_BACKEND_URL=$AI_URL" >> $GITHUB_OUTPUT
+              echo "AI_WEBSOCKET_URL=$WEBSOCKET_URL" >> $GITHUB_OUTPUT
+              exit 0
             fi
-            if [ "$STATUS" == "Terminated" ] || [ "$STATUS" == "Failed" ]; then
-              echo "Error: Pod entered '$STATUS' state. Aborting."
-              exit 1
-            fi
-            echo "Current status: $STATUS. Waiting 15 seconds..."
+            
+            echo "Health check failed with status code $HTTP_CODE. Waiting 15 seconds..."
             sleep 15
           done
 
-          POD_INFO=$(runpod pod find --id $POD_ID)
-          AI_URL=$(echo "$POD_INFO" | jq -r '.runtime.ports[] | select(.privatePort == 8001) | .httpsUrl')
-          WEBSOCKET_URL=$(echo "$AI_URL" | sed 's|https|wss|')/ws/listen/
+          echo "Fatal: Application did not become healthy in time."
+          exit 1
 
-          echo "AI_BACKEND_URL=$AI_URL" >> $GITHUB_OUTPUT
-          echo "AI_WEBSOCKET_URL=$WEBSOCKET_URL" >> $GITHUB_OUTPUT
-
-      # Шаг 5: Обновляем .env файл на основной ВМ
       - name: Update main VM with new URLs
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ secrets.MAIN_SERVICE_SSH_HOST }}
+          host: ${{ secrets.MAIN_SERVICE_SSH_HOST }} # <-- Убедитесь, что это правильные секреты для ВМ с Docker
           username: ${{ secrets.MAIN_SERVICE_SSH_USER }}
           key: ${{ secrets.MAIN_SERVICE_SSH_PRIVATE_KEY }}
           script: |
             set -e
-            echo "Updating .env file on the main VM..."
-            NEW_AI_URL="${{ steps.get_url.outputs.AI_BACKEND_URL }}"
-            NEW_WS_URL="${{ steps.get_url.outputs.AI_WEBSOCKET_URL }}"
+            NEW_AI_URL="${{ steps.wait_for_health.outputs.AI_BACKEND_URL }}"
+            NEW_WS_URL="${{ steps.wait_for_health.outputs.AI_WEBSOCKET_URL }}"
+            DEPLOY_DIR="/home/turikroma15/mary-deployment" # <-- Указываем путь к папке с docker-compose
 
-            sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" /home/turikroma15/MaryRoseBot/.env
-            sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" /home/turikroma15/MaryRoseBot/.env
-            sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" /home/turikroma15/mary-assistant/backend/.env
-            sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" /home/turikroma15/mary-assistant/backend/.env
+            echo "New AI Backend URL: $NEW_AI_URL"
+            echo "Updating .env.prod file on the main VM at $DEPLOY_DIR/.env.prod..."
 
+            # --- ИЗМЕНЕНИЕ №1: Правильный путь к .env.prod ---
+            # Так как и бэкенд, и бот используют один и тот же .env.prod,
+            # нам нужно обновить переменные только в одном файле.
+            sed -i "s|^AI_BACKEND_URL=.*|AI_BACKEND_URL=$NEW_AI_URL|" $DEPLOY_DIR/.env.prod
+            sed -i "s|^AI_WEBSOCKET_URL=.*|AI_WEBSOCKET_URL=$NEW_WS_URL|" $DEPLOY_DIR/.env.prod
 
-            echo ".env file updated. Restarting main service..."
-            sudo /home/turikroma15/restart-fastapi.sh
-            sudo systemctl restart telegram-bot.service
-            echo "Main service restarted successfully."
+            echo ".env.prod updated successfully."
+
+            # --- ИЗМЕНЕНИЕ №2: Правильная команда перезапуска ---
+            # Переходим в директорию и перезапускаем нужные сервисы с помощью Docker Compose.
+            # Docker Compose сам пересоздаст контейнеры с новыми переменными.
+            cd $DEPLOY_DIR
+            echo "Restarting prod_backend and prod_bot services..."
+            sudo docker compose --env-file .env.prod up -d prod_backend prod_bot
+
+            echo "Services have been restarted successfully with new URLs."

@@ -5,11 +5,14 @@ echo "=== [Entrypoint] Запуск от пользователя: $(whoami) ===
 
 # --- 0. Настройка /workspace ---
 echo "[Entrypoint] Проверка и настройка /workspace..."
-mkdir -p /workspace/.cache/torch /workspace/.cache/nemo /workspace/.cache/huggingface /workspace/models
+mkdir -p /workspace/.cache/torch /workspace/.cache/nemo /workspace/.cache/huggingface /workspace/models /workspace/logs
 export TORCH_HOME=/workspace/.cache/torch
 export NEMO_CACHE_DIR=/workspace/.cache/nemo
 export HF_HOME=/workspace/.cache/huggingface
+export LOGS_DIR=/workspace/logs
 echo "✅ [Entrypoint] /workspace настроен."
+
+exec "$@" 2>&1 | tee -a /workspace/logs/fastapi_app.log
 
 # --- 1. Настройка пользовательского окружения ---
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-"/tmp/runtime-$(whoami)"}

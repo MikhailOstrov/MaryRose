@@ -1,4 +1,3 @@
-from config.logging_config import setup_logging
 import logging
 from fastapi import FastAPI
 
@@ -8,10 +7,8 @@ from server.Google_Meet.meet_bot_handlers import router as bot_control_router
 from utils.gpu_monitor import get_gpu_utilization
 
 
-# Настраиваем корневой логгер ОДИН раз при старте приложения.
-setup_logging()
-
-# Теперь получаем логгер стандартным способом. Он унаследует все настройки.
+# Логгер теперь настраивается uvicorn через --log-config.
+# Просто получаем его здесь для использования.
 logger = logging.getLogger(__name__)
 
 
@@ -41,3 +38,4 @@ async def health_check_extended():
 
 # --- Команда для запуска сервера из терминала ---
 # uvicorn server:app --host 0.0.0.0 --port 8001
+

@@ -15,7 +15,7 @@
     "file": {
       "class": "logging.handlers.TimedRotatingFileHandler",
       "formatter": "standard",
-      "filename": "/workspace/logs/app.log",
+      "filename": "/workspace/logs/app.txt",
       "when": "midnight",
       "backupCount": 10,
       "encoding": "utf-8"
@@ -26,4 +26,3 @@
     "handlers": ["console", "file"]
   }
 }
-

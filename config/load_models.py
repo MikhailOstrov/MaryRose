@@ -6,13 +6,14 @@ os.environ['HOME'] = '/app'
 os.environ['TORCH_HOME'] = '/workspace/.cache/torch'
 os.environ['NEMO_CACHE_DIR'] = '/workspace/.cache/nemo'
 os.environ['HF_HOME'] = '/workspace/.cache/huggingface'
+os.environ['LOGS_DIR'] = '/workspace/logs'
 
 # Создаем необходимые директории в /workspace
 workspace_dirs = [
     '/workspace/.cache/torch',
     '/workspace/.cache/nemo', 
     '/workspace/.cache/huggingface',
-    '/workspace/models'
+    '/workspace/models',
     '/workspace/logs'
 ]
 for dir_path in workspace_dirs:

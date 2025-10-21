@@ -5,11 +5,6 @@ echo "=== [Entrypoint] Запуск от пользователя: $(whoami) ===
 
 # --- 0. Настройка /workspace ---
 echo "[Entrypoint] Проверка и настройка /workspace..."
-# Эта команда теперь выполняется от root и исправляет права для смонтированного volume
-echo "[Entrypoint] Установка прав владения для /workspace..."
-chown -R appuser:appuser /workspace
-echo "✅ [Entrypoint] Права для /workspace установлены."
-
 mkdir -p /workspace/.cache/torch /workspace/.cache/nemo /workspace/.cache/huggingface /workspace/models /workspace/logs
 export TORCH_HOME=/workspace/.cache/torch
 export NEMO_CACHE_DIR=/workspace/.cache/nemo
@@ -52,7 +47,5 @@ echo "Chrome version: $(google-chrome --version 2>/dev/null || echo 'Chrome не
 # ... (остальной ваш код диагностики) ...
 
 # --- 6. Запуск основного приложения ---
-echo "=== [Entrypoint] Запуск основного приложения от имени 'appuser'... ==="
-# Используем gosu для переключения на пользователя appuser перед запуском основного процесса
-# Перенаправление логов теперь будет работать, так как директория создана и права установлены
-exec gosu appuser "$@" 2>&1 | tee -a /workspace/logs/fastapi_app.log
+echo "=== [Entrypoint] Запуск основного приложения... ==="
+exec "$@" 2>&1 | tee -a /workspace/logs/fastapi_app.log

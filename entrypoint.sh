@@ -12,7 +12,7 @@ export HF_HOME=/workspace/.cache/huggingface
 export LOGS_DIR=/workspace/logs
 echo "✅ [Entrypoint] /workspace настроен."
 
-exec "$@" 2>&1 | tee -a /workspace/logs/fastapi_app.log
+
 
 # --- 1. Настройка пользовательского окружения ---
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-"/tmp/runtime-$(whoami)"}
@@ -48,4 +48,4 @@ echo "Chrome version: $(google-chrome --version 2>/dev/null || echo 'Chrome не
 
 # --- 6. Запуск основного приложения ---
 echo "=== [Entrypoint] Запуск основного приложения... ==="
-exec "$@"
+exec "$@" 2>&1 | tee -a /workspace/logs/fastapi_app.log

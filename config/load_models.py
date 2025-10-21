@@ -13,6 +13,7 @@ workspace_dirs = [
     '/workspace/.cache/nemo', 
     '/workspace/.cache/huggingface',
     '/workspace/models'
+    '/workspace/logs'
 ]
 for dir_path in workspace_dirs:
     Path(dir_path).mkdir(parents=True, exist_ok=True)

@@ -1,6 +1,7 @@
 import logging
 import os
 from logging.handlers import RotatingFileHandler
+import sys
 
 def setup_logging():
     logging.basicConfig(
@@ -10,6 +11,3 @@ def setup_logging():
             logging.StreamHandler(sys.stdout),
         ]
     )
-    return logging.getLogger(__name__)
-
-logger = setup_logging()

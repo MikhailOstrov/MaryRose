@@ -81,8 +81,7 @@ RUN dos2unix /app/entrypoint.sh && \
     chown -R appuser:appuser /app /workspace
 
 # --- ШАГ 7: ПЕРЕКЛЮЧЕНИЕ НА НЕПРИВИЛЕГИРОВАННОГО ПОЛЬЗОВАТЕЛЯ ---
-# ЭТА КОМАНДА ДОЛЖНА БЫТЬ!
-USER appuser
+# USER appuser # <--- ЗАКОММЕНТИРОВАНО! Теперь entrypoint будет запускаться от root.
 
 # Настройка переменных окружения, которые понадобятся appuser
 ENV HOME=/home/appuser 

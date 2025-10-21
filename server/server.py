@@ -1,4 +1,4 @@
-from config.logging_config import get_logger
+from config.logging_config import setup_logging
 import logging
 from fastapi import FastAPI
 
@@ -8,8 +8,11 @@ from server.Google_Meet.meet_bot_handlers import router as bot_control_router
 from utils.gpu_monitor import get_gpu_utilization
 
 
-logger = get_logger(__name__)
-logger.info("Logger configured successfully.")
+# Настраиваем корневой логгер ОДИН раз при старте приложения.
+setup_logging()
+
+# Теперь получаем логгер стандартным способом. Он унаследует все настройки.
+logger = logging.getLogger(__name__)
 
 
 app = FastAPI(

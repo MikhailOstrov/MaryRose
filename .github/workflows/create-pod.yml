@@ -8,8 +8,10 @@ on:
       - run-runpod
 
 env:
-  RUNPOD_TEMPLATE_ID: "9ctlpzknh8"
-  DOCKER_IMAGE: "roma3213/maryrose-app:v3"
+  RUNPOD_TEMPLATE_ID_PROD: "9ctlpzknh8"
+  RUNPOD_TEMPLATE_ID_DEV: "tn7xf0z34h"
+  DOCKER_IMAGE_PROD: "roma3213/maryrose-app:prod"
+  DOCKER_IMAGE_DEV: "roma3213/maryrose-app:dev"
   DEFAULT_GPU_TYPE: "NVIDIA RTX A5000"
 
 jobs:
@@ -98,11 +100,20 @@ jobs:
           ENV_PREFIX="${{ steps.get_env.outputs.env_prefix }}"
           GPU_TO_CREATE="${{ steps.get_gpu.outputs.gpu_type }}"
           POD_NAME="${ENV_PREFIX}-ai-backend-$(date +%s)"
-          echo "Attempting to create a new pod named '$POD_NAME' from template ${{ env.RUNPOD_TEMPLATE_ID }} with GPU: '$GPU_TO_CREATE'"
+
+          if [ "$ENV_PREFIX" = "prod" ]; then
+            TEMPLATE_ID="${{ env.RUNPOD_TEMPLATE_ID_PROD }}"
+            DOCKER_IMAGE="${{ env.DOCKER_IMAGE_PROD }}"
+          else
+            TEMPLATE_ID="${{ env.RUNPOD_TEMPLATE_ID_DEV }}"
+            DOCKER_IMAGE="${{ env.DOCKER_IMAGE_DEV }}"
+          fi
+
+          echo "Attempting to create a new pod named '$POD_NAME' from template $TEMPLATE_ID with GPU: '$GPU_TO_CREATE'"
 
           CREATE_OUTPUT=$(runpodctl create pod \
-            --templateId "${{ env.RUNPOD_TEMPLATE_ID }}" \
-            --imageName "${{ env.DOCKER_IMAGE }}" \
+            --templateId "$TEMPLATE_ID" \
+            --imageName "$DOCKER_IMAGE" \
             --gpuType "$GPU_TO_CREATE" \
             --name "$POD_NAME" \
             --volumePath "/workspace" \

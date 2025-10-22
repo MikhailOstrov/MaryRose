@@ -4,13 +4,10 @@ import sys
 import signal
 import time
 from api.meet_listener import MeetListenerBot
+from config.logging import setup_logging
 
-# Настраиваем логирование для вывода в консоль, чтобы его можно было отслеживать
-logging.basicConfig(
-    stream=sys.stdout, 
-    level=logging.INFO, 
-    format='%(asctime)s - %(name)s - %(levelname)s - [%(threadName)s] - %(message)s'
-)
+# Настраиваем логирование
+setup_logging()
 logger = logging.getLogger(__name__)
 
 # Глобальная переменная для хранения экземпляра бота, чтобы обработчик сигнала имел к нему доступ

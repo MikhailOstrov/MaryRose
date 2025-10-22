@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from config.config import INTERNAL_API_KEY, BACKEND_URL
 
 load_dotenv()
-logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 async def save_info_in_kb(text: str, email: str):
 
@@ -18,7 +18,7 @@ async def save_info_in_kb(text: str, email: str):
         response.raise_for_status()
         result = response.json()
 
-    logging.info(f"Текст '{text}' успешно добавлен в БЗ.")
+    logger.info(f"Текст '{text}' успешно добавлен в БЗ.")
 
 async def get_info_from_kb(query: str, email: str):
 
@@ -31,7 +31,7 @@ async def get_info_from_kb(query: str, email: str):
         )
         response.raise_for_status()
         result = response.json()
-    logging.info(f"Ответ от БЗ: {result}")
+    logger.info(f"Ответ от БЗ: {result}")
 
     if not result.get("success") or "results" not in result:
         return None

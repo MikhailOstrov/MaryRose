@@ -1,6 +1,5 @@
 import logging
 import os
-from logging.handlers import FileHandler
 import sys
 
 
@@ -32,12 +31,17 @@ def setup_logging():
     console_handler.setFormatter(formatter)
 
     # 4. Настраиваем обработчик для записи логов в ФАЙЛ
-    log_dir = '/workspace/logs'
+    # Определяем путь к директории логов в зависимости от окружения
+    if os.name == 'nt':  # Windows
+        log_dir = os.path.join(os.getcwd(), 'logs')
+    else:  # Linux/Docker
+        log_dir = '/workspace/logs'
+    
     # Создаем директорию для логов, если она еще не существует.
     os.makedirs(log_dir, exist_ok=True)
     
     log_file_path = os.path.join(log_dir, 'app.log')
-    file_handler = FileHandler(
+    file_handler = logging.FileHandler(
         log_file_path,
         mode='a', # 'a' - append, дозапись в конец файла
         encoding='utf-8' # Важно для поддержки кириллицы и других символов
@@ -50,5 +54,5 @@ def setup_logging():
     logger.addHandler(console_handler)
     logger.addHandler(file_handler)
 
-    logging.info("Logging setup is complete. Logs will be sent to console and file.")
+    logging.info(f"Logging setup is complete. Logs will be sent to console and file: {log_file_path}")
 

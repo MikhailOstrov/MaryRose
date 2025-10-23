@@ -31,12 +31,11 @@ def setup_logging():
     console_handler.setFormatter(formatter)
 
     # 4. Настраиваем обработчик для записи логов в ФАЙЛ
-    # Определяем путь к директории логов в зависимости от окружения
-    if os.name == 'nt':  # Windows
-        log_dir = os.path.join(os.getcwd(), 'logs')
-    else:  # Linux/Docker
-        log_dir = '/workspace/logs'
-    
+    # Определяем путь к директории логов относительно текущего файла,
+    # чтобы он был независим от операционной системы и рабочего каталога.
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    log_dir = os.path.join(base_dir, 'logs')
+
     # Создаем директорию для логов, если она еще не существует.
     os.makedirs(log_dir, exist_ok=True)
     

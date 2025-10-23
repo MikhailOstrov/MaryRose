@@ -135,7 +135,9 @@ class WebsiteListenerBot:
         try:
 
             ffmpeg_command = [
-                "ffmpeg", "-i", input_file_path, "-f", "s16le",
+                "ffmpeg", "-i", input_file_path,
+                "-loglevel", "error",
+                "-f", "s16le",
                 "-ar", str(STREAM_SAMPLE_RATE), "-ac", "1", "-"
             ]
 

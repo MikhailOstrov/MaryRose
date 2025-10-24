@@ -1,42 +1,6 @@
 #!/bin/bash
 set -e
 
-if [ "$(id -u)" = "0" ]; then
-    echo "=== [Entrypoint ROOT] Настройка и запуск системных служб ==="
-
-    # --- 1. Настройка и запуск SSH-сервера ---
-    echo "[Entrypoint ROOT] Настройка SSH..."
-    mkdir -p /var/run/sshd # Создаем директорию для PID файла sshd
-
-    # Разрешаем вход для root (по ключу) и отключаем аутентификацию по паролю
-    sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
-    sed -i 's/#PermitRootLogin/PermitRootLogin/' /etc/ssh/sshd_config
-    sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
-
-    # Добавляем публичный ключ из переменной окружения $PUBLIC_KEY (предоставляется RunPod)
-    if [ -n "$PUBLIC_KEY" ]; then
-        echo "[Entrypoint ROOT] Найден публичный SSH ключ. Добавляем его для пользователя root..."
-        mkdir -p /root/.ssh
-        chmod 700 /root/.ssh
-        echo "$PUBLIC_KEY" > /root/.ssh/authorized_keys
-        chmod 600 /root/.ssh/authorized_keys
-        echo "✅ [Entrypoint ROOT] SSH ключ успешно добавлен."
-    else
-        echo "⚠️ [Entrypoint ROOT] ВНИМАНИЕ: Переменная \$PUBLIC_KEY не найдена. SSH-доступ по ключу будет невозможен."
-    fi
-
-    # Запускаем SSH-сервис в фоновом режиме
-    /usr/sbin/sshd
-    echo "✅ [Entrypoint ROOT] SSH-сервер запущен."
-
-    # --- 2. Передача управления пользователю 'appuser' ---
-    echo "=== [Entrypoint ROOT] Передача управления пользователю 'appuser'..."
-    # Используем gosu для смены пользователя и выполнения той же команды,
-    # с которой был запущен этот скрипт (т.е. uvicorn ...).
-    # "$0" - это сам этот скрипт, "$@" - все его аргументы.
-    exec gosu appuser "$0" "$@"
-fi
-
 echo "=== [Entrypoint] Запуск от пользователя: $(whoami) ==="
 
 # --- 0. Настройка /workspace ---

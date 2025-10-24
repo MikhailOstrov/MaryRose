@@ -8,6 +8,8 @@ if [ "$(id -u)" = "0" ]; then
     # --- 1. Настройка и запуск SSH-сервера ---
     echo "[Entrypoint ROOT] Настройка SSH..."
     mkdir -p /var/run/sshd
+    mkdir -p /root/.ssh
+    chmod 700 /root/.ssh
 
     sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
     sed -i 's/#PermitRootLogin/PermitRootLogin/' /etc/ssh/sshd_config

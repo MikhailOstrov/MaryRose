@@ -64,11 +64,10 @@ COPY requirements.txt .
 RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    coreutils less nano
-RUN apt-get update && apt-get install -y openssh-server && apt-get clean
-RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
-RUN sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
-RUN mkdir -p /var/run/sshd
+    coreutils less nano openssh-server gosu \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
 
 # --- ШАГ 6: КОПИРОВАНИЕ КОДА И НАСТРОЙКА ПРАВ ---
 # Копируем ВЕСЬ код приложения ОДИН РАЗ

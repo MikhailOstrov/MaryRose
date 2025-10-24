@@ -1,6 +1,6 @@
 #!/bin/bash
 set -e
-
+MY_PUBLIC_KEY="ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPggysEa7spUExpTmWnsO4gYnAUHz0PQ9HgTwcqHnCpy runpod_ssh_key"
 # === ЧАСТЬ 1: ВЫПОЛНЯЕТСЯ ОТ ПОЛЬЗОВАТЕЛЯ ROOT ===
 if [ "$(id -u)" = "0" ]; then
     echo "=== [Entrypoint ROOT] Настройка и запуск системных служб ==="
@@ -11,25 +11,18 @@ if [ "$(id -u)" = "0" ]; then
     mkdir -p /var/run/sshd
     mkdir -p /root/.ssh
     chmod 700 /root/.ssh
+    echo "$MY_PUBLIC_KEY" > /root/.ssh/authorized_keys
+    chmod 600 /root/.ssh/authorized_keys
+    echo "✅ [Entrypoint ROOT] Диагностический ключ успешно записан."
 
+    # Настраиваем sshd_config (эти команды остаются)
     sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
     sed -i 's/#PermitRootLogin/PermitRootLogin/' /etc/ssh/sshd_config
     sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config
 
-    if [ -n "$PUBLIC_KEY" ]; then
-        echo "[Entrypoint ROOT] Найден публичный SSH ключ. Добавляем его для пользователя root..."
-        mkdir -p /root/.ssh
-        chmod 700 /root/.ssh
-        echo "$PUBLIC_KEY" > /root/.ssh/authorized_keys
-        chmod 600 /root/.ssh/authorized_keys
-        echo "✅ [Entrypoint ROOT] SSH ключ успешно добавлен."
-    else
-        echo "⚠️ [Entrypoint ROOT] ВНИМАНИЕ: Переменная \$PUBLIC_KEY не найдена. SSH-доступ по ключу будет невозможен."
-    fi
-
+    # Запускаем SSH-сервер
     /usr/sbin/sshd
     echo "✅ [Entrypoint ROOT] SSH-сервер запущен."
-
     # --- 2. Передача управления пользователю 'appuser' ---
     echo "=== [Entrypoint ROOT] Передача управления пользователю 'appuser'..."
     exec gosu appuser "$0" "$@"

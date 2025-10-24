@@ -7,6 +7,7 @@ if [ "$(id -u)" = "0" ]; then
 
     # --- 1. Настройка и запуск SSH-сервера ---
     echo "[Entrypoint ROOT] Настройка SSH..."
+    echo "Fuck..."
     mkdir -p /var/run/sshd
     mkdir -p /root/.ssh
     chmod 700 /root/.ssh

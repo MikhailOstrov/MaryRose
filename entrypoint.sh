@@ -30,7 +30,7 @@ if [ "$(id -u)" = "0" ]; then
     # --- 2. Передача управления пользователю 'appuser' ---
     echo "=== [Entrypoint ROOT] Передача управления пользователю 'appuser'..."
     exec gosu appuser "$0" "$@"
-fi
+fi  
 
 # === ЧАСТЬ 2: ВЫПОЛНЯЕТСЯ ОТ ПОЛЬЗОВАТЕЛЯ APPUSER ===
 echo "=== [Entrypoint APPUSER] Запуск от пользователя: $(whoami) ==="

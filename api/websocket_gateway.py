@@ -6,7 +6,7 @@ from typing import Dict
 
 # Импортируем WebsiteListenerBot и словарь из server.py
 from api.website_listener import WebsiteListenerBot
-from api.session_store import session_to_meeting_map # Предполагаем, что он будет в server.py
+from api.session_store import session_to_meeting_map # Предполагаем, что он будет в server.py.
 from config.config import STREAM_SAMPLE_RATE, MEET_FRAME_DURATION_MS
 
 logger = logging.getLogger(__name__)

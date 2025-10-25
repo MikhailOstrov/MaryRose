@@ -9,8 +9,6 @@ if [ "$(id -u)" = "0" ]; then
     echo "[Entrypoint ROOT] Настройка SSH..."
     echo "Fuck..."
     mkdir -p /var/run/sshd
-    mkdir -p /root/.ssh
-    chmod 700 /root/.ssh
 
     sed -i 's/PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
     sed -i 's/#PermitRootLogin/PermitRootLogin/' /etc/ssh/sshd_config

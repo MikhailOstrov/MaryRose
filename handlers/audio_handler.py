@@ -161,20 +161,16 @@ class AudioHandler:
 
                                         #segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
                                         transcription_te  = te_model(transcription, lan='ru')
-                                        dialog = "\n".join(
-                                            f"[{self.format_time_hms(speech_start_walltime)} - {self.format_time_hms(speech_end_walltime)}] {transcription_te.strip()}")
+                                        dialog = f"[{self.format_time_hms(speech_start_walltime)} - {self.format_time_hms(speech_end_walltime)}] {transcription_te.strip()}"
                                         
                                         self.all_segments.append(dialog)
                                         print(dialog)
 
-                                        # Чистый текст без таймингов
-                                        transcription_clear = re.sub(r"\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*", "", dialog)
-
                                         self.global_offset += chunk_duration
 
-                                        if transcription_clear.lower().lstrip().startswith(STREAM_TRIGGER_WORD):
+                                        if transcription_te.lower().lstrip().startswith(STREAM_TRIGGER_WORD):
 
-                                            clean_transcription = ''.join(char for char in transcription_clear.lower() if char.isalnum() or char.isspace())
+                                            clean_transcription = ''.join(char for char in transcription_te.lower() if char.isalnum() or char.isspace())
 
                                             if STREAM_STOP_WORD_1 in clean_transcription or STREAM_STOP_WORD_2 in clean_transcription or STREAM_STOP_WORD_3 in clean_transcription:
                                                 logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")

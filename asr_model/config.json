@@ -1,0 +1,6 @@
+{
+    "model_type": "gigaam-v2",
+    "features_size": 64,
+    "subsampling_factor": 4,
+    "max_tokens_per_step": 3
+}

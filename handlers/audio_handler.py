@@ -126,37 +126,38 @@ class AudioHandler:
                                         is_speaking = False
                                         silence_accum_ms = 0
 
-                                    # Проверка формата аудио
-                                    if full_audio_np.ndim == 1:
-                                        logger.debug(f"[{self.meeting_id}] Аудио уже моно, пропускаю конвертацию")
-                                        # Сохраняем моно-аудио во временный WAV
-                                        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
-                                            temp_path = temp_wav.name
-                                            sf.write(temp_path, full_audio_np, sr, subtype='PCM_16')
-                                    else:
-                                        # Сохраняем во временный WAV и конвертируем в моно через librosa
-                                        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
-                                            temp_path = temp_wav.name
-                                            sf.write(temp_path, full_audio_np, sr, subtype='PCM_16')
+                                        # Проверка формата аудио
+                                        if full_audio_np.ndim == 1:
+                                            logger.info(f"[{self.meeting_id}] Аудио уже моно, пропускаю конвертацию")
+                                            # Сохраняем моно-аудио во временный WAV
+                                            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
+                                                temp_path = temp_wav.name
+                                                sf.write(temp_path, full_audio_np, sr, subtype='PCM_16')
+                                        else:
+                                            logger.info(f"[{self.meeting_id}] Аудио не моно, делаю конвертацию")
+                                            # Сохраняем во временный WAV и конвертируем в моно через librosa
+                                            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
+                                                temp_path = temp_wav.name
+                                                sf.write(temp_path, full_audio_np, sr, subtype='PCM_16')
 
-                                            # Конвертируем в моно
-                                            audio_mono, _ = librosa.load(temp_path, sr=16000, mono=True)
-                                            logger.debug(f"[{self.meeting_id}] audio_mono shape: {audio_mono.shape}")
-                                            os.unlink(temp_path)  # Удаляем исходный
+                                                # Конвертируем в моно
+                                                audio_mono, _ = librosa.load(temp_path, sr=16000, mono=True)
+                                                logger.info(f"[{self.meeting_id}] audio_mono shape: {audio_mono.shape}")
+                                                os.unlink(temp_path)  # Удаляем исходный
 
-                                            # Сохраняем моно-аудио
-                                            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav_mono:
-                                                temp_path_mono = temp_wav_mono.name
-                                                sf.write(temp_path_mono, audio_mono, 16000, subtype='PCM_16')
+                                                # Сохраняем моно-аудио
+                                                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
+                                                    temp_path = temp_wav.name
+                                                    sf.write(temp_path, audio_mono, 16000, subtype='PCM_16')
 
-                                            # Распознаём
-                                            try:
-                                                transcription = self.asr_model.recognize(temp_path)
-                                                logger.info(f"Текст распознан: {transcription}")
-                                            except Exception as e:
-                                                logger.error(f"[{self.meeting_id}] Ошибка распознавания: {e}")
+                                        # Распознаём
+                                        try:
+                                            transcription = self.asr_model.recognize(temp_path)
+                                            logger.info(f"Текст распознан: {transcription}")
+                                        except Exception as e:
+                                            logger.error(f"[{self.meeting_id}] Ошибка распознавания: {e}")
 
-                                            os.unlink(temp_path)
+                                        os.unlink(temp_path)
 
                                         #segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
                                         transcription_te  = te_model(transcription, lan='ru')

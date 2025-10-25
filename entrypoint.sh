@@ -40,9 +40,8 @@ echo "=== [Entrypoint APPUSER] Запуск от пользователя: $(who
 
 # --- 0. Настройка /workspace ---
 echo "[Entrypoint APPUSER] Проверка и настройка /workspace..."
-mkdir -p /workspace/.cache/torch /workspace/.cache/nemo /workspace/.cache/huggingface /workspace/models /workspace/logs
+mkdir -p /workspace/.cache/torch /workspace/.cache/huggingface /workspace/models /workspace/logs
 export TORCH_HOME=/workspace/.cache/torch
-export NEMO_CACHE_DIR=/workspace/.cache/nemo
 export HF_HOME=/workspace/.cache/huggingface
 export LOGS_DIR=/workspace/logs
 echo "✅ [Entrypoint APPUSER] /workspace настроен."

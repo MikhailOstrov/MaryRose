@@ -1,17 +1,16 @@
 import os
 from pathlib import Path
+import onnx_asr
 
 # Настройка путей для RunPod (модели сохраняются в персистентный /workspace)
 os.environ['HOME'] = '/app'
 os.environ['TORCH_HOME'] = '/workspace/.cache/torch'
-os.environ['NEMO_CACHE_DIR'] = '/workspace/.cache/nemo'
 os.environ['HF_HOME'] = '/workspace/.cache/huggingface'
 os.environ['LOGS_DIR'] = '/workspace/logs'
 
 # Создаем необходимые директории в /workspace
 workspace_dirs = [
     '/workspace/.cache/torch',
-    '/workspace/.cache/nemo', 
     '/workspace/.cache/huggingface',
     '/workspace/models',
     '/workspace/logs'
@@ -20,8 +19,8 @@ for dir_path in workspace_dirs:
     Path(dir_path).mkdir(parents=True, exist_ok=True)
     print(f"Создана директория: {dir_path}")
 
-from faster_whisper import WhisperModel
-from huggingface_hub import snapshot_download
+#from faster_whisper import WhisperModel
+#from huggingface_hub import snapshot_download
 from dotenv import load_dotenv
 import torch
 
@@ -57,8 +56,20 @@ def check_model_exists(model_identifier, model_type="whisper"):
         return torch_cache.exists() and any(torch_cache.iterdir())
     return False
 
-# Проверка и загрузка Whisper
+# Проверка и загрузка ASR модели
 def load_asr_model():
+    try:
+        local_model_dir = "/app/asr_model"
+        providers = ['CUDAExecutionProvider'] 
+        asr_model = onnx_asr.load_model("gigaam-v2-rnnt", local_model_dir, providers=providers)
+    except Exception as e:
+        print(f"Произошла ошибка с загрузкой модели. {e}")
+    return asr_model
+
+def load_te_model():
+    model, example_texts, languages, punct, apply_te = torch.hub.load(repo_or_dir='snakers4/silero-models', model='silero_te')
+    return apply_te
+'''def load_asr_model():
     print(f"Проверка локального кэша для ASR модели: {ASR_MODEL_NAME}")
     try:
         local_path = snapshot_download(
@@ -80,11 +91,13 @@ def load_asr_model():
     asr_model = WhisperModel(local_path, compute_type="float16")
     print("ASR model loaded.")
     return asr_model
+'''
 
 # Загрузка моделей при импорте модуля
 print("=== Начинаем загрузку моделей в /workspace ===")
 asr_model = load_asr_model()
+te_model = load_te_model()
 print("=== Все модели успешно загружены ===")
 
 # Экспортируем загруженные модели
-__all__ = ['llm_model', 'asr_model', 'create_new_vad_model']
+__all__ = ['llm_model', 'asr_model', 'create_new_vad_model', 'te_model']

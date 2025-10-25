@@ -4,6 +4,10 @@ import time
 import queue
 import numpy as np 
 import torch
+import os
+import soundfile as sf
+import tempfile
+import librosa
 import re
 import asyncio
 
@@ -11,7 +15,7 @@ from handlers.llm_handler import llm_response, get_summary_response, get_title_r
 from utils.kb_requests import save_info_in_kb, get_info_from_kb
 from config.config import (STREAM_SAMPLE_RATE, STREAM_TRIGGER_WORD, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, MEET_AUDIO_CHUNKS_DIR,
                         STREAM_STOP_WORD_3, MEET_FRAME_DURATION_MS, SUMMARY_OUTPUT_DIR)
-from config.load_models import create_new_vad_model, asr_model
+from config.load_models import create_new_vad_model, asr_model, te_model
 from utils.backend_request import send_results_to_backend
 
 logger = logging.getLogger(__name__)
@@ -22,6 +26,7 @@ class AudioHandler:
         self.audio_queue = audio_queue
         self.is_running = is_running
         self.vad = create_new_vad_model()
+        self.te_model = te_model
         self.asr_model = asr_model
         self.email = email
         self.start_time = time.time()
@@ -121,25 +126,54 @@ class AudioHandler:
                                         is_speaking = False
                                         silence_accum_ms = 0
 
-                                        #self._save_chunk(full_audio_np)
+                                    # Проверка формата аудио
+                                    if full_audio_np.ndim == 1:
+                                        logger.debug(f"[{self.meeting_id}] Аудио уже моно, пропускаю конвертацию")
+                                        # Сохраняем моно-аудио во временный WAV
+                                        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
+                                            temp_path = temp_wav.name
+                                            sf.write(temp_path, full_audio_np, sr, subtype='PCM_16')
+                                    else:
+                                        # Сохраняем во временный WAV и конвертируем в моно через librosa
+                                        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
+                                            temp_path = temp_wav.name
+                                            sf.write(temp_path, full_audio_np, sr, subtype='PCM_16')
 
-                                        segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
+                                            # Конвертируем в моно
+                                            audio_mono, _ = librosa.load(temp_path, sr=16000, mono=True)
+                                            logger.debug(f"[{self.meeting_id}] audio_mono shape: {audio_mono.shape}")
+                                            os.unlink(temp_path)  # Удаляем исходный
 
+                                            # Сохраняем моно-аудио
+                                            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav_mono:
+                                                temp_path_mono = temp_wav_mono.name
+                                                sf.write(temp_path_mono, audio_mono, 16000, subtype='PCM_16')
+
+                                            # Распознаём
+                                            try:
+                                                transcription = self.asr_model.recognize(temp_path)
+                                                logger.info(f"Текст распознан: {transcription}")
+                                            except Exception as e:
+                                                logger.error(f"[{self.meeting_id}] Ошибка распознавания: {e}")
+
+                                            os.unlink(temp_path)
+
+                                        #segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
+                                        transcription_te  = te_model(transcription, lan='ru')
                                         dialog = "\n".join(
-                                            f"[{self.format_time_hms(speech_start_walltime)} - {self.format_time_hms(speech_end_walltime)}] {segment.text.strip()}"
-                                            for segment in segments
-                                        )
+                                            f"[{self.format_time_hms(speech_start_walltime)} - {self.format_time_hms(speech_end_walltime)}] {transcription_te.strip()}")
+                                        
                                         self.all_segments.append(dialog)
                                         print(dialog)
 
                                         # Чистый текст без таймингов
-                                        transcription = re.sub(r"\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*", "", dialog)
+                                        transcription_clear = re.sub(r"\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*", "", dialog)
 
                                         self.global_offset += chunk_duration
 
-                                        if transcription.lower().lstrip().startswith(STREAM_TRIGGER_WORD):
+                                        if transcription_clear.lower().lstrip().startswith(STREAM_TRIGGER_WORD):
 
-                                            clean_transcription = ''.join(char for char in transcription.lower() if char.isalnum() or char.isspace())
+                                            clean_transcription = ''.join(char for char in transcription_clear.lower() if char.isalnum() or char.isspace())
 
                                             if STREAM_STOP_WORD_1 in clean_transcription or STREAM_STOP_WORD_2 in clean_transcription or STREAM_STOP_WORD_3 in clean_transcription:
                                                 logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")

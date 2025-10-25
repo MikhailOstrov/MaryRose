@@ -94,7 +94,6 @@ ENV XDG_RUNTIME_DIR=/tmp/runtime-appuser
 # Настройка переменных окружения (можно делать и до USER, но так логичнее)
 ENV HOME=/app
 ENV TORCH_HOME=/workspace/.cache/torch
-ENV NEMO_CACHE_DIR=/workspace/.cache/nemo
 ENV HF_HOME=/workspace/.cache/huggingface
 ENV LOGS_DIR=/workspace/logs
 ENV PYTHONPATH=/app

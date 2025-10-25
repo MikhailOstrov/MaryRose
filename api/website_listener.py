@@ -9,10 +9,11 @@ from uuid import uuid4
 import numpy as np
 import soundfile as sf
 import requests
+import re
 
 from config.config import STREAM_SAMPLE_RATE, MEET_AUDIO_CHUNKS_DIR, MEET_FRAME_DURATION_MS
 from handlers.llm_handler import get_summary_response, get_title_response
-from config.load_models import asr_model
+from config.load_models import asr_model, te_model
 from utils.backend_request import send_results_to_backend
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,8 @@ class WebsiteListenerBot:
         self.is_running = threading.Event()
         self.is_running.set()
 
-        self.asr_model = asr_model  # Whisper
+        self.asr_model = asr_model
+        self.te_model = te_model
 
         self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.session_id
         os.makedirs(self.output_dir, exist_ok=True)
@@ -55,48 +57,116 @@ class WebsiteListenerBot:
             except Exception as e:
                 logger.error(f"[{self.meeting_id}] Ошибка при записи аудио: {e}")
 
+    def split_audio_into_chunks(audio_path, chunk_duration=29, sample_rate=16000):
+        try:
+            # Читаем аудиофайл
+            audio_data, sr = sf.read(audio_path)
+            
+            samples_per_chunk = chunk_duration * sample_rate
+            total_samples = len(audio_data)
+            
+            # Создаем списки для хранения путей к чанкам и их длительностей
+            chunk_paths = []
+            chunk_durations = []  # Новый список для длительностей в секундах
+            
+            # Разделяем аудио на чанки
+            for i, start_sample in enumerate(range(0, total_samples, samples_per_chunk)):
+                end_sample = min(start_sample + samples_per_chunk, total_samples)
+                chunk_data = audio_data[start_sample:end_sample]
+                
+                # Пропускаем пустые чанки
+                if len(chunk_data) == 0:
+                    continue
+                
+                # Создаем временный файл для чанка
+                chunk_path = audio_path.parent / f"chunk_{i:04d}.wav"
+                sf.write(chunk_path, chunk_data, sample_rate, subtype='PCM_16')
+                chunk_paths.append(chunk_path)
+                
+                # Рассчитываем длительность чанка
+                chunk_duration_sec = len(chunk_data) / sample_rate
+                chunk_durations.append(chunk_duration_sec)
+                
+                print(f"Создан чанк {i+1}: {chunk_path} ({chunk_duration_sec:.2f} сек)")
+            
+            print(f"Всего создано {len(chunk_paths)} чанков")
+            return chunk_paths, chunk_durations  # Возвращаем оба списка
+            
+        except Exception as e:
+            print(f"Ошибка при разделении аудио: {e}")
+            return [], []
+
     # Постобработка: транскрипция всего файла + summary + title
     def _perform_post_processing(self):
         threading.current_thread().name = f'PostProcessor-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] Запускаю постобработку...")
-
+        
+        # Получаем чанки и их длительности
+        chunk_paths, chunk_durations = self.split_audio_into_chunks(self.full_audio_path)
+        
+        if not chunk_paths:
+            logger.error(f"[{self.meeting_id}] Нет чанков для обработки")
+            return
+        
+        full_text_parts = []  # Список для частей full_text
+        current_offset = 0.0  # Накопленное время начала текущего чанка
+        
         try:
-            # Запускаем ASR на полном файле
-            segments, _ = self.asr_model.transcribe(
-                str(self.full_audio_path),
-                beam_size=3, best_of=3,
-                condition_on_previous_text=False,
-                vad_filter=False,
-                language="ru"
-            )
-
-            full_text = "\n".join(
-                f"[{self.format_time_hms(seg.start)} - {self.format_time_hms(seg.end)}] {seg.text.strip()}"
-                for seg in segments
-            )
-
-            import re
+            for idx, chunk in enumerate(chunk_paths):
+                if idx >= len(chunk_durations):
+                    logger.warning(f"[{self.meeting_id}] Несоответствие длительностей для чанка {idx}")
+                    break
+                
+                chunk_duration = chunk_durations[idx]
+                logger.info(f"[{self.meeting_id}] Обрабатываю чанк {idx+1}: offset={current_offset:.2f}s, duration={chunk_duration:.2f}s")
+                
+                # Распознавание: возвращает только текст
+                transcription = self.asr_model.recognize(chunk)
+                transcription_te = te_model(transcription, lan='ru')
+                # Абсолютное время для всего чанка
+                absolute_start = current_offset
+                absolute_end = current_offset + chunk_duration
+                
+                # Формируем строку для этого чанка
+                start_str = self.format_time_hms(absolute_start)
+                end_str = self.format_time_hms(absolute_end)
+                full_text_parts.append(f"[{start_str} - {end_str}] {transcription_te.strip()}")
+                
+                # Обновляем offset для следующего чанка
+                current_offset += chunk_duration
+            
+            # Собираем полный текст
+            full_text = "\n".join(full_text_parts)
+            logger.info(f"[{self.meeting_id}] Полный текст собран: {len(chunk_paths)} чанков")
+            
+            # Очищаем от временных меток для суммаризации
             cleaned_dialogue = re.sub(r"\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*", "", full_text)
-
+            
             # Суммаризация
             logger.info(f"[{self.meeting_id}] Создание summary...")
             summary_text = get_summary_response(cleaned_dialogue)
-
+            
             # Заголовок
             logger.info(f"[{self.meeting_id}] Создание title...")
             title_text = get_title_response(cleaned_dialogue)
-
-            # Отправляем результат, используя централизованную функцию
+            
+            # Отправляем результат
             send_results_to_backend(
                 meeting_id=self.meeting_id,
                 full_text=full_text,
-                summary=summary_text or "",  # Гарантируем, что отправляется строка
-                title=title_text or ""      # Гарантируем, что отправляется строка
+                summary=summary_text or "",
+                title=title_text or ""
             )
-
+            
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка постобработки: {e}", exc_info=True)
         finally:
+            # Опционально: удаляем временные чанки
+            for path in chunk_paths:
+                try:
+                    path.unlink()
+                except:
+                    pass
             logger.info(f"[{self.meeting_id}] Постобработка завершена.")
 
     def format_time_hms(self, seconds: float) -> str:

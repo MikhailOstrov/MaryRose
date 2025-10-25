@@ -59,7 +59,7 @@ def check_model_exists(model_identifier, model_type="whisper"):
 # Проверка и загрузка ASR модели
 def load_asr_model():
     try:
-        local_model_dir = "/app/asr_model"
+        local_model_dir = "/app/onnx"
         providers = ['CUDAExecutionProvider'] 
         asr_model = onnx_asr.load_model("gigaam-v2-rnnt", local_model_dir, providers=providers)
     except Exception as e:

@@ -11,7 +11,7 @@ load_dotenv()
 BASE_DIR = Path(__file__).resolve().parent
 AUDIO_FILES_DIR = BASE_DIR / "audio_files"
 USER_DATA_DIR = BASE_DIR / "user_data"
-MEETINGS_DIR = AUDIO_FILES_DIR / "meetings" # Для записей встреч
+MEETINGS_DIR = AUDIO_FILES_DIR / "meetings" # Для записей встреч.
 CHROME_PROFILE_DIR = BASE_DIR / "chrome_profile" # Для хранения сессии  Google
 SUMMARY_OUTPUT_DIR = BASE_DIR / "summary"
 MEET_INPUT_DEVICE_NAME = "pulse"

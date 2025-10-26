@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-import onnx_asr
+
 
 # Настройка путей для RunPod (модели сохраняются в персистентный /workspace)
 os.environ['HOME'] = '/app'
@@ -21,8 +21,10 @@ for dir_path in workspace_dirs:
 
 #from faster_whisper import WhisperModel
 #from huggingface_hub import snapshot_download
-from dotenv import load_dotenv
 import torch
+import onnx_asr
+from dotenv import load_dotenv
+
 
 from config.config import ASR_MODEL_NAME, hf_token
 

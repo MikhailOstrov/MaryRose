@@ -8,10 +8,6 @@ on:
       - main
       - dev
 
-env:
-  DOCKER_IMAGE_FULL_TAG: roma3213/maryrose-app:v3
-  DOCKER_IMAGE_REPO_NAME: roma3213/maryrose-app
-
 jobs:
   build-push-redeploy:
     name: Build, Push, and Redeploy on RunPod

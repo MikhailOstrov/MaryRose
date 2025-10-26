@@ -61,7 +61,9 @@ WORKDIR /app
 
 
 COPY requirements.txt .
-RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
+RUN python3.11 -m pip install --no-cache-dir -r requirements.txt \
+    && python3.11 -m pip uninstall -y onnxruntime 
+
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     coreutils less nano openssh-server gosu \

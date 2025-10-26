@@ -59,19 +59,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 WORKDIR /app
 
+RUN python3.11 -m pip install --no-cache-dir onnxruntime-gpu==1.18.1
 
 COPY requirements.txt .
 RUN python3.11 -m pip install --no-cache-dir -r requirements.txt 
 
-RUN python3.11 -c " \
-import onnxruntime; \
-print('--- ONNX Runtime Check ---'); \
-print('Version:', onnxruntime.__version__); \
-providers = onnxruntime.get_available_providers(); \
-print('Available providers:', providers); \
-assert 'CUDAExecutionProvider' in providers, 'FATAL: CUDAExecutionProvider not found!'; \
-print('SUCCESS: ONNX Runtime with CUDA support is installed correctly.'); \
-print('--------------------------'"
+# --- ШАГ ПРОВЕРКИ ONNXRUNTIME-GPU (исправленная версия) ---
+RUN python3.11 -c "import onnxruntime; print('--- ONNX Runtime Check ---'); print('Version:', onnxruntime.__version__); providers = onnxruntime.get_available_providers(); print('Available providers:', providers); assert 'CUDAExecutionProvider' in providers, 'FATAL: CUDAExecutionProvider not found!'; print('SUCCESS: ONNX Runtime with CUDA support is installed correctly.'); print('--------------------------')"
 
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

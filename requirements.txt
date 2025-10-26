@@ -6,8 +6,10 @@ websockets==12.0
 pydantic==2.5.2
 
 # Onnx
-onnx-asr[gpu,hub]
-onnxruntime-gpu==1.18.0
+# onnx-asr[gpu,hub]
+onnx-asr
+onnxruntime-gpu==1.18.1
+
 
 # Аудио обработка
 webrtcvad==2.0.10

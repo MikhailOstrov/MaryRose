@@ -27,7 +27,7 @@ class MeetListenerBot:
         self.meeting_url = meeting_url # Ссылка на Google Meet
         self.meeting_id = meeting_id # ID для отслеживания сессии
         self.email = email # Email пользователя
-        self.remaining_seconds = remaining_seconds # Оставшееся время для работы бота
+        self.remaining_seconds = remaining_seconds # Оставшееся время для работы бота/
 
         
         self.notified_10_min = remaining_seconds <= 600

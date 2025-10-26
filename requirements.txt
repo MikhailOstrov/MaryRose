@@ -7,8 +7,9 @@ pydantic==2.5.2
 
 # Onnx
 # onnx-asr[gpu,hub]
-onnx-asr==0.7.0
 onnxruntime-gpu==1.18.1
+onnx-asr==0.7.0
+
 
 
 # Аудио обработка

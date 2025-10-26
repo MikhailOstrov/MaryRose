@@ -62,14 +62,13 @@ WORKDIR /app
 RUN python3.11 -m pip install --no-cache-dir onnxruntime-gpu==1.18.1
 
 COPY requirements.txt .
-RUN python3.11 -m pip install --no-cache-dir -r requirements.txt \
-    # Шаг 2: Немедленно удаляем конфликтующую CPU-версию.
-    python3.11 -m pip uninstall -y onnxruntime && \
-    \
-    # Шаг 3: Переустанавливаем GPU-версию, чтобы убедиться, что ее файлы не были повреждены.
-    # Флаг --upgrade --force-reinstall гарантирует "чистую" установку.
-    python3.11 -m pip install --no-cache-dir --upgrade --force-reinstall onnxruntime-gpu==1.18.1
-
+RUN python3.11 -m pip install --no-cache-dir -r requirements.txt && \
+\
+# Шаг 2: Немедленно удаляем конфликтующую CPU-версию.
+python3.11 -m pip uninstall -y onnxruntime && \
+\
+# Шаг 3: Устанавливаем правильную GPU-версию. 
+python3.11 -m pip install --no-cache-dir --upgrade --force-reinstall onnxruntime-gpu==1.18.1
 # --- ШАГ ПРОВЕРКИ ONNXRUNTIME-GPU (исправленная версия) ---
 
 

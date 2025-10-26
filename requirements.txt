@@ -7,7 +7,7 @@ pydantic==2.5.2
 
 # Onnx
 # onnx-asr[gpu,hub]
-onnxruntime-gpu==1.18.1
+onnxruntime-gpu==1.20.0
 onnx-asr==0.7.0
 
 

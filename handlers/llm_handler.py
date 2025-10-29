@@ -75,7 +75,7 @@ def llm_response_after_kb(user_text: str) -> str:
 
     return chat_completion.choices[0].message.content
 
-async def mary_check(user_text: str) -> str:
+def mary_check(user_text: str) -> str:
     
     instruction = f'''Ты очень хорошо разбираешься в русском языке. Определи намерение пользователя:
     Если он обращается к Мэри, нужно вывести {{"key": 1}}, если же не обращается - {{"key": 0}}. Важно, чтобы ты 

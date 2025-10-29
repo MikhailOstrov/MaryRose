@@ -74,3 +74,22 @@ def llm_response_after_kb(user_text: str) -> str:
     )
 
     return chat_completion.choices[0].message.content
+
+async def mary_check(user_text: str) -> str:
+    
+    instruction = f'''Ты очень хорошо разбираешься в русском языке. Определи намерение пользователя:
+    Если он обращается к Мэри, нужно вывести {{"key": 1}}, если же не обращается - {{"key": 0}}. Важно, чтобы ты 
+    наиболее точно определял, точно ли пользователь хотел обратиться к Мэри или нет. Например,
+    'Привет, Мэри, слушай...' или 'Мэри, я ....' - точно обращения, тогда как 'Слушайте, парни, когда мы говорим о Мэри, мы говорим об умном ассистенте,
+    а не об боте' - не обращение.'''
+
+    chat_completion = CLIENT.chat.completions.create(
+        model="openai/gpt-4o-mini",
+        messages=[
+            {"role": "system", "content": instruction},
+            {"role": "user", "content": user_text}
+        ]
+    )
+    response_dict = json.loads(chat_completion.choices[0].message.content)
+    key_value = response_dict.get('key')
+    return key_value

@@ -11,7 +11,7 @@ import librosa
 import re
 import asyncio
 
-from handlers.llm_handler import llm_response, get_summary_response, get_title_response
+from handlers.llm_handler import llm_response, get_summary_response, get_title_response, mary_check
 from utils.kb_requests import save_info_in_kb, get_info_from_kb
 from config.config import (STREAM_SAMPLE_RATE, STREAM_TRIGGER_WORD, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, MEET_AUDIO_CHUNKS_DIR,
                         STREAM_STOP_WORD_3, MEET_FRAME_DURATION_MS, SUMMARY_OUTPUT_DIR)
@@ -126,29 +126,9 @@ class AudioHandler:
                                         is_speaking = False
                                         silence_accum_ms = 0
 
-                                        # Проверка формата аудио
-                                        if full_audio_np.ndim == 1:
-                                            logger.info(f"[{self.meeting_id}] Аудио уже моно, пропускаю конвертацию")
-                                            # Сохраняем моно-аудио во временный WAV
-                                            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
-                                                temp_path = temp_wav.name
-                                                sf.write(temp_path, full_audio_np, sr, subtype='PCM_16')
-                                        else:
-                                            logger.info(f"[{self.meeting_id}] Аудио не моно, делаю конвертацию")
-                                            # Сохраняем во временный WAV и конвертируем в моно через librosa
-                                            with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
-                                                temp_path = temp_wav.name
-                                                sf.write(temp_path, full_audio_np, sr, subtype='PCM_16')
-
-                                                # Конвертируем в моно
-                                                audio_mono, _ = librosa.load(temp_path, sr=16000, mono=True)
-                                                logger.info(f"[{self.meeting_id}] audio_mono shape: {audio_mono.shape}")
-                                                os.unlink(temp_path)  # Удаляем исходный
-
-                                                # Сохраняем моно-аудио
-                                                with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
-                                                    temp_path = temp_wav.name
-                                                    sf.write(temp_path, audio_mono, 16000, subtype='PCM_16')
+                                        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
+                                            temp_path = temp_wav.name
+                                            sf.write(temp_path, full_audio_np, sr, subtype='PCM_16')
 
                                         # Распознаём
                                         try:
@@ -167,18 +147,17 @@ class AudioHandler:
                                         print(dialog)
 
                                         self.global_offset += chunk_duration
+                                        if transcription_te.lower().startswith(STREAM_TRIGGER_WORD) and (STREAM_STOP_WORD_1 in transcription_te.lower() or STREAM_STOP_WORD_2 in transcription_te.lower() or STREAM_STOP_WORD_3 in transcription_te.lower()):
+                                            self.send_chat_message("Услышала Вас, завершаю работу!")
+                                            # clean_transcription = ''.join(char for char in transcription_te.lower() if char.isalnum() or char.isspace())
+                                            # self._speak_via_meet(response, pipeline_start_time)
+                                            self.stop()
+                                        elif STREAM_TRIGGER_WORD in transcription_te.lower():
+                                            choice = mary_check(STREAM_TRIGGER_WORD)
+                                            logger.info(f"Решение: {choice}")
+                                            if choice == 1:
 
-                                        if transcription_te.lower().lstrip().startswith(STREAM_TRIGGER_WORD):
-
-                                            clean_transcription = ''.join(char for char in transcription_te.lower() if char.isalnum() or char.isspace())
-
-                                            if STREAM_STOP_WORD_1 in clean_transcription or STREAM_STOP_WORD_2 in clean_transcription or STREAM_STOP_WORD_3 in clean_transcription:
-                                                logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")
-                                                self.send_chat_message("Услышала Вас, завершаю работу!")
-                                                # self._speak_via_meet(response, pipeline_start_time)
-                                                self.stop()
-                                            else:
-                                                self.send_chat_message("Услышала Вас, действую...")
+                                                self.send_chat_message("Секунду...")
                                                 try:
                                                     key, response = llm_response(transcription)
                                                     logger.info(f"Ответ от LLM: {key, response}")
@@ -198,6 +177,8 @@ class AudioHandler:
 
                                                 except Exception as chat_err:
                                                     logger.error(f"[{self.meeting_id}] Ошибка при отправке ответа в чат: {chat_err}")
+                                            else:
+                                                pass
 
                                         else:
                                             pipeline_start_time = None
@@ -209,17 +190,14 @@ class AudioHandler:
             except Exception as e:
                 logger.error(f"[{self.meeting_id}] Ошибка в цикле VAD: {e}", exc_info=True)
 
-    # Постобработка: объединение аудиочанков -- запуск диаризации и объединение с транскрибацией -- суммаризация -- генерация заголовка -- отправка результатов на внешний сервер
+    # Постобработка: суммаризация -- генерация заголовка -- отправка результатов на внешний сервер
     def _perform_post_processing(self):
         threading.current_thread().name = f'PostProcessor-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] Начинаю постобработку...")
 
         try:
-
             full = "\n".join(self.all_segments)
-        
-            print(f"Финальный диалог: \n {full}")
-
+            #print(f"Финальный диалог: \n {full}")
             now = time.time()
             meeting_elapsed_sec = now - self.start_time
 

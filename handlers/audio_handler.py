@@ -29,7 +29,7 @@ class AudioHandler:
         self.vad = create_new_vad_model()
         self.te_model = te_model
         self.asr_model = asr_model
-        self.speak_via_meet=speak_via_meet,
+        self.speak_via_meet=speak_via_meet
         self.email = email
         self.start_time = time.time()
 
@@ -158,7 +158,6 @@ class AudioHandler:
                                             choice = mary_check(transcription_te.lower())
                                             logger.info(f"Решение: {choice}")
                                             if choice == 1:
-
                                                 self.send_chat_message("Секунду...")
                                                 try:
                                                     key, response = llm_response(transcription)
@@ -173,6 +172,7 @@ class AudioHandler:
                                                             self.speak_via_meet("Не нашла информации в вашей базе знаний.")
                                                             self.send_chat_message("Не нашла информации в вашей базе знаний.")
                                                         else:
+                                                            self.speak_via_meet(info_from_kb)
                                                             self.send_chat_message(info_from_kb)
                                                     elif key == 3:
                                                         self.speak_via_meet(response)

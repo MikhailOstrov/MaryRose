@@ -7,11 +7,12 @@ import torch
 import os
 import soundfile as sf
 import tempfile
-import librosa
+import subprocess
 import re
 import asyncio
 
 from handlers.llm_handler import llm_response, get_summary_response, get_title_response, mary_check
+from handlers.tts_handler import generate_audio
 from utils.kb_requests import save_info_in_kb, get_info_from_kb
 from config.config import (STREAM_SAMPLE_RATE, STREAM_TRIGGER_WORD, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, MEET_AUDIO_CHUNKS_DIR,
                         STREAM_STOP_WORD_3, MEET_FRAME_DURATION_MS, SUMMARY_OUTPUT_DIR)
@@ -21,13 +22,14 @@ from utils.backend_request import send_results_to_backend
 logger = logging.getLogger(__name__)
 
 class AudioHandler:
-    def __init__(self, meeting_id, audio_queue, is_running, email, send_chat_message, stop):
+    def __init__(self, meeting_id, audio_queue, is_running, email, speak_via_meet, send_chat_message, stop):
         self.meeting_id = meeting_id
         self.audio_queue = audio_queue
         self.is_running = is_running
         self.vad = create_new_vad_model()
         self.te_model = te_model
         self.asr_model = asr_model
+        self.speak_via_meet=speak_via_meet,
         self.email = email
         self.start_time = time.time()
 
@@ -148,9 +150,9 @@ class AudioHandler:
 
                                         self.global_offset += chunk_duration
                                         if transcription_te.lower().startswith(STREAM_TRIGGER_WORD) and (STREAM_STOP_WORD_1 in transcription_te.lower() or STREAM_STOP_WORD_2 in transcription_te.lower() or STREAM_STOP_WORD_3 in transcription_te.lower()):
+                                            self.speak_via_meet("Услышала Вас, завершаю работу!")
                                             self.send_chat_message("Услышала Вас, завершаю работу!")
                                             # clean_transcription = ''.join(char for char in transcription_te.lower() if char.isalnum() or char.isspace())
-                                            # self._speak_via_meet(response, pipeline_start_time)
                                             self.stop()
                                         elif STREAM_TRIGGER_WORD in transcription_te.lower():
                                             choice = mary_check(transcription_te.lower())
@@ -161,18 +163,19 @@ class AudioHandler:
                                                 try:
                                                     key, response = llm_response(transcription)
                                                     logger.info(f"Ответ от LLM: {key, response}")
-                                                    if response:
-                                                        print("Отправляю ответ в чат...")
                                                     if key == 0:
                                                         asyncio.run(save_info_in_kb(response, self.email))
+                                                        self.speak_via_meet("Ваша информация сохранена.")
                                                         self.send_chat_message("Ваша информация сохранена.")
                                                     elif key == 1:
                                                         info_from_kb = asyncio.run(get_info_from_kb(response, self.email))
                                                         if info_from_kb is None:
+                                                            self.speak_via_meet("Не нашла информации в вашей базе знаний.")
                                                             self.send_chat_message("Не нашла информации в вашей базе знаний.")
                                                         else:
                                                             self.send_chat_message(info_from_kb)
                                                     elif key == 3:
+                                                        self.speak_via_meet(response)
                                                         self.send_chat_message(response)
 
                                                 except Exception as chat_err:

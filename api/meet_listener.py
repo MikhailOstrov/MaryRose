@@ -8,12 +8,15 @@ import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.common.action_chains import ActionChains
 import subprocess
 import shutil
 from pathlib import Path
 
 from config.config import STREAM_SAMPLE_RATE, logger, CHROME_PROFILE_DIR, MEET_GUEST_NAME, MEET_AUDIO_CHUNKS_DIR, MEET_FRAME_DURATION_MS
 from handlers.audio_handler import AudioHandler
+from handlers.tts_handler import generate_audio
 from api.audio_manager import VirtualAudioManager
 
 
@@ -62,6 +65,7 @@ class MeetListenerBot:
         audio_queue=self.audio_queue,
         is_running=self.is_running,
         email=self.email,
+        speak_via_meet=self.speak_via_meet,
         send_chat_message=self.send_chat_message,
         stop=self.stop
         )
@@ -673,3 +677,67 @@ class MeetListenerBot:
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Не удалось отправить сообщение в чат: {e}", exc_info=True)
             self._save_screenshot("99_chat_send_error")
+
+    def toggle_mic_hotkey(self):
+        """Простая эмуляция Ctrl+D для переключения микрофона в Meet.
+        Без дополнительных проверок состояния и наличия кнопки.
+        """
+        try:
+            # Стараемся сфокусировать страницу и убрать возможный фокус с инпутов
+            try:
+                self.driver.execute_script("window.focus();")
+            except Exception:
+                pass
+            try:
+                body = self.driver.find_element(By.TAG_NAME, 'body')
+                body.click()
+            except Exception:
+                pass
+
+            actions = ActionChains(self.driver)
+            actions.key_down(Keys.CONTROL).send_keys('d').key_up(Keys.CONTROL).perform()
+            logger.info(f"[{self.meeting_id}] Отправлено сочетание Ctrl+D (toggle mic)")
+        except Exception as e:
+            logger.warning(f"[{self.meeting_id}] Не удалось отправить Ctrl+D: {e}")
+
+    def speak_via_meet(self, text: str):
+        """
+        Синтезирует TTS и проигрывает его в УНИКАЛЬНЫЙ sink этого бота.
+        """
+        if not text:
+            return
+        try:
+            audio_bytes = generate_audio(text)
+            if not audio_bytes:
+                logger.warning(f"[{self.meeting_id}] TTS вернул пустые байты для текста: '{text}'")
+                return
+            print("Включаю микрофон")
+            toggled_on = False
+            try:
+        
+                self.toggle_mic_hotkey()
+                toggled_on = True
+                time.sleep(0.3)
+
+                logger.info(f"[{self.meeting_id}] ROUTING_CHECK: Попытка воспроизвести звук в конкретный sink: '{self.sink_name}'")
+                
+                subprocess.run(
+                    ["paplay", "-d", self.sink_name, "/dev/stdin"],
+                    input=audio_bytes,
+                    capture_output=True,
+                    check=True,
+                    timeout=20
+                )
+                logger.info(f"[{self.meeting_id}] ✅ Ответ ассистента успешно озвучен в '{self.sink_name}'.")
+
+            except subprocess.CalledProcessError as e:
+                logger.error(f"[{self.meeting_id}] ❌ Ошибка выполнения paplay для sink '{self.sink_name}': {e.stderr.strip()}")
+            except Exception as e:
+                logger.error(f"[{self.meeting_id}] ❌ Ошибка во время автоозвучки для sink '{self.sink_name}': {e}.")
+            finally:
+                if toggled_on:
+                    time.sleep(0.2)
+                    self.toggle_mic_hotkey()
+
+        except Exception as e:
+            logger.error(f"[{self.meeting_id}] ❌ Критическая ошибка в _speak_via_meet: {e}")

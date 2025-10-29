@@ -1,6 +1,6 @@
 import os
 from pathlib import Path
-
+import torch
 
 # Настройка путей для RunPod (модели сохраняются в персистентный /workspace)
 os.environ['HOME'] = '/app'
@@ -71,6 +71,23 @@ def load_asr_model():
 def load_te_model():
     model, example_texts, languages, punct, apply_te = torch.hub.load(repo_or_dir='snakers4/silero-models', model='silero_te')
     return apply_te
+
+def load_tts_model():
+    language = 'ru'
+    model_id = 'v4_ru'
+    device = torch.device('cuda')
+    model, _ = torch.hub.load(
+        repo_or_dir='snakers4/silero-models',
+        model='silero_tts',
+        language=language,
+        speaker=model_id,
+        source='github',
+        trust_repo=True,
+        force_reload=True
+    )
+    model.to(device)
+    return model
+    
 '''def load_asr_model():
     print(f"Проверка локального кэша для ASR модели: {ASR_MODEL_NAME}")
     try:
@@ -99,6 +116,7 @@ def load_te_model():
 print("=== Начинаем загрузку моделей в /workspace ===")
 asr_model = load_asr_model()
 te_model = load_te_model()
+tts_model = load_tts_model()
 print("=== Все модели успешно загружены ===")
 
 # Экспортируем загруженные модели

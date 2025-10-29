@@ -153,7 +153,7 @@ class AudioHandler:
                                             # self._speak_via_meet(response, pipeline_start_time)
                                             self.stop()
                                         elif STREAM_TRIGGER_WORD in transcription_te.lower():
-                                            choice = mary_check(STREAM_TRIGGER_WORD)
+                                            choice = mary_check(transcription_te.lower())
                                             logger.info(f"Решение: {choice}")
                                             if choice == 1:
 
@@ -168,7 +168,7 @@ class AudioHandler:
                                                         self.send_chat_message("Ваша информация сохранена.")
                                                     elif key == 1:
                                                         info_from_kb = asyncio.run(get_info_from_kb(response, self.email))
-                                                        if info_from_kb == None:
+                                                        if info_from_kb is None:
                                                             self.send_chat_message("Не нашла информации в вашей базе знаний.")
                                                         else:
                                                             self.send_chat_message(info_from_kb)

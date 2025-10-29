@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 import torch
-import omegaconf
+from omegaconf import OmegaConf
 
 # Настройка путей для RunPod (модели сохраняются в персистентный /workspace)
 os.environ['HOME'] = '/app'

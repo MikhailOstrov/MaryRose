@@ -57,6 +57,7 @@ class MeetListenerBot:
 
         self.audio_manager = VirtualAudioManager(self.meeting_id)
         self.sink_name = self.audio_manager.sink_name
+        self.source_name = self.audio_manager.source_name
         self.monitor_name = self.audio_manager.monitor_name
         self.post_processing_thread = None
 
@@ -173,9 +174,9 @@ class MeetListenerBot:
             original_pulse_source = os.environ.get('PULSE_SOURCE')
             
             os.environ['PULSE_SINK'] = self.sink_name
-            # os.environ['PULSE_SOURCE'] = self.source_name
+            os.environ['PULSE_SOURCE'] = self.source_name
             
-            logger.info(f"[{self.meeting_id}] Запуск Chrome с PULSE_SINK='{self.sink_name}...")
+            logger.info(f"[{self.meeting_id}] Запуск Chrome с PULSE_SINK='{self.sink_name}' и PULSE_SOURCE='{self.source_name}'...")
             
             try:
                 opt = uc.ChromeOptions()

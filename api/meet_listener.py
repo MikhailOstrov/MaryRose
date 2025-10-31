@@ -189,10 +189,10 @@ class MeetListenerBot:
                 opt.add_argument(f'--remote-debugging-port={port}')
                 logger.info(f"[{self.meeting_id}] Используется порт для отладки: {port}")
 
-                # opt.add_experimental_option("prefs", {
-                #     "profile.default_content_setting_values.media_stream_mic": 1,
-                #     "profile.default_content_setting_values.notifications": 2
-                # })
+                opt.add_experimental_option("prefs", {
+                    "profile.default_content_setting_values.media_stream_mic": 1,
+                    "profile.default_content_setting_values.notifications": 2
+                })
                 
                 self.driver = uc.Chrome(
                     options=opt,

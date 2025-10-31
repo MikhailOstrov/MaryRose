@@ -204,14 +204,14 @@ class MeetListenerBot:
                 
                 logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен с полной изоляцией.")
                 
-                # try:
-                #     self.driver.execute_cdp_cmd("Browser.grantPermissions", {
-                #         "origin": "https://meet.google.com",
-                #         "permissions": ["audioCapture"]
-                #     })
-                #     logger.info(f"[{self.meeting_id}] Разрешение на микрофон выдано через CDP.")
-                # except Exception as e_grant:
-                #     logger.warning(f"[{self.meeting_id}] Не удалось выдать CDP-разрешение: {e_grant}")
+                try:
+                    self.driver.execute_cdp_cmd("Browser.grantPermissions", {
+                        "origin": "https://meet.google.com",
+                        "permissions": ["audioCapture"]
+                    })
+                    logger.info(f"[{self.meeting_id}] Разрешение на микрофон выдано через CDP.")
+                except Exception as e_grant:
+                    logger.warning(f"[{self.meeting_id}] Не удалось выдать CDP-разрешение: {e_grant}")
 
             except Exception as e:
                 logger.critical(f"[{self.meeting_id}] ❌ Полный провал запуска Chrome: {e}", exc_info=True)
@@ -276,9 +276,9 @@ class MeetListenerBot:
             return False
 
         t0 = time.time()
-        # if js_scan_click(with_mic_variants, total_timeout=1.0):
-        #     logger.info(f"[{self.meeting_id}] Кнопка 'с микрофоном' нажата за {time.time()-t0:.2f}s")
-        #     return True
+        if js_scan_click(with_mic_variants, total_timeout=1.0):
+            logger.info(f"[{self.meeting_id}] Кнопка 'с микрофоном' нажата за {time.time()-t0:.2f}s")
+            return True
         if js_scan_click(without_mic_variants, total_timeout=1):
             logger.info(f"[{self.meeting_id}] Кнопка 'без микрофона' нажата за {time.time()-t0:.2f}s")
             return True

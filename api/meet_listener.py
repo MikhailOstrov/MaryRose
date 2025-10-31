@@ -338,8 +338,8 @@ class MeetListenerBot:
             logger.info(f"[{self.meeting_id}] Обработка диалога микрофона...")
             mic_dialog_found = self._handle_mic_dialog()
             # Если диалог микрофона не показывался — сразу идем дальше, пропуская поиск баннера разрешений
-            # if mic_dialog_found:
-            #     self._handle_chrome_permission_prompt()
+            if mic_dialog_found:
+                self._handle_chrome_permission_prompt()
 
             join_button_xpath = '//button[.//span[contains(text(), "Ask to join") or contains(text(), "Попросить войти")]]'
             logger.info(f"[{self.meeting_id}] Ищу кнопку 'Ask to join'...")

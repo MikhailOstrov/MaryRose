@@ -684,51 +684,26 @@ class MeetListenerBot:
         Без дополнительных проверок состояния и наличия кнопки.
         """
         try:
-            # Стараемся сфокусироваться на странице перед отправкой хоткея
-            self.driver.execute_script("window.focus();")
-            body = self.driver.find_element(By.TAG_NAME, 'body')
-            
-            # Создаем цепочку действий: клик на body для фокуса, затем нажатие клавиш
+            # Стараемся сфокусировать страницу и убрать возможный фокус с инпутов
+            try:
+                self.driver.execute_script("window.focus();")
+            except Exception:
+                pass
+            try:
+                body = self.driver.find_element(By.TAG_NAME, 'body')
+                body.click()
+            except Exception:
+                pass
+
             actions = ActionChains(self.driver)
-            actions.move_to_element(body).click().key_down(Keys.CONTROL).send_keys('d').key_up(Keys.CONTROL).perform()
-            
+            actions.key_down(Keys.CONTROL).send_keys('d').key_up(Keys.CONTROL).perform()
             logger.info(f"[{self.meeting_id}] Отправлено сочетание Ctrl+D (toggle mic)")
         except Exception as e:
             logger.warning(f"[{self.meeting_id}] Не удалось отправить Ctrl+D: {e}")
 
-    def is_mic_on(self) -> bool | None:
-        """
-        Проверяет, включен ли микрофон, по состоянию кнопки.
-        Возвращает True, если микрофон включен, False если выключен, None при ошибке.
-        """
-        if not self.driver or not self.joined_successfully:
-            return None
-
-        try:
-            mic_button = WebDriverWait(self.driver, 3).until(
-                EC.presence_of_element_located((By.XPATH, '//button[@data-is-muted]'))
-            )
-            is_muted_str = mic_button.get_attribute('data-is-muted')
-
-            if is_muted_str == 'false':
-                logger.info(f"[{self.meeting_id}] Состояние микрофона: ВКЛЮЧЕН")
-                return True
-            
-            if is_muted_str == 'true':
-                logger.info(f"[{self.meeting_id}] Состояние микрофона: ВЫКЛЮЧЕН")
-                return False
-
-            logger.warning(f"[{self.meeting_id}] Не удалось определить состояние микрофона по data-is-muted='{is_muted_str}'.")
-            return None
-
-        except Exception as e:
-            logger.error(f"[{self.meeting_id}] Ошибка при проверке состояния микрофона: {e}")
-            return None
-
     def speak_via_meet(self, text: str):
         """
         Синтезирует TTS и проигрывает его в УНИКАЛЬНЫЙ sink этого бота.
-        Интеллектуально управляет состоянием микрофона.
         """
         if not text:
             return
@@ -737,18 +712,13 @@ class MeetListenerBot:
             if not audio_bytes:
                 logger.warning(f"[{self.meeting_id}] TTS вернул пустые байты для текста: '{text}'")
                 return
-
-            mic_was_off = False
+            print("Включаю микрофон")
+            toggled_on = False
             try:
-                mic_is_on = self.is_mic_on()
-
-                if mic_is_on is False:
-                    logger.info(f"[{self.meeting_id}] Микрофон выключен, включаю для ответа...")
-                    self.toggle_mic_hotkey()
-                    mic_was_off = True
-                    time.sleep(0.3)
-                elif mic_is_on is None:
-                    logger.warning(f"[{self.meeting_id}] Не удалось определить состояние микрофона. Не буду его трогать.")
+        
+                self.toggle_mic_hotkey()
+                toggled_on = True
+                time.sleep(0.3)
 
                 logger.info(f"[{self.meeting_id}] ROUTING_CHECK: Попытка воспроизвести звук в конкретный sink: '{self.sink_name}'")
                 
@@ -762,13 +732,12 @@ class MeetListenerBot:
                 logger.info(f"[{self.meeting_id}] ✅ Ответ ассистента успешно озвучен в '{self.sink_name}'.")
 
             except subprocess.CalledProcessError as e:
-                logger.error(f"[{self.meeting_id}] ❌ Ошибка выполнения paplay для sink '{self.sink_name}': {e.stderr.decode().strip()}")
+                logger.error(f"[{self.meeting_id}] ❌ Ошибка выполнения paplay для sink '{self.sink_name}': {e.stderr.strip()}")
             except Exception as e:
                 logger.error(f"[{self.meeting_id}] ❌ Ошибка во время автоозвучки для sink '{self.sink_name}': {e}.")
             finally:
-                if mic_was_off:
+                if toggled_on:
                     time.sleep(0.2)
-                    logger.info(f"[{self.meeting_id}] Возвращаю микрофон в исходное (выключенное) состояние.")
                     self.toggle_mic_hotkey()
 
         except Exception as e:

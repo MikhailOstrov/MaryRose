@@ -7,15 +7,14 @@ import torch
 import os
 import soundfile as sf
 import tempfile
-import subprocess
 import re
 import asyncio
+import collections
 
 from handlers.llm_handler import llm_response, get_summary_response, get_title_response, mary_check
 from handlers.tts_handler import generate_audio
 from utils.kb_requests import save_info_in_kb, get_info_from_kb
-from config.config import (STREAM_SAMPLE_RATE, STREAM_TRIGGER_WORD, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, MEET_AUDIO_CHUNKS_DIR,
-                        STREAM_STOP_WORD_3, MEET_FRAME_DURATION_MS, SUMMARY_OUTPUT_DIR)
+from config.config import (STREAM_SAMPLE_RATE, MEET_AUDIO_CHUNKS_DIR, SUMMARY_OUTPUT_DIR, TRIGGER_WORDS, STOP_WORDS)
 from config.load_models import create_new_vad_model, asr_model, te_model
 from utils.backend_request import send_results_to_backend
 
@@ -58,13 +57,14 @@ class AudioHandler:
         VAD_CHUNK_SIZE = 512
         speech_buffer_for_asr = []
         is_speaking = False
-        recent_probs = []                     # для сглаживания
+        recent_probs = collections.deque(maxlen=3)                    # для сглаживания
 
         # Настройки
         vad_threshold = 0.1                   # вероятность речи
         silence_duration_ms = 600             # сколько тишины нужно для конца речи
         min_speech_duration = 0.5             # минимальная длина речи
-        sr = STREAM_SAMPLE_RATE
+ 
+        chuck_duration = (VAD_CHUNK_SIZE / STREAM_SAMPLE_RATE) * 1000
 
         silence_accum_ms = 0
         speech_start_walltime = None
@@ -78,8 +78,9 @@ class AudioHandler:
                 if not audio_frame_bytes:
                     continue
 
-                audio_np = np.frombuffer(audio_frame_bytes, dtype=np.int16).astype(np.float32) / 32768.0
-                new_audio_tensor = torch.from_numpy(audio_np)
+                audio_np = np.frombuffer(audio_frame_bytes, dtype=np.int16)
+                audio_float = audio_np.astype(np.float32) * (1.0 / 32768.0)
+                new_audio_tensor = torch.from_numpy(audio_float)
 
                 if vad_buffer is None:
                     vad_buffer = new_audio_tensor
@@ -90,11 +91,9 @@ class AudioHandler:
                     chunk_to_process = vad_buffer[:VAD_CHUNK_SIZE]
                     vad_buffer = vad_buffer[VAD_CHUNK_SIZE:]
 
-                    speech_prob = self.vad(chunk_to_process, sr).item()
+                    speech_prob = self.vad(chunk_to_process, STREAM_SAMPLE_RATE).item()
 
                     recent_probs.append(speech_prob)
-                    if len(recent_probs) > 3:
-                        recent_probs.pop(0)
                     smooth_prob = sum(recent_probs) / len(recent_probs)
 
                     now = time.time()
@@ -102,22 +101,26 @@ class AudioHandler:
 
                     if smooth_prob > vad_threshold:
                         if not is_speaking:
-                            logger.info(f"[{self.meeting_id}] ▶️ Начало речи")
+                            logger.info(f"[{self.meeting_id}] Начало речи")
                             is_speaking = True
                             speech_start_walltime = meeting_elapsed_sec
-                            pipeline_start_time = time.time()  # Запуск таймера пайплайна
+                            pipeline_start_time = time.time()
 
                         speech_buffer_for_asr.append(chunk_to_process.numpy())
                         silence_accum_ms = 0
 
                     else:
                         if is_speaking:
-                            silence_accum_ms += (VAD_CHUNK_SIZE / sr) * 1000
+                            silence_accum_ms += chuck_duration
                             if silence_accum_ms >= silence_duration_ms:
 
                                 if speech_buffer_for_asr:
 
-                                    full_audio_np = np.concatenate(speech_buffer_for_asr)
+                                    if len(speech_buffer_for_asr) == 1:
+                                        full_audio_np = speech_buffer_for_asr[0]
+                                    else:
+                                        full_audio_np = np.concatenate(speech_buffer_for_asr)
+
                                     speech_buffer_for_asr.clear()
 
                                     chunk_duration = len(full_audio_np) / 16000.0
@@ -130,18 +133,16 @@ class AudioHandler:
 
                                         with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
                                             temp_path = temp_wav.name
-                                            sf.write(temp_path, full_audio_np, sr, subtype='PCM_16')
+                                            sf.write(temp_path, full_audio_np, STREAM_SAMPLE_RATE, subtype='PCM_16')
 
                                         # Распознаём
                                         try:
                                             transcription = self.asr_model.recognize(temp_path)
                                             logger.info(f"Текст распознан: {transcription}")
+                                            os.unlink(temp_path)
                                         except Exception as e:
                                             logger.error(f"[{self.meeting_id}] Ошибка распознавания: {e}")
 
-                                        os.unlink(temp_path)
-
-                                        #segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
                                         transcription_te  = te_model(transcription, lan='ru')
                                         dialog = f"[{self.format_time_hms(speech_start_walltime)} - {self.format_time_hms(speech_end_walltime)}] {transcription_te.strip()}"
                                         
@@ -149,30 +150,28 @@ class AudioHandler:
                                         print(dialog)
 
                                         self.global_offset += chunk_duration
-                                        if transcription_te.lower().startswith(STREAM_TRIGGER_WORD) and (STREAM_STOP_WORD_1 in transcription_te.lower() or STREAM_STOP_WORD_2 in transcription_te.lower() or STREAM_STOP_WORD_3 in transcription_te.lower()):
+                                        if any(transcription.startswith(trigger) for trigger in TRIGGER_WORDS) and any(word in transcription for word in STOP_WORDS):
                                             self.speak_via_meet("Услышала Вас, завершаю работу!")
-                                            self.send_chat_message("Услышала Вас, завершаю работу!")
-                                            # clean_transcription = ''.join(char for char in transcription_te.lower() if char.isalnum() or char.isspace())
                                             self.stop()
-                                        elif STREAM_TRIGGER_WORD in transcription_te.lower():
-                                            choice = mary_check(transcription_te.lower())
+                                            continue 
+
+                                        elif any(trigger in transcription for trigger in TRIGGER_WORDS):
+                                            choice = mary_check(transcription_te)
                                             logger.info(f"Решение: {choice}")
                                             if choice == 1:
-                                                self.send_chat_message("Секунду...")
+                                                self.speak_via_meet("Секунду...")
                                                 try:
-                                                    key, response = llm_response(transcription)
+                                                    key, response = llm_response(transcription_te)
                                                     logger.info(f"Ответ от LLM: {key, response}")
                                                     if key == 0:
                                                         asyncio.run(save_info_in_kb(response, self.email))
                                                         self.speak_via_meet("Ваша информация сохранена.")
-                                                        self.send_chat_message("Ваша информация сохранена.")
                                                     elif key == 1:
                                                         info_from_kb = asyncio.run(get_info_from_kb(response, self.email))
                                                         if info_from_kb is None:
                                                             self.speak_via_meet("Не нашла информации в вашей базе знаний.")
-                                                            self.send_chat_message("Не нашла информации в вашей базе знаний.")
                                                         else:
-                                                            self.speak_via_meet(info_from_kb)
+                                                            self.speak_via_meet("Вывожу в чат найденную информацию...")
                                                             self.send_chat_message(info_from_kb)
                                                     elif key == 3:
                                                         self.speak_via_meet(response)

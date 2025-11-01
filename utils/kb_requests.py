@@ -45,7 +45,7 @@ async def get_info_from_kb(query: str, email: str):
     message = "Результаты поиска:\n\n"
     for idx, r in enumerate(results, start=1):
         message += (
-            f" --- {idx}. {r['title']} ---\n"
+            f" {idx}. {r['title']}\n"
             f"   {r['content_preview']}\n\n"
         )
     return message.strip()

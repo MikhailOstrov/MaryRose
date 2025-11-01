@@ -781,7 +781,7 @@ class MeetListenerBot:
         
                 self.toggle_mic_hotkey()
                 toggled_on = True
-                time.sleep(0.3)
+                time.sleep(0.1)
 
                 logger.info(f"[{self.meeting_id}] ROUTING_CHECK: Попытка воспроизвести звук в конкретный sink: '{self.sink_name}'")
                 
@@ -800,7 +800,7 @@ class MeetListenerBot:
                 logger.error(f"[{self.meeting_id}] ❌ Ошибка во время автоозвучки для sink '{self.sink_name}': {e}.")
             finally:
                 if toggled_on:
-                    time.sleep(0.2)
+                    time.sleep(0.1)
                     self.toggle_mic_hotkey()
 
         except Exception as e:

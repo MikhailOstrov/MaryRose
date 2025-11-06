@@ -35,10 +35,7 @@ echo "✅ [Entrypoint] /workspace настроен."
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-"/tmp/runtime-$(whoami)"}
 mkdir -p -m 0700 "$XDG_RUNTIME_DIR"
 
-# !!! УДАЛЕНО: Глобальный запуск Xvfb и установка DISPLAY больше не нужны !!!
-# Xvfb :99 -screen 0 1280x720x16 -nolisten tcp &
-# sleep 2
-# export DISPLAY=:99
+
 
 # Запускаем PulseAudio в пользовательском режиме (это остается)
 echo "[Entrypoint] Запуск PulseAudio в пользовательском режиме..."

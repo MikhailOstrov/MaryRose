@@ -4,11 +4,16 @@ set -e
 echo "=== [Entrypoint] Запуск от пользователя: $(whoami) ==="
 
 if [ "$(id -u)" = "0" ]; then
-    echo "[Entrypoint] Запускаем SSH-сервер в фоновом режиме..."
+    echo "=== [Entrypoint ROOT] Запуск от пользователя: $(whoami) ==="
+    echo "[Entrypoint ROOT] Запускаем SSH-сервер в фоновом режиме..."
     /usr/sbin/sshd
-    echo "✅ [Entrypoint] SSH-сервер запущен."
-else
-    echo "[Entrypoint] ВНИМАНИЕ: Скрипт запущен не от root, SSH-сервер не будет запущен."
+    echo "✅ [Entrypoint ROOT] SSH-сервер запущен."
+    
+    # ВАЖНЫЙ ШАГ: Перезапускаем этот же скрипт ($0) от имени 'appuser',
+    # передавая ему оригинальные аргументы (CMD из Dockerfile).
+    # `exec` полностью заменяет текущий процесс, ничего после этой строки не выполнится.
+    echo "[Entrypoint ROOT] Переключаемся на 'appuser' и запускаем пользовательскую часть скрипта..."
+    exec gosu appuser "$0" "$@"
 fi
 
 # --- 0. Настройка /workspace ---
@@ -55,4 +60,4 @@ echo "Chrome version: $(google-chrome --version 2>/dev/null || echo 'Chrome не
 
 # --- 6. Запуск основного приложения ---
 echo "=== [Entrypoint] Запуск основного приложения... ==="
-exec gosu appuser "$@"
+exec "$@"

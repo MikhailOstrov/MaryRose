@@ -92,6 +92,9 @@ COPY . /app/
 # Создаем пользователя 'appuser'
 RUN groupadd -r appuser && useradd --no-log-init -r -g appuser appuser
 
+# Добавляем пользователя в группы для доступа к аудио, что необходимо для PulseAudio
+RUN usermod -aG audio,pulse-access appuser
+
 # Выполняем действия, требующие прав root
 RUN dos2unix /app/entrypoint.sh && \
     chmod +x /app/entrypoint.sh && \

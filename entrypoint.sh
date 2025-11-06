@@ -3,6 +3,8 @@ set -e
 
 echo "=== [Entrypoint] Запуск от пользователя: $(whoami) ==="
 
+# --- 1. ЗАПУСК SSH-СЕРВЕРА (от root) ---
+# Этот блок выполняется, только если скрипт запущен от root (UID 0)
 if [ "$(id -u)" = "0" ]; then
     echo "[Entrypoint] Запускаем SSH-сервер в фоновом режиме..."
     /usr/sbin/sshd
@@ -11,7 +13,7 @@ else
     echo "[Entrypoint] ВНИМАНИЕ: Скрипт запущен не от root, SSH-сервер не будет запущен."
 fi
 
-# --- 0. Настройка /workspace ---
+# --- 2. Настройка /workspace (от root) ---
 echo "[Entrypoint] Проверка и настройка /workspace..."
 mkdir -p /workspace/.cache/torch /workspace/.cache/nemo /workspace/.cache/huggingface /workspace/models /workspace/logs
 export TORCH_HOME=/workspace/.cache/torch
@@ -19,33 +21,27 @@ export HF_HOME=/workspace/.cache/huggingface
 export LOGS_DIR=/workspace/logs
 echo "✅ [Entrypoint] /workspace настроен."
 
+# --- 3. ПОДГОТОВКА И ЗАПУСК PULSEAUDIO (от appuser) ---
+# Сначала готовим окружение от root
+echo "[Entrypoint] Настройка XDG_RUNTIME_DIR для appuser..."
+mkdir -p -m 0700 /tmp/runtime-appuser
+chown appuser:appuser /tmp/runtime-appuser
+echo "✅ [Entrypoint] XDG_RUNTIME_DIR настроен."
 
-
-# --- 1. Настройка пользовательского окружения ---
-export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-"/tmp/runtime-$(whoami)"}
-mkdir -p -m 0700 "$XDG_RUNTIME_DIR"
-
-# !!! УДАЛЕНО: Глобальный запуск Xvfb и установка DISPLAY больше не нужны !!!
-# Xvfb :99 -screen 0 1280x720x16 -nolisten tcp &
-# sleep 2
-# export DISPLAY=:99
-
-# Запускаем PulseAudio в пользовательском режиме (это остается)
-echo "[Entrypoint] Запуск PulseAudio в пользовательском режиме..."
-pulseaudio --start --log-target=stderr --exit-idle-time=-1
+# Затем запускаем PulseAudio от appuser с помощью gosu
+echo "[Entrypoint] Запуск PulseAudio от имени appuser..."
+gosu appuser pulseaudio --start --log-target=stderr --exit-idle-time=-1
 sleep 2 # Пауза для инициализации
 
-# --- 2. Проверка служб ---
+# Проверяем статус PulseAudio также от имени appuser
 echo "[Entrypoint] Проверка служб..."
-if ! pactl info >/dev/null 2>&1; then
-    echo "❌ [Entrypoint] CRITICAL: PulseAudio не запустился."
+if ! gosu appuser pactl info >/dev/null 2>&1; then
+    echo "❌ [Entrypoint] CRITICAL: PulseAudio не запустился от имени appuser."
     exit 1
 fi
 echo "✅ [Entrypoint] PulseAudio готов."
 
-
-
-# --- 4. Предзагрузка моделей (остается без изменений) ---
+# --- 4. Предзагрузка моделей (может выполняться от root, если нужно) ---
 # ... (ваш код предзагрузки) ...
 
 # --- 5. Финальная диагностика ---
@@ -53,6 +49,6 @@ echo "=== [Entrypoint] Проверка системы ==="
 echo "Chrome version: $(google-chrome --version 2>/dev/null || echo 'Chrome не найден')"
 # ... (остальной ваш код диагностики) ...
 
-# --- 6. Запуск основного приложения ---
+# --- 6. Запуск основного приложения (от appuser) ---
 echo "=== [Entrypoint] Запуск основного приложения... ==="
 exec gosu appuser "$@"

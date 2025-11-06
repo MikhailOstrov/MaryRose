@@ -80,8 +80,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # --- НОВЫЙ БЛОК: НАСТРОЙКА SSH ---
 # Создаем директорию для sshd
 RUN mkdir -p /var/run/sshd
-# Разрешаем вход под root (требуется для RunPod)
-RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+# Запрещаем аутентификацию по паролю для безопасности. Вход для root по ключу разрешен по умолчанию.
+RUN sed -i 's/#PasswordAuthentication yes/PasswordAuthentication no/' /etc/ssh/sshd_config && \
+    sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
+
+
 # !!! ВАЖНОЕ ДОБАВЛЕНИЕ: Генерируем ключи хоста !!!
 RUN ssh-keygen -A
 
@@ -115,6 +118,6 @@ ENV LOGS_DIR=/workspace/logs
 ENV PYTHONPATH=/app
 
 # --- ШАГ 8: ЗАПУСК ---
-EXPOSE 8001
+EXPOSE 8001 22
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["uvicorn", "server.server:app", "--host", "0.0.0.0", "--port", "8001"]

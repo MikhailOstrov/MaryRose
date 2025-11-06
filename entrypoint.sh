@@ -37,7 +37,10 @@ mkdir -p -m 0700 "$XDG_RUNTIME_DIR"
 
 # Запускаем PulseAudio в пользовательском режиме (это остается)
 echo "[Entrypoint] Запуск PulseAudio в пользовательском режиме..."
-pulseaudio --start --log-target=stderr --exit-idle-time=-1
+# Очистим возможные старые файлы, которые могут мешать запуску
+rm -rf /tmp/pulse-* ~/.config/pulse
+# Запускаем с подробным логированием (-vvv) для отладки
+pulseaudio --start --log-target=stderr --exit-idle-time=-1 -vvv
 sleep 2 # Пауза для инициализации
 
 # --- 2. Проверка служб ---

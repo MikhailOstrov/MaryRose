@@ -85,6 +85,9 @@ RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/
 # !!! ВАЖНОЕ ДОБАВЛЕНИЕ: Генерируем ключи хоста !!!
 RUN ssh-keygen -A
 
+# Создаем machine-id, необходимый для работы D-Bus, от которого зависит PulseAudio
+RUN dbus-uuidgen --ensure
+
 # --- ШАГ 6: КОПИРОВАНИЕ КОДА И НАСТРОЙКА ПРАВ ---
 # Копируем ВЕСЬ код приложения ОДИН РАЗ
 COPY . /app/

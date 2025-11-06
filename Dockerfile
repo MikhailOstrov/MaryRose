@@ -88,6 +88,9 @@ RUN ssh-keygen -A
 # Создаем machine-id, необходимый для работы D-Bus, от которого зависит PulseAudio
 RUN dbus-uuidgen --ensure
 
+# Копируем нашу кастомную конфигурацию для PulseAudio, заменяя стандартную
+COPY pulse/daemon.conf /etc/pulse/daemon.conf
+
 # --- ШАГ 6: КОПИРОВАНИЕ КОДА И НАСТРОЙКА ПРАВ ---
 # Копируем ВЕСЬ код приложения ОДИН РАЗ
 COPY . /app/

@@ -28,9 +28,9 @@ mkdir -p -m 0700 /tmp/runtime-appuser
 chown appuser:appuser /tmp/runtime-appuser
 echo "✅ [Entrypoint] XDG_RUNTIME_DIR настроен."
 
-# Затем запускаем PulseAudio от appuser с помощью gosu
+# Затем запускаем PulseAudio от appuser с помощью gosu, обернув в dbus-launch
 echo "[Entrypoint] Запуск PulseAudio от имени appuser..."
-gosu appuser pulseaudio --start --log-target=stderr --exit-idle-time=-1
+gosu appuser dbus-launch pulseaudio --start --log-target=stderr --exit-idle-time=-1
 sleep 2 # Пауза для инициализации
 
 # Проверяем статус PulseAudio также от имени appuser

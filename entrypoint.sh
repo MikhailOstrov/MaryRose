@@ -9,6 +9,11 @@ if [ "$(id -u)" = "0" ]; then
     /usr/sbin/sshd
     echo "✅ [Entrypoint ROOT] SSH-сервер запущен."
     
+    echo "[Entrypoint ROOT] Запускаем PulseAudio в системном режиме..."
+    pulseaudio --system --disallow-exit --exit-idle-time=-1 -D
+    sleep 2 # Пауза для инициализации
+    echo "✅ [Entrypoint ROOT] PulseAudio запущен."
+
     # ВАЖНЫЙ ШАГ: Перезапускаем этот же скрипт ($0) от имени 'appuser',
     # передавая ему оригинальные аргументы (CMD из Dockerfile).
     # `exec` полностью заменяет текущий процесс, ничего после этой строки не выполнится.

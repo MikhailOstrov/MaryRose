@@ -92,8 +92,15 @@ RUN ssh-keygen -A
 # Копируем ВЕСЬ код приложения ОДИН РАЗ
 COPY . /app/
 
-# Создаем пользователя 'appuser'
-RUN groupadd -r appuser && useradd --no-log-init -r -g appuser appuser
+# Создаем группу для доступа к PulseAudio
+RUN groupadd -r pulse-access
+
+# Создаем пользователя 'appuser' и добавляем его в группу pulse-access
+RUN groupadd -r appuser && useradd --no-log-init -r -g appuser -a -G pulse-access appuser
+
+# Копируем конфигурацию PulseAudio для системного режима
+COPY pulse/daemon.conf /etc/pulse/daemon.conf
+COPY pulse/system.pa /etc/pulse/system.pa
 
 # Выполняем действия, требующие прав root
 RUN dos2unix /app/entrypoint.sh && \

@@ -95,7 +95,7 @@ COPY . /app/
 # Создаем группы и пользователя, только если они не существуют
 RUN if ! getent group pulse-access > /dev/null; then groupadd -r pulse-access; fi && \
     if ! getent group appuser > /dev/null; then groupadd -r appuser; fi && \
-    if ! getent passwd appuser > /dev/null; then useradd --no-log-init -r -g appuser -a -G pulse-access appuser; fi
+    if ! getent passwd appuser > /dev/null; then useradd --no-log-init -r -g appuser -G pulse-access appuser; fi
 
 # Копируем конфигурацию PulseAudio для системного режима
 COPY pulse/daemon.conf /etc/pulse/daemon.conf

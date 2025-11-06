@@ -10,7 +10,10 @@ if [ "$(id -u)" = "0" ]; then
     echo "✅ [Entrypoint ROOT] SSH-сервер запущен."
     
     echo "[Entrypoint ROOT] Запускаем PulseAudio в системном режиме..."
-    pulseaudio --system --disallow-exit --exit-idle-time=-1 -D
+    # Очищаем возможные "мусорные" файлы от предыдущих запусков
+    rm -rf /var/run/pulse /var/lib/pulse
+    # Запускаем с флагом, рекомендованным для безопасности в системном режиме
+    pulseaudio --system --disallow-exit --exit-idle-time=-1 --disallow-module-loading -D
     sleep 2 # Пауза для инициализации
     echo "✅ [Entrypoint ROOT] PulseAudio запущен."
 

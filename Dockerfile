@@ -105,8 +105,8 @@ COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 # Выполняем действия, требующие прав root
 RUN dos2unix /app/entrypoint.sh && \
     chmod +x /app/entrypoint.sh && \
+    # Создаем /workspace и сразу назначаем владельца
     mkdir -p /workspace && \
-    # Рекурсивно меняем владельца всех файлов приложения и workspace на 'appuser'
     chown -R appuser:appuser /app /workspace
 
 # --- ШАГ 7: ПЕРЕКЛЮЧЕНИЕ НА НЕПРИВИЛЕГИРОВАННОГО ПОЛЬЗОВАТЕЛЯ ---

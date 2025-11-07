@@ -15,7 +15,7 @@ rm -rf /var/run/pulse /var/lib/pulse
 
 # --- Настройка прав (на случай монтирования /workspace) ---
 # Убедимся, что appuser может писать в /workspace
-chown -R appuser:appuser /workspace
+# chown -R appuser:appuser /workspace <<< ЭТА КОМАНДА ВЫЗЫВАЕТ ОШИБКУ НА МОНТИРОВАННЫХ ТОМАХ, ПРАВА УПРАВЛЯЮТСЯ ХОСТОМ
 
 echo "✅ [Entrypoint] Окружение готово. Запускаем Supervisor..."
 echo "======================================================"

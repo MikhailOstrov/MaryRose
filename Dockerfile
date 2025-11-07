@@ -80,8 +80,28 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # --- НОВЫЙ БЛОК: НАСТРОЙКА SSH ---
 # Создаем директорию для sshd
 RUN mkdir -p /var/run/sshd
-# Разрешаем вход под root (требуется для RunPod)
-RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+
+# Настраиваем sshd: разрешаем вход по ключу, запрещаем по паролю
+RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config && \
+    sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config && \
+    sed -i 's/PasswordAuthentication no/PasswordAuthentication no/' /etc/ssh/sshd_config && \
+    sed -i 's/#PasswordAuthentication no/PasswordAuthentication no/' /etc/ssh/sshd_config && \
+    sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
+
+# Аргумент для передачи публичного ключа во время сборки
+ARG SSH_PUBLIC_KEY
+
+# Устанавливаем публичный ключ, если он был передан
+RUN if [ -n "$SSH_PUBLIC_KEY" ]; then \
+    echo "==> Установка SSH ключа..." && \
+    mkdir -p /root/.ssh && \
+    echo "$SSH_PUBLIC_KEY" > /root/.ssh/authorized_keys && \
+    chmod 700 /root/.ssh && \
+    chmod 600 /root/.ssh/authorized_keys; \
+    else \
+    echo "==> ВНИМАНИЕ: SSH_PUBLIC_KEY не был передан. Вход по SSH будет невозможен."; \
+    fi
+
 # !!! ВАЖНОЕ ДОБАВЛЕНИЕ: Генерируем ключи хоста !!!
 RUN ssh-keygen -A
 

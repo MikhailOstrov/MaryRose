@@ -72,7 +72,7 @@ python3.11 -m pip install --no-cache-dir --upgrade --force-reinstall onnxruntime
 
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    coreutils less nano openssh-server supervisor \
+    coreutils less nano openssh-server gosu \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -80,53 +80,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # --- НОВЫЙ БЛОК: НАСТРОЙКА SSH ---
 # Создаем директорию для sshd
 RUN mkdir -p /var/run/sshd
-
-# Настраиваем sshd: разрешаем вход по ключу, запрещаем по паролю
-RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin prohibit-password/' /etc/ssh/sshd_config && \
-    sed -i 's/#PubkeyAuthentication yes/PubkeyAuthentication yes/' /etc/ssh/sshd_config && \
-    sed -i 's/PasswordAuthentication no/PasswordAuthentication no/' /etc/ssh/sshd_config && \
-    sed -i 's/#PasswordAuthentication no/PasswordAuthentication no/' /etc/ssh/sshd_config && \
-    sed -i 's/PasswordAuthentication yes/PasswordAuthentication no/g' /etc/ssh/sshd_config
-
-# Аргумент для передачи публичного ключа во время сборки
-ARG SSH_PUBLIC_KEY
-
-# Устанавливаем публичный ключ, если он был передан
-RUN if [ -n "$SSH_PUBLIC_KEY" ]; then \
-    echo "==> Установка SSH ключа..." && \
-    mkdir -p /root/.ssh && \
-    echo "$SSH_PUBLIC_KEY" > /root/.ssh/authorized_keys && \
-    chmod 700 /root/.ssh && \
-    chmod 600 /root/.ssh/authorized_keys; \
-    else \
-    echo "==> ВНИМАНИЕ: SSH_PUBLIC_KEY не был передан. Вход по SSH будет невозможен."; \
-    fi
-
+# Разрешаем вход под root (требуется для RunPod)
+RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
 # !!! ВАЖНОЕ ДОБАВЛЕНИЕ: Генерируем ключи хоста !!!
 RUN ssh-keygen -A
 
-# Создаем machine-id, необходимый для работы D-Bus, от которого зависит PulseAudio
-RUN dbus-uuidgen --ensure
-
-# Копируем нашу кастомную конфигурацию для PulseAudio, заменяя стандартную
+# --- ШАГ 6: КОПИРОВАНИЕ КОДА И НАСТРОЙКА ПРАВ ---
 # Копируем ВЕСЬ код приложения ОДИН РАЗ
 COPY . /app/
 
-# Создаем группы и пользователя, только если они не существуют
-RUN if ! getent group pulse-access > /dev/null; then groupadd -r pulse-access; fi && \
-    if ! getent group appuser > /dev/null; then groupadd -r appuser; fi && \
-    if ! getent passwd appuser > /dev/null; then useradd --no-log-init -r -g appuser -G pulse-access appuser; fi
-
-# Копируем конфигурацию PulseAudio и Supervisor
-COPY pulse/daemon.conf /etc/pulse/daemon.conf
-COPY pulse/system.pa /etc/pulse/system.pa
-COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+# Создаем пользователя 'appuser'
+RUN groupadd -r appuser && useradd --no-log-init -r -g appuser appuser
 
 # Выполняем действия, требующие прав root
 RUN dos2unix /app/entrypoint.sh && \
     chmod +x /app/entrypoint.sh && \
-    # Создаем /workspace и сразу назначаем владельца
     mkdir -p /workspace && \
+    # Рекурсивно меняем владельца всех файлов приложения и workspace на 'appuser'
     chown -R appuser:appuser /app /workspace
 
 # --- ШАГ 7: ПЕРЕКЛЮЧЕНИЕ НА НЕПРИВИЛЕГИРОВАННОГО ПОЛЬЗОВАТЕЛЯ ---
@@ -145,6 +115,6 @@ ENV LOGS_DIR=/workspace/logs
 ENV PYTHONPATH=/app
 
 # --- ШАГ 8: ЗАПУСК ---
-EXPOSE 8001 22
+EXPOSE 8001
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD []
+CMD ["uvicorn", "server.server:app", "--host", "0.0.0.0", "--port", "8001"]

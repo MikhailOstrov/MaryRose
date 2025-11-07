@@ -3,14 +3,6 @@ set -e
 
 echo "=== [Entrypoint] Запуск от пользователя: $(whoami) ==="
 
-if [ "$(id -u)" = "0" ]; then
-    echo "[Entrypoint] Запускаем SSH-сервер в фоновом режиме..."
-    /usr/sbin/sshd
-    echo "✅ [Entrypoint] SSH-сервер запущен."
-else
-    echo "[Entrypoint] ВНИМАНИЕ: Скрипт запущен не от root, SSH-сервер не будет запущен."
-fi
-
 # --- 0. Настройка /workspace ---
 echo "[Entrypoint] Проверка и настройка /workspace..."
 mkdir -p /workspace/.cache/torch /workspace/.cache/nemo /workspace/.cache/huggingface /workspace/models /workspace/logs
@@ -55,4 +47,4 @@ echo "Chrome version: $(google-chrome --version 2>/dev/null || echo 'Chrome не
 
 # --- 6. Запуск основного приложения ---
 echo "=== [Entrypoint] Запуск основного приложения... ==="
-exec gosu appuser "$@"
+exec "$@"

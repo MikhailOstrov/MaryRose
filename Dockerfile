@@ -77,13 +77,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 
-# --- НОВЫЙ БЛОК: НАСТРОЙКА SSH ---
-# Создаем директорию для sshd
-RUN mkdir -p /var/run/sshd
-# Разрешаем вход под root (требуется для RunPod)
-RUN sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
-# !!! ВАЖНОЕ ДОБАВЛЕНИЕ: Генерируем ключи хоста !!!
-RUN ssh-keygen -A
+
 
 # --- ШАГ 6: КОПИРОВАНИЕ КОДА И НАСТРОЙКА ПРАВ ---
 # Копируем ВЕСЬ код приложения ОДИН РАЗ
@@ -101,7 +95,7 @@ RUN dos2unix /app/entrypoint.sh && \
 
 # --- ШАГ 7: ПЕРЕКЛЮЧЕНИЕ НА НЕПРИВИЛЕГИРОВАННОГО ПОЛЬЗОВАТЕЛЯ ---
 # ЭТА КОМАНДА ДОЛЖНА БЫТЬ!
-# USER appuser
+USER appuser
 
 # Настройка переменных окружения, которые понадобятся appuser
 ENV HOME=/home/appuser 

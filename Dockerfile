@@ -9,8 +9,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     software-properties-common build-essential wget curl git ca-certificates jq unzip dos2unix gosu \
     # ЗАВИСИМОСТИ CHROME/AUDIO ИЗ JOIN_MEET (полный список для надежности)
     gnupg procps xvfb pulseaudio dbus-x11 x11-utils pulseaudio-utils \
-    # Добавляем supervisor для управления процессами
-    supervisor \
     fonts-liberation libnss3 libgdk-pixbuf-2.0-0 libgtk-3-0 libxss1 libgbm1 \
     libxrandr2 libpangocairo-1.0-0 libatk1.0-0 libcairo-gobject2 \
     libxcomposite1 libxcursor1 libxdamage1 libxfixes3 libxinerama1 \
@@ -90,11 +88,8 @@ RUN ssh-keygen -A
 # Создаем machine-id, необходимый для работы D-Bus, от которого зависит PulseAudio
 RUN dbus-uuidgen --ensure
 
-# УДАЛЯЕМ старую конфигурацию PulseAudio, так как supervisor будет запускать его со стандартными настройками
-# COPY pulse/daemon.conf /etc/pulse/daemon.conf
-
-# Копируем конфигурацию supervisor
-COPY supervisor/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+# Копируем нашу кастомную конфигурацию для PulseAudio, заменяя стандартную
+COPY pulse/daemon.conf /etc/pulse/daemon.conf
 
 # --- ШАГ 6: КОПИРОВАНИЕ КОДА И НАСТРОЙКА ПРАВ ---
 # Копируем ВЕСЬ код приложения ОДИН РАЗ
@@ -131,4 +126,4 @@ ENV PYTHONPATH=/app
 # --- ШАГ 8: ЗАПУСК ---
 EXPOSE 8001
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD []
+CMD ["uvicorn", "server.server:app", "--host", "0.0.0.0", "--port", "8001"]

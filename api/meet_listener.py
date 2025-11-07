@@ -440,7 +440,7 @@ class MeetListenerBot:
                         if self.driver.find_element(By.XPATH, xpath).is_displayed():
                             self._save_screenshot("04_joined_successfully")
                             logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
-                            # По требованию: сразу после входа эмулируем Ctrl+D для включения/выключения микрофона.
+                            # По требованию: сразу после входа эмулируем Ctrl+D для включения/выключения микрофона
                             try:
                                 self.toggle_mic_hotkey()
                             except Exception as e_toggle:

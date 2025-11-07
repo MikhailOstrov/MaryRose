@@ -72,7 +72,7 @@ python3.11 -m pip install --no-cache-dir --upgrade --force-reinstall onnxruntime
 
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    coreutils less nano openssh-server gosu \
+    coreutils less nano openssh-server supervisor \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -89,17 +89,18 @@ RUN ssh-keygen -A
 RUN dbus-uuidgen --ensure
 
 # Копируем нашу кастомную конфигурацию для PulseAudio, заменяя стандартную
-COPY pulse/daemon.conf /etc/pulse/daemon.conf
-
-# --- ШАГ 6: КОПИРОВАНИЕ КОДА И НАСТРОЙКА ПРАВ ---
 # Копируем ВЕСЬ код приложения ОДИН РАЗ
 COPY . /app/
 
-# Создаем пользователя 'appuser'
-RUN groupadd -r appuser && useradd --no-log-init -r -g appuser appuser
+# Создаем группы и пользователя, только если они не существуют
+RUN if ! getent group pulse-access > /dev/null; then groupadd -r pulse-access; fi && \
+    if ! getent group appuser > /dev/null; then groupadd -r appuser; fi && \
+    if ! getent passwd appuser > /dev/null; then useradd --no-log-init -r -g appuser -G pulse-access appuser; fi
 
-# Добавляем пользователя в группы для доступа к аудио, что необходимо для PulseAudio
-RUN usermod -aG audio,pulse-access appuser
+# Копируем конфигурацию PulseAudio и Supervisor
+COPY pulse/daemon.conf /etc/pulse/daemon.conf
+COPY pulse/system.pa /etc/pulse/system.pa
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # Выполняем действия, требующие прав root
 RUN dos2unix /app/entrypoint.sh && \
@@ -124,6 +125,6 @@ ENV LOGS_DIR=/workspace/logs
 ENV PYTHONPATH=/app
 
 # --- ШАГ 8: ЗАПУСК ---
-EXPOSE 8001
+EXPOSE 8001 22
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["uvicorn", "server.server:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD []

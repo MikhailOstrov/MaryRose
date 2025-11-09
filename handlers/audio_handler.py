@@ -12,7 +12,6 @@ import asyncio
 import collections
 
 from handlers.llm_handler import llm_response, get_summary_response, get_title_response, mary_check
-from handlers.tts_handler import generate_audio
 from utils.kb_requests import save_info_in_kb, get_info_from_kb
 from config.config import (STREAM_SAMPLE_RATE, MEET_AUDIO_CHUNKS_DIR, SUMMARY_OUTPUT_DIR, TRIGGER_WORDS, STOP_WORDS)
 from config.load_models import create_new_vad_model, asr_model, te_model

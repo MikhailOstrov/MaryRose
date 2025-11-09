@@ -21,6 +21,7 @@ MEET_AUDIO_CHUNKS_DIR = AUDIO_FILES_DIR / "meet_chunks"
 # --- API ключи и URLs ---
 INTERNAL_API_KEY = os.getenv("INTERNAL_API_KEY")
 API_KEY_NAME = os.getenv("API_KEY_NAME")
+LOG_ACCESS_KEY = os.getenv("LOG_ACCESS_KEY") # Ключ для доступа к логам
 BACKEND_URL = os.getenv("BACKEND_URL", "https://maryrose.by") # URL бэкенда с БД
 
 logger = logging.getLogger(__name__)

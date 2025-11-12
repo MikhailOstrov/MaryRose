@@ -440,7 +440,7 @@ class MeetListenerBot:
                         if self.driver.find_element(By.XPATH, xpath).is_displayed():
                             self._save_screenshot("04_joined_successfully")
                             logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
-                            # По требованию: сразу после входа эмулируем Ctrl+D для включения/выключения микрофона. 
+                            self.joined_successfully = True
                             try:
                                 self.toggle_mic_hotkey()
                                 self.speak_via_meet("Здравствуйте! Сейчас в чате появится инструкция. Прочтите её, пожалуйста!")
@@ -451,8 +451,8 @@ class MeetListenerBot:
                                                        По завершению вашего созвона можете сказать "Мэри, заверши встречу", "Мэри, стоп",
                                                        либо просто выйдите из созвона, бот в скором времени выйдет сам.""")
                             except Exception as e_toggle:
-                                logger.warning(f"[{self.meeting_id}] Не удалось отправить хоткей Ctrl+D после входа: {e_toggle}")
-                            self.joined_successfully = True
+                                logger.warning(f"[{self.meeting_id}] Не удалось выполнить действия после входа: {e_toggle}")
+                            
                             return True
                     except: continue
                 
@@ -719,7 +719,7 @@ class MeetListenerBot:
             except:
                 logger.info(f"[{self.meeting_id}] Панель чата закрыта, открываю...")
                 chat_button_xpath = '//button[contains(@aria-label, "Chat with everyone") or contains(@aria-label, "Чат со всеми")]'
-                chat_button = WebDriverWait(self.driver, 10).until(
+                chat_button = WebDriverWait(self.driver, 4).until(
                     EC.element_to_be_clickable((By.XPATH, chat_button_xpath))
                 )
                 
@@ -728,7 +728,7 @@ class MeetListenerBot:
 
             # --- Шаг 2: Найти поле ввода, ввести текст и отправить ---
             textarea_xpath = '//textarea[contains(@aria-label, "Send a message") or contains(@aria-label, "Отправить сообщение")]'
-            message_input = WebDriverWait(self.driver, 15).until(
+            message_input = WebDriverWait(self.driver, 4).until(
                 EC.element_to_be_clickable((By.XPATH, textarea_xpath))
             )
 
@@ -737,7 +737,7 @@ class MeetListenerBot:
             time.sleep(0.2)
 
             send_button_xpath = '//button[contains(@aria-label, "Send a message") or contains(@aria-label, "Отправить сообщение")][.//i[text()="send"]]'
-            send_button = WebDriverWait(self.driver, 10).until(
+            send_button = WebDriverWait(self.driver, 4).until(
                 EC.element_to_be_clickable((By.XPATH, send_button_xpath))
             )
             

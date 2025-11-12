@@ -67,7 +67,7 @@ def check_model_exists(model_identifier, model_type="whisper"):
 def load_asr_model():
     try:
         local_model_dir = "/app/onnx"
-        providers = ['CUDAExecutionProvider'] 
+        providers = ['CPUExecutionProvider'] 
         asr_model = onnx_asr.load_model("gigaam-v2-rnnt", local_model_dir, providers=providers)
     except Exception as e:
         print(f"Произошла ошибка с загрузкой модели. {e}")
@@ -91,6 +91,8 @@ def load_tts_model():
         force_reload=False
     )
     model.to(device)
+    model_device = next(model.parameters()).device
+    print(f"INFO: TTS модель (Silero) работает на устройстве: {model_device}")
     return model
     
 '''def load_asr_model():

@@ -183,16 +183,16 @@ class MeetListenerBot:
                 opt.add_argument('--no-sandbox')
                 opt.add_argument('--disable-dev-shm-usage')
                 opt.add_argument('--disable-gpu')
-                opt.add_argument('--headless=new')
                 opt.add_argument('--disable-software-rasterizer')
                 opt.add_argument('--disable-background-networking')
                 opt.add_argument('--disable-extensions')
                 opt.add_argument('--window-size=1280,720')
                 opt.add_argument(f'--user-data-dir={self.chrome_profile_path}')
 
-                port = random.randint(10000, 20000)
+                port = 0 # Устанавливаем порт 0, чтобы система выбрала свободный порт автоматически
                 opt.add_argument(f'--remote-debugging-port={port}')
-                logger.info(f"[{self.meeting_id}] Используется порт для отладки: {port}")
+                opt.add_argument('--disable-zygote') # Повышает стабильность в Docker
+                logger.info(f"[{self.meeting_id}] Используется динамический порт для отладки.")
 
                 opt.add_experimental_option("prefs", {
                     "profile.default_content_setting_values.media_stream_mic": 1,

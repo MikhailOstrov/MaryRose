@@ -9,6 +9,10 @@ os.environ['TORCH_HOME'] = '/workspace/.cache/torch'
 os.environ['HF_HOME'] = '/workspace/.cache/huggingface'
 os.environ['LOGS_DIR'] = '/workspace/logs'
 
+os.environ['OPENBLAS_NUM_THREADS'] = '1'
+os.environ['MKL_NUM_THREADS'] = '1'
+os.environ['OMP_NUM_THREADS'] = '1'
+
 # Создаем необходимые директории в /workspace
 workspace_dirs = [
     '/workspace/.cache/torch',
@@ -84,7 +88,7 @@ def load_tts_model():
         speaker=model_id,
         source='github',
         trust_repo=True,
-        force_reload=True
+        force_reload=False
     )
     model.to(device)
     return model

@@ -182,6 +182,8 @@ class MeetListenerBot:
                 opt = uc.ChromeOptions()
                 opt.add_argument('--no-sandbox')
                 opt.add_argument('--disable-dev-shm-usage')
+                opt.add_argument('--disable-gpu')
+                opt.add_argument('--disable-extensions')
                 opt.add_argument('--window-size=1280,720')
                 opt.add_argument(f'--user-data-dir={self.chrome_profile_path}')
 

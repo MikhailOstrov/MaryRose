@@ -200,7 +200,7 @@ class MeetListenerBot:
                 
                 self.driver = uc.Chrome(
                     options=opt,
-                    headless=True,
+                    headless=False,
                     use_subprocess=True,
                     driver_executable_path=str(driver_copy_path) if driver_copy_path else "/usr/local/bin/chromedriver",
                     version_main=140  # Явно указываем версию Chrome из Dockerfile, чтобы не скачивалась новая

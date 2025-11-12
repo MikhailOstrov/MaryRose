@@ -36,9 +36,11 @@ fi
 echo "✅ [Entrypoint] PulseAudio готов."
 
 # --- 3. Установка лимитов ресурсов ---
-echo "[Entrypoint] Попытка увеличить лимит процессов (ulimit)..."
-ulimit -n 10000 || echo "⚠️ [Entrypoint] Не удалось установить ulimit. Продолжаем с системными лимитами."
-echo "[Entrypoint] Текущий лимит открытых файлов (процессов): $(ulimit -n)"
+echo "[Entrypoint] Установка лимитов ресурсов..."
+echo "[Entrypoint] Текущие лимиты (до): nproc=$(ulimit -u), nofile=$(ulimit -n)"
+ulimit -u 10000 || echo "⚠️ [Entrypoint] Не удалось установить ulimit для процессов (-u)."
+ulimit -n 65535 || echo "⚠️ [Entrypoint] Не удалось установить ulimit для файлов (-n)."
+echo "[Entrypoint] Новые лимиты (после): nproc=$(ulimit -u), nofile=$(ulimit -n)"
 
 
 # --- 4. Предзагрузка моделей (остается без изменений) ---

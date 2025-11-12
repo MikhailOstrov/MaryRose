@@ -21,7 +21,6 @@ workspace_dirs = [
     '/workspace/.cache/torch',
     '/workspace/.cache/huggingface',
     '/workspace/models',
-    '/workspace/models/onnx',
     '/workspace/logs'
 ]
 for dir_path in workspace_dirs:
@@ -70,7 +69,7 @@ def check_model_exists(model_identifier, model_type="whisper"):
 # Проверка и загрузка ASR модели
 def load_asr_model():
     try:
-        local_model_dir = "/workspace/models/onnx"
+        local_model_dir = "/workspace/models"
         providers = ['CUDAExecutionProvider'] 
         asr_model = onnx_asr.load_model("gigaam-v2-rnnt", local_model_dir, providers=providers)
     except Exception as e:

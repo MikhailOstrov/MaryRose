@@ -91,8 +91,8 @@ def load_tts_model():
         force_reload=False
     )
     model.to(device)
-    model_device = next(model.parameters()).device
-    print(f"INFO: TTS модель (Silero) работает на устройстве: {model_device}")
+    # Используем атрибут .device, так как эта модель не является стандартным nn.Module
+    print(f"INFO: TTS модель (Silero) работает на устройстве: {model.device}")
     return model
     
 '''def load_asr_model():

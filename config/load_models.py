@@ -3,13 +3,6 @@ from pathlib import Path
 import torch
 from omegaconf import OmegaConf
 
-# Ограничение количества потоков для OpenBLAS, MKL и OMP
-# Это помогает избежать конфликтов и ошибок "Resource temporarily unavailable"
-# при использовании нескольких ML-библиотек (torch, numpy) одновременно.
-os.environ['OPENBLAS_NUM_THREADS'] = '1'
-os.environ['MKL_NUM_THREADS'] = '1'
-os.environ['OMP_NUM_THREADS'] = '1'
-
 # Настройка путей для RunPod (модели сохраняются в персистентный /workspace)
 os.environ['HOME'] = '/app'
 os.environ['TORCH_HOME'] = '/workspace/.cache/torch'
@@ -21,7 +14,6 @@ workspace_dirs = [
     '/workspace/.cache/torch',
     '/workspace/.cache/huggingface',
     '/workspace/models',
-    '/workspace/models/onnx',
     '/workspace/logs'
 ]
 for dir_path in workspace_dirs:
@@ -70,7 +62,7 @@ def check_model_exists(model_identifier, model_type="whisper"):
 # Проверка и загрузка ASR модели
 def load_asr_model():
     try:
-        local_model_dir = "/workspace/models/onnx"
+        local_model_dir = "/app/onnx"
         providers = ['CUDAExecutionProvider'] 
         asr_model = onnx_asr.load_model("gigaam-v2-rnnt", local_model_dir, providers=providers)
     except Exception as e:
@@ -92,7 +84,7 @@ def load_tts_model():
         speaker=model_id,
         source='github',
         trust_repo=True,
-        force_reload=False
+        force_reload=True
     )
     model.to(device)
     return model

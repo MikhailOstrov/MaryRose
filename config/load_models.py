@@ -27,7 +27,7 @@ import onnx_asr
 from dotenv import load_dotenv
 
 
-from config.config import ASR_MODEL_NAME, hf_token
+from config.config import hf_token
 
 load_dotenv() 
 

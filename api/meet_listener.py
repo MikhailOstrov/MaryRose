@@ -109,35 +109,26 @@ class MeetListenerBot:
         threading.current_thread().name = f'ParticipantMonitor-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] Мониторинг участников запущен.")
         
-        participant_locator_xpath = "//button[.//i[text()='people'] and @aria-label]"
         consecutive_failures = 0
         max_failures = 2
 
         while self.is_running.is_set():
-            for _ in range(15): # Проверяем каждые 15 секунд
+            for _ in range(15):  # Проверяем каждые 15 секунд
                 if not self.is_running.is_set():
                     logger.info(f"[{self.meeting_id}] Мониторинг участников остановлен.")
                     return
                 time.sleep(1)
-            
-            try:
-                participant_element = self.driver.find_element(By.XPATH, participant_locator_xpath)
-                aria_label = participant_element.get_attribute('aria-label') or ""
-                numbers = ''.join(filter(str.isdigit, aria_label))
-                if numbers:
-                    count = int(numbers)
-                    logger.info(f"[{self.meeting_id}] Текущее количество участников: {count}")
-                    consecutive_failures = 0 # Сбрасываем счетчик при успехе
-                    if count <= 1:
-                        logger.warning(f"[{self.meeting_id}] Встреча пуста. Завершаю работу...")
-                        self.stop()
-                        return
-                else:
-                    # Это может произойти, если элемент найден, но в нем нет цифр
-                    consecutive_failures += 1
-                    logger.warning(f"[{self.meeting_id}] Не удалось извлечь число участников из элемента. Попытка {consecutive_failures}/{max_failures}.")
 
-            except Exception:
+            count = self._get_participant_count()
+
+            if count is not None:
+                logger.info(f"[{self.meeting_id}] Текущее количество участников: {count}")
+                consecutive_failures = 0  # Сбрасываем счетчик при успехе
+                if count <= 1:
+                    logger.warning(f"[{self.meeting_id}] Встреча пуста. Завершаю работу...")
+                    self.stop()
+                    return
+            else:
                 consecutive_failures += 1
                 logger.warning(f"[{self.meeting_id}] Не удалось найти счетчик участников. Попытка {consecutive_failures}/{max_failures}.")
 
@@ -145,6 +136,37 @@ class MeetListenerBot:
                 logger.error(f"[{self.meeting_id}] Не удалось найти счетчик участников {max_failures} раз подряд. Предполагаю, что встреча завершена.")
                 self.stop()
                 return
+
+    def _get_participant_count(self) -> int | None:
+        """
+        Пытается получить количество участников несколькими способами.
+        Возвращает int, если успешно, иначе None.
+        """
+        # --- Способ 1: Поиск по aria-label у кнопки (старый метод) ---
+        try:
+            locator_xpath = "//button[.//i[text()='people'] and @aria-label]"
+            element = self.driver.find_element(By.XPATH, locator_xpath)
+            aria_label = element.get_attribute('aria-label') or ""
+            numbers = ''.join(filter(str.isdigit, aria_label))
+            if numbers:
+                logger.debug(f"[{self.meeting_id}] Способ 1 (aria-label) нашел: {numbers}")
+                return int(numbers)
+        except Exception:
+            logger.debug(f"[{self.meeting_id}] Способ 1 (aria-label) не сработал.")
+
+        # --- Способ 2: Поиск по видимому тексту "Участники" / "Participants" (новый, более надежный) ---
+        try:
+            # Ищем элемент, который является прямым соседом элемента с текстом "Участники" или "Participants".
+            locator_xpath = "//div[text()='Участники' or text()='Participants']/following-sibling::div"
+            element = self.driver.find_element(By.XPATH, locator_xpath)
+            count_text = element.text
+            if count_text and count_text.isdigit():
+                logger.debug(f"[{self.meeting_id}] Способ 2 (текст) нашел: {count_text}")
+                return int(count_text)
+        except Exception:
+            logger.debug(f"[{self.meeting_id}] Способ 2 (текст) не сработал.")
+
+        return None
     
     # Инициализация драйвера для подключения
     def _initialize_driver(self):
@@ -613,21 +635,26 @@ class MeetListenerBot:
         try:
             logger.info(f"[{self.meeting_id}] Пытаюсь покинуть встречу...")
             
-            # Надежные селекторы для кнопки "Покинуть видеовстречу"
+            # Обновленный и более надежный список селекторов для кнопки "Покинуть встречу",
+            # основанный на предоставленных примерах HTML.
             leave_button_selectors = [
-                # По aria-label (русский и английский)
-                '//button[@aria-label="Покинуть видеовстречу"]',
-                '//button[@aria-label="Leave meeting"]',
-                # По jsname (самый надежный селектор)
+                # 1. По атрибуту jsname - самый стабильный вариант.
                 '//button[@jsname="CQylAd"]',
-                # По иконке call_end
-                '//button[.//i[contains(@class, "call_end")]]',
-                # По классу кнопки
-                '//button[contains(@class, "VYBDae-Bz112c-LgbsSe") and contains(@class, "hk9qKe")]',
-                # По data-tooltip-id
-                '//button[@data-tooltip-id="tt-c49"]',
-                # По jscontroller
-                '//button[@jscontroller="PIVayb"]'
+                
+                # 2. По иконке 'call_end' внутри кнопки.
+                '//button[.//i[text()="call_end"]]',
+
+                # 3. По частичному совпадению текста в aria-label (гибкий к изменениям).
+                '//button[contains(@aria-label, "Leave") or contains(@aria-label, "Покинуть")]',
+
+                # 4. По тексту всплывающей подсказки (tooltip), как вы и указали.
+                #    Этот метод ищет текст "Leave a video meeting" или "Покинуть видеовстречу"
+                #    внутри элемента-подсказки и выбирает кнопку, которая находится рядом.
+                '//div[@role="tooltip" and (contains(., "Leave a video meeting") or contains(., "Покинуть видеовстречу"))]/preceding-sibling::button',
+                
+                # 5. Резервный вариант по другим атрибутам.
+                '//button[@jscontroller="PIVayb"]',
+                '//button[contains(@class, "VYBDae-Bz112c-LgbsSe")]'
             ]
             
             button_found = False

@@ -183,6 +183,7 @@ class MeetListenerBot:
                 opt.add_argument('--no-sandbox')
                 opt.add_argument('--disable-dev-shm-usage')
                 opt.add_argument('--disable-gpu')
+                opt.add_argument('--headless=new')
                 opt.add_argument('--disable-software-rasterizer')
                 opt.add_argument('--disable-background-networking')
                 opt.add_argument('--disable-extensions')

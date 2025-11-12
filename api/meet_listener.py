@@ -183,6 +183,8 @@ class MeetListenerBot:
                 opt.add_argument('--no-sandbox')
                 opt.add_argument('--disable-dev-shm-usage')
                 opt.add_argument('--disable-gpu')
+                opt.add_argument('--disable-software-rasterizer')
+                opt.add_argument('--disable-background-networking')
                 opt.add_argument('--disable-extensions')
                 opt.add_argument('--window-size=1280,720')
                 opt.add_argument(f'--user-data-dir={self.chrome_profile_path}')
@@ -198,7 +200,7 @@ class MeetListenerBot:
                 
                 self.driver = uc.Chrome(
                     options=opt,
-                    headless=False,
+                    headless=True,
                     use_subprocess=True,
                     driver_executable_path=str(driver_copy_path) if driver_copy_path else "/usr/local/bin/chromedriver",
                     version_main=140  # Явно указываем версию Chrome из Dockerfile, чтобы не скачивалась новая

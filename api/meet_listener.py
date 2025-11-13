@@ -172,29 +172,18 @@ class MeetListenerBot:
             
             original_pulse_sink = os.environ.get('PULSE_SINK')
             original_pulse_source = os.environ.get('PULSE_SOURCE')
-            original_chrome_log_file = os.environ.get('CHROME_LOG_FILE') # Сохраняем для восстановления
             
             os.environ['PULSE_SINK'] = self.sink_name
             os.environ['PULSE_SOURCE'] = self.source_name
             
-            logger.info(f"[{self.meeting_id}] Запуск Chrome с PULSE_SINK='{self.sink_name}...")
+            logger.info(f"[{self.meeting_id}] Запуск Chrome с PULSE_SINK='{self.sink_name}' и PULSE_SOURCE='{self.source_name}'...")
             
             try:
-                # --- НАСТРОЙКА ЛОГИРОВАНИЯ ---
-                chromedriver_log_path = self.output_dir / "chromedriver.log"
-                chrome_log_path = self.output_dir / "chrome.log"
-                logger.info(f"[{self.meeting_id}] ChromeDriver log: {chromedriver_log_path}")
-                logger.info(f"[{self.meeting_id}] Chrome log: {chrome_log_path}")
-                os.environ['CHROME_LOG_FILE'] = str(chrome_log_path)
-                # -----------------------------
-
                 opt = uc.ChromeOptions()
                 opt.add_argument('--no-sandbox')
                 opt.add_argument('--disable-dev-shm-usage')
                 opt.add_argument('--window-size=1280,720')
                 opt.add_argument(f'--user-data-dir={self.chrome_profile_path}')
-                opt.add_argument('--enable-logging') # Включаем логирование
-                opt.add_argument('--v=1') # Уровень детализации
 
                 port = random.randint(10000, 20000)
                 opt.add_argument(f'--remote-debugging-port={port}')
@@ -210,8 +199,7 @@ class MeetListenerBot:
                     headless=False,
                     use_subprocess=True,
                     driver_executable_path=str(driver_copy_path) if driver_copy_path else "/usr/local/bin/chromedriver",
-                    version_main=140,  # Явно указываем версию Chrome из Dockerfile, чтобы не скачивалась новая
-                    service_args=["--verbose", f"--log-path={chromedriver_log_path}"]
+                    version_main=140  # Явно указываем версию Chrome из Dockerfile, чтобы не скачивалась новая
                 )
                 
                 logger.info(f"[{self.meeting_id}] ✅ Chrome успешно запущен с полной изоляцией.")
@@ -230,7 +218,7 @@ class MeetListenerBot:
                 raise
             finally:
                 # --- Гарантированно очищаем переменные окружения ---
-                logger.info(f"[{self.meeting_id}] Очистка переменных окружения.")
+                logger.info(f"[{self.meeting_id}] Очистка переменных окружения PulseAudio.")
                 if original_pulse_sink is None:
                     if 'PULSE_SINK' in os.environ: del os.environ['PULSE_SINK']
                 else:
@@ -240,11 +228,6 @@ class MeetListenerBot:
                     if 'PULSE_SOURCE' in os.environ: del os.environ['PULSE_SOURCE']
                 else:
                     os.environ['PULSE_SOURCE'] = original_pulse_source
-                
-                if original_chrome_log_file is None:
-                    if 'CHROME_LOG_FILE' in os.environ: del os.environ['CHROME_LOG_FILE']
-                else:
-                    os.environ['CHROME_LOG_FILE'] = original_chrome_log_file
         
         logger.info(f"[{self.meeting_id}] Блокировка запуска Chrome освобождена.")
 

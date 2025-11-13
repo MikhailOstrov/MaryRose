@@ -14,7 +14,7 @@ import collections
 from handlers.llm_handler import llm_response, get_summary_response, get_title_response, mary_check
 from utils.kb_requests import save_info_in_kb, get_info_from_kb
 from config.config import (STREAM_SAMPLE_RATE, MEET_AUDIO_CHUNKS_DIR, SUMMARY_OUTPUT_DIR, TRIGGER_WORDS, STOP_WORDS)
-from config.load_models import create_new_vad_model, asr_model, te_model
+from config.load_models import create_new_vad_model, te_model
 from utils.backend_request import send_results_to_backend
 
 logger = logging.getLogger(__name__)
@@ -26,7 +26,7 @@ class AudioHandler:
         self.is_running = is_running
         self.vad = create_new_vad_model()
         self.te_model = te_model
-        self.asr_model = asr_model
+        self.asr_model = None
         self.speak_via_meet=speak_via_meet
         self.email = email
         self.start_time = time.time()

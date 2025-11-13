@@ -13,7 +13,7 @@ import re
 
 from config.config import STREAM_SAMPLE_RATE, MEET_AUDIO_CHUNKS_DIR, MEET_FRAME_DURATION_MS
 from handlers.llm_handler import get_summary_response, get_title_response
-from config.load_models import asr_model, te_model
+from config.load_models import  te_model
 from utils.backend_request import send_results_to_backend
 
 logger = logging.getLogger(__name__)
@@ -27,7 +27,7 @@ class WebsiteListenerBot:
         self.is_running = threading.Event()
         self.is_running.set()
 
-        self.asr_model = asr_model
+        self.asr_model = None
         self.te_model = te_model
 
         self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.session_id

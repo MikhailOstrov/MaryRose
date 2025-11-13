@@ -67,7 +67,7 @@ def check_model_exists(model_identifier, model_type="whisper"):
 def load_asr_model():
     try:
         local_model_dir = "/app/onnx"
-        providers = ['CPUExecutionProvider'] 
+        providers = ['CUDAExecutionProvider'] 
         asr_model = onnx_asr.load_model("gigaam-v2-rnnt", local_model_dir, providers=providers)
     except Exception as e:
         print(f"Произошла ошибка с загрузкой модели. {e}")

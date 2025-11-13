@@ -39,12 +39,6 @@ if ! pactl info >/dev/null 2>&1; then
 fi
 echo "✅ [Entrypoint] PulseAudio готов."
 
-# --- 3. Установка лимитов ресурсов ---
-echo "[Entrypoint] Установка лимитов ресурсов..."
-echo "[Entrypoint] Текущие лимиты (до): nproc=$(ulimit -u), nofile=$(ulimit -n)"
-ulimit -u 10000 || echo "⚠️ [Entrypoint] Не удалось установить ulimit для процессов (-u)."
-ulimit -n 65535 || echo "⚠️ [Entrypoint] Не удалось установить ulimit для файлов (-n)."
-echo "[Entrypoint] Новые лимиты (после): nproc=$(ulimit -u), nofile=$(ulimit -n)"
 
 
 # --- 4. Предзагрузка моделей (остается без изменений) ---

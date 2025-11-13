@@ -29,7 +29,6 @@ for dir_path in workspace_dirs:
 import torch
 import onnx_asr
 from dotenv import load_dotenv
-import onnxruntime as ort
 
 
 from config.config import hf_token
@@ -68,30 +67,11 @@ def check_model_exists(model_identifier, model_type="whisper"):
 def load_asr_model():
     try:
         local_model_dir = "/app/onnx"
-        model_path = os.path.join(local_model_dir, "gigaam-v2-rnnt", "model.onnx")
-        
-        # Включаем подробное логирование, чтобы увидеть распределение операций по устройствам
-        so = ort.SessionOptions()
-        so.log_severity_level = 0  # 0 - VERBOSE, 1 - INFO, 2 - WARNING, 3 - ERROR
-        
-        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
-        
-        # Загружаем модель напрямую через onnxruntime для отладки
-        asr_model_session = ort.InferenceSession(model_path, sess_options=so, providers=providers)
-        
-        # ПРИМЕЧАНИЕ: Это изменение вернет сессию onnxruntime, а не объект onnx_asr.
-        # Код, использующий asr_model, может потребовать адаптации.
-        # Пока что главная цель - получить логи.
-        print("Модель ASR загружена напрямую через onnxruntime с подробным логированием.")
-        
-        # Для временной совместимости можно попробовать вернуть обертку,
-        # но для начала посмотрим на логи. Если код упадет - не страшно.
-        # asr_model = onnx_asr.load_model("gigaam-v2-rnnt", local_model_dir, providers=providers)
-        return asr_model_session
-
+        providers = ['CUDAExecutionProvider'] 
+        asr_model = onnx_asr.load_model("gigaam-v2-rnnt", local_model_dir, providers=providers)
     except Exception as e:
         print(f"Произошла ошибка с загрузкой модели. {e}")
-        return None
+    return asr_model
 
 def load_te_model():
     model, example_texts, languages, punct, apply_te = torch.hub.load(repo_or_dir='snakers4/silero-models', model='silero_te')
@@ -108,9 +88,11 @@ def load_tts_model():
         speaker=model_id,
         source='github',
         trust_repo=True,
-        force_reload=True
+        force_reload=False
     )
     model.to(device)
+    # Используем атрибут .device, так как эта модель не является стандартным nn.Module
+    print(f"INFO: TTS модель (Silero) работает на устройстве: {model.device}")
     return model
     
 '''def load_asr_model():
@@ -139,7 +121,7 @@ def load_tts_model():
 
 # Загрузка моделей при импорте модуля
 print("=== Начинаем загрузку моделей в /workspace ===")
-# asr_model = load_asr_model()
+asr_model = load_asr_model()
 te_model = load_te_model()
 tts_model = load_tts_model()
 print("=== Все модели успешно загружены ===")

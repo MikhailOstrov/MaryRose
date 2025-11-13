@@ -2,7 +2,7 @@ import asyncio
 import io
 import soundfile as sf
 
-from config.load_models import  te_model
+from config.load_models import asr_model, te_model
 
 TRANSCRIBE_SEMAPHORE = asyncio.Semaphore(6)
 
@@ -65,7 +65,7 @@ async def transcribe_audio_async(audio_path: str) -> str:
                 chunk_duration = chunk_durations[idx]
                 
                 # Распознавание: возвращает только текст
-                transcription = None
+                transcription = asr_model.recognize(chunk)
                 transcription_te = te_model(transcription, lan='ru')
                 # Абсолютное время для всего чанка
                 absolute_start = current_offset

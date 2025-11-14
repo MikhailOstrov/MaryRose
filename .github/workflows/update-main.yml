@@ -7,6 +7,7 @@ on:
     branches:
       - main
       - dev
+      - ml-dev
 
 env:
   DOCKER_IMAGE_FULL_TAG: roma3213/maryrose-app:v3
@@ -29,6 +30,13 @@ jobs:
             echo "env_file=.env.prod" >> $GITHUB_OUTPUT
             echo "docker_services=prod_backend prod_bot" >> $GITHUB_OUTPUT
             echo "docker_image_tag=roma3213/maryrose-app:prod" >> $GITHUB_OUTPUT
+            echo "docker_image_repo=roma3213/maryrose-app" >> $GITHUB_OUTPUT
+          elif [ "${{ github.ref_name }}" == "ml-dev" ]; then
+            echo "ML development environment detected from 'ml-dev' branch."
+            echo "env_prefix=ml-dev" >> $GITHUB_OUTPUT
+            echo "env_file=.env.dev" >> $GITHUB_OUTPUT
+            echo "docker_services=dev_backend dev_bot" >> $GITHUB_OUTPUT
+            echo "docker_image_tag=roma3213/maryrose-app:ml-dev" >> $GITHUB_OUTPUT
             echo "docker_image_repo=roma3213/maryrose-app" >> $GITHUB_OUTPUT
           else
             echo "Development environment detected from '${{ github.ref_name }}' branch."

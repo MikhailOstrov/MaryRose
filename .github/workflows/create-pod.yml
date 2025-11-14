@@ -10,8 +10,10 @@ on:
 env:
   RUNPOD_TEMPLATE_ID_PROD: "9ctlpzknh8"
   RUNPOD_TEMPLATE_ID_DEV: "tn7xf0z34h"
+  RUNPOD_TEMPLATE_ID_ML_DEV: "tn7xf0z34h"
   DOCKER_IMAGE_PROD: "roma3213/maryrose-app:prod"
   DOCKER_IMAGE_DEV: "roma3213/maryrose-app:dev"
+  DOCKER_IMAGE_ML_DEV: "roma3213/maryrose-app:ml-dev"
   DEFAULT_GPU_TYPE: "NVIDIA RTX A5000"
 
 jobs:
@@ -50,6 +52,11 @@ jobs:
             echo "env_prefix=prod" >> $GITHUB_OUTPUT
             echo "env_file=.env.prod" >> $GITHUB_OUTPUT
             echo "docker_services=prod_backend prod_bot" >> $GITHUB_OUTPUT
+          elif [[ "$COMMIT_MSG" == *"[ml-dev]"* ]]; then
+            echo "ML Development environment detected."
+            echo "env_prefix=ml-dev" >> $GITHUB_OUTPUT
+            echo "env_file=.env.dev" >> $GITHUB_OUTPUT
+            echo "docker_services=dev_backend dev_bot" >> $GITHUB_OUTPUT
           else
             echo "Development environment detected (default)."
             echo "env_prefix=dev" >> $GITHUB_OUTPUT
@@ -99,11 +106,14 @@ jobs:
         run: |
           ENV_PREFIX="${{ steps.get_env.outputs.env_prefix }}"
           GPU_TO_CREATE="${{ steps.get_gpu.outputs.gpu_type }}"
-          POD_NAME="${ENV_PREFIX}-ai-backend-$(date +%s)"
+          POD_NAME="${ENV_PREFIX}-ai-backend"
 
           if [ "$ENV_PREFIX" = "prod" ]; then
             TEMPLATE_ID="${{ env.RUNPOD_TEMPLATE_ID_PROD }}"
             DOCKER_IMAGE="${{ env.DOCKER_IMAGE_PROD }}"
+          elif [ "$ENV_PREFIX" = "ml-dev" ]; then
+            TEMPLATE_ID="${{ env.RUNPOD_TEMPLATE_ID_ML_DEV }}"
+            DOCKER_IMAGE="${{ env.DOCKER_IMAGE_ML_DEV }}"
           else
             TEMPLATE_ID="${{ env.RUNPOD_TEMPLATE_ID_DEV }}"
             DOCKER_IMAGE="${{ env.DOCKER_IMAGE_DEV }}"

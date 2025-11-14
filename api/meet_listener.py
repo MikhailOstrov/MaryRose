@@ -16,7 +16,7 @@ from pathlib import Path
 
 from config.config import STREAM_SAMPLE_RATE, logger, CHROME_PROFILE_DIR, MEET_GUEST_NAME, MEET_AUDIO_CHUNKS_DIR, MEET_FRAME_DURATION_MS
 from handlers.audio_handler import AudioHandler
-from handlers.tts_handler import generate_audio
+#from Recommendation.MaryRequests.tts_handler import generate_audio
 from api.audio_manager import VirtualAudioManager
 
 
@@ -66,7 +66,7 @@ class MeetListenerBot:
         audio_queue=self.audio_queue,
         is_running=self.is_running,
         email=self.email,
-        speak_via_meet=self.speak_via_meet,
+        #speak_via_meet=self.speak_via_meet,
         send_chat_message=self.send_chat_message,
         stop=self.stop
         )
@@ -465,7 +465,7 @@ class MeetListenerBot:
                             self.joined_successfully = True
                             try:
                                 self.toggle_mic_hotkey()
-                                self.speak_via_meet("Здравствуйте! Сейчас в чате появится инструкция. Прочтите её, пожалуйста!")
+                                #self.speak_via_meet("Здравствуйте! Сейчас в чате появится инструкция. Прочтите её, пожалуйста!")
                                 self.send_chat_message("""Инструкция по командам:
                                                        Обратитесь к Мэри по имени, чтобы она вас услышала.
                                                        Вы можете как добавить информацию ("Мэри, запиши...") так и найти информация
@@ -798,7 +798,7 @@ class MeetListenerBot:
         except Exception as e:
             logger.warning(f"[{self.meeting_id}] Не удалось отправить Ctrl+D: {e}")
 
-    def speak_via_meet(self, text: str):
+    '''def speak_via_meet(self, text: str):
         """
         Синтезирует TTS и проигрывает его в УНИКАЛЬНЫЙ sink этого бота.
         """
@@ -838,4 +838,4 @@ class MeetListenerBot:
                     self.toggle_mic_hotkey()
 
         except Exception as e:
-            logger.error(f"[{self.meeting_id}] ❌ Критическая ошибка в _speak_via_meet: {e}")
+            logger.error(f"[{self.meeting_id}] ❌ Критическая ошибка в _speak_via_meet: {e}")'''

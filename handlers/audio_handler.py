@@ -20,14 +20,14 @@ from utils.backend_request import send_results_to_backend
 logger = logging.getLogger(__name__)
 
 class AudioHandler:
-    def __init__(self, meeting_id, audio_queue, is_running, email, speak_via_meet, send_chat_message, stop):
+    def __init__(self, meeting_id, audio_queue, is_running, email, send_chat_message, stop):
         self.meeting_id = meeting_id
         self.audio_queue = audio_queue
         self.is_running = is_running
         self.vad = create_new_vad_model()
         self.te_model = te_model
         self.asr_model = asr_model
-        self.speak_via_meet=speak_via_meet
+        #self.speak_via_meet=speak_via_meet
         self.email = email
         self.start_time = time.time()
 
@@ -150,7 +150,7 @@ class AudioHandler:
 
                                         self.global_offset += chunk_duration
                                         if any(transcription.startswith(trigger) for trigger in TRIGGER_WORDS) and any(word in transcription for word in STOP_WORDS):
-                                            self.speak_via_meet("Услышала Вас, завершаю работу!")
+                                            #self.speak_via_meet("Услышала Вас, завершаю работу!")
                                             self.stop()
                                             continue 
 
@@ -158,22 +158,23 @@ class AudioHandler:
                                             choice = mary_check(transcription_te)
                                             logger.info(f"Решение: {choice}")
                                             if choice == 1:
-                                                self.speak_via_meet("Секунду...")
+                                                #self.speak_via_meet("Секунду...")
                                                 try:
                                                     key, response = llm_response(transcription_te)
                                                     logger.info(f"Ответ от LLM: {key, response}")
                                                     if key == 0:
                                                         asyncio.run(save_info_in_kb(response, self.email))
-                                                        self.speak_via_meet("Ваша информация сохранена.")
+                                                        #self.speak_via_meet("Ваша информация сохранена.")
                                                     elif key == 1:
                                                         info_from_kb = asyncio.run(get_info_from_kb(response, self.email))
                                                         if info_from_kb is None:
-                                                            self.speak_via_meet("Не нашла информации в вашей базе знаний.")
+                                                            #self.speak_via_meet("Не нашла информации в вашей базе знаний.")
+                                                            self.send_chat_message("Не нашла информации в вашей базе знаний.")
                                                         else:
-                                                            self.speak_via_meet("Вывожу в чат найденную информацию...")
+                                                            #self.speak_via_meet("Вывожу в чат найденную информацию...")
                                                             self.send_chat_message(info_from_kb)
                                                     elif key == 3:
-                                                        self.speak_via_meet(response)
+                                                        #self.speak_via_meet(response)
                                                         self.send_chat_message(response)
 
                                                 except Exception as chat_err:

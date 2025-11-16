@@ -27,8 +27,8 @@ jobs:
             echo "docker_services=prod_backend prod_bot" >> $GITHUB_OUTPUT
             echo "docker_image_tag=roma3213/maryrose-app:prod" >> $GITHUB_OUTPUT
             echo "docker_image_repo=roma3213/maryrose-app" >> $GITHUB_OUTPUT
-          elif [ "${{ github.ref_name }}" == "ml-dev" ]; then
-            echo "ML development environment detected from 'ml-dev' branch."
+          elif [ "${{ github.ref_name }}" == "ml_dev" ]; then
+            echo "ML development environment detected from 'ml_dev' branch."
             echo "env_prefix=ml-dev" >> $GITHUB_OUTPUT
             echo "env_file=.env.dev" >> $GITHUB_OUTPUT
             echo "docker_services=dev_backend dev_bot" >> $GITHUB_OUTPUT

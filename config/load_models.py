@@ -30,7 +30,7 @@ from dotenv import load_dotenv
 
 load_dotenv() 
 
-# Создает и возвращает НОВЫЙ, ИЗОЛИРОВАННЫЙ экземпляр VAD-модели Silero. Использует кэш, чтобы не скачивать модель каждый раз.
+# Создает и возвращает НОВЫЙ, ИЗОЛИРОВАННЫЙ экземпляр VAD-модели Silero. Использует кэш, чтобы не скачивать модель каждый раз..
 def create_new_vad_model():
     print("Создание нового экземпляра VAD-модели из кэша...")
     model, _ = torch.hub.load(repo_or_dir='snakers4/silero-vad',

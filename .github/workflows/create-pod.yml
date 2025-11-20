@@ -10,7 +10,7 @@ on:
 env:
   RUNPOD_TEMPLATE_ID_PROD: "9ctlpzknh8"
   RUNPOD_TEMPLATE_ID_DEV: "tn7xf0z34h"
-  RUNPOD_TEMPLATE_ID_ML_DEV: "tn7xf0z34h"
+  RUNPOD_TEMPLATE_ID_ML_DEV: "tnndynmtok"
   DOCKER_IMAGE_PROD: "roma3213/maryrose-app:prod"
   DOCKER_IMAGE_DEV: "roma3213/maryrose-app:dev"
   DOCKER_IMAGE_ML_DEV: "roma3213/maryrose-app:ml-dev"

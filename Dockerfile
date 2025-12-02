@@ -101,6 +101,7 @@ ENV LOGS_DIR=/workspace/logs
 ENV PYTHONPATH=/app
 
 # --- ШАГ 8: ЗАПУСК ---
-EXPOSE 8001
+EXPOSE 8000 8001
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["uvicorn", "server.server:app", "--host", "0.0.0.0", "--port", "8001"]
+# Основной сервер запускаем на 8000, так как 8001 занят инференсом
+CMD ["uvicorn", "server.server:app", "--host", "0.0.0.0", "--port", "8000"]

@@ -92,6 +92,67 @@ class AudioHandler:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка WS: {e}")
             return ""
 
+    def _handle_transcription_logic(self, transcription, pipeline_start_time):
+        """Обрабатывает полученный текст (триггеры, ответы LLM)."""
+        if transcription.lower().lstrip().startswith(STREAM_TRIGGER_WORD):
+            clean_transcription = ''.join(char for char in transcription.lower() if char.isalnum() or char.isspace())
+
+            if STREAM_STOP_WORD_1 in clean_transcription or STREAM_STOP_WORD_2 in clean_transcription or STREAM_STOP_WORD_3 in clean_transcription:
+                logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")
+                self.send_chat_message("Услышала Вас, завершаю работу!")
+                self.stop()
+            else:
+                self.send_chat_message("Услышала Вас, действую...")
+                try:
+                    key, response = llm_response(transcription)
+                    logger.info(f"Ответ от LLM: {key, response}")
+                    if response:
+                        print("Отправляю ответ в чат...")
+                    if key == 0:
+                        asyncio.run(save_info_in_kb(response, self.email))
+                        self.send_chat_message("Ваша информация сохранена.")
+                    elif key == 1:
+                        info_from_kb = asyncio.run(get_info_from_kb(response, self.email))
+                        if info_from_kb == None:
+                            self.send_chat_message("Не нашла информации в вашей базе знаний.")
+                        else:
+                            self.send_chat_message(info_from_kb)
+                    elif key == 3:
+                        self.send_chat_message(response)
+
+                except Exception as chat_err:
+                    logger.error(f"[{self.meeting_id}] Ошибка при отправке ответа в чат: {chat_err}")
+
+    def _process_speech_buffer(self, speech_buffer, start_ts, end_ts, min_duration=0.5):
+        """Собирает аудио из буфера, отправляет на транскрибацию и обрабатывает результат."""
+        if not speech_buffer:
+            return
+
+        full_audio_np = np.concatenate(speech_buffer)
+        chunk_duration = len(full_audio_np) / STREAM_SAMPLE_RATE
+
+        if chunk_duration < min_duration:
+            return
+
+        # ОТПРАВКА НА СЕРВЕР (WS)
+        transcribed_text = self._send_audio_to_service(full_audio_np.tobytes())
+        
+        if not transcribed_text:
+            return
+
+        dialog = f"[{self.format_time_hms(start_ts)} - {self.format_time_hms(end_ts)}] {transcribed_text.strip()}"
+        
+        self.all_segments.append(dialog)
+        print(dialog)
+
+        # Чистый текст без таймингов
+        transcription = re.sub(r"\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*", "", dialog)
+        
+        self.global_offset += chunk_duration
+        
+        # Обработка логики (триггеры и т.д.)
+        self._handle_transcription_logic(transcription, None)
+
     # Обработка аудиопотока -- транскрибация -- ответ (если обнаружен триггер)
     def _process_audio_stream(self):
         threading.current_thread().name = f'VADProcessor-{self.meeting_id}'
@@ -110,6 +171,7 @@ class AudioHandler:
         vad_threshold = 0.1                   # вероятность речи
         silence_duration_ms = 600             # сколько тишины нужно для конца речи
         min_speech_duration = 0.5             # минимальная длина речи
+        MAX_SPEECH_DURATION_S = 30.0          # Максимальная длина речи перед принудительной отправкой
         sr = STREAM_SAMPLE_RATE
 
         silence_accum_ms = 0
@@ -155,6 +217,22 @@ class AudioHandler:
 
                         speech_buffer_for_asr.append(chunk_to_process.numpy())
                         silence_accum_ms = 0
+                        
+                        # --- ПРОВЕРКА НА МАКСИМАЛЬНУЮ ДЛИТЕЛЬНОСТЬ ---
+                        current_duration_s = (len(speech_buffer_for_asr) * VAD_CHUNK_SIZE) / sr
+                        if current_duration_s >= MAX_SPEECH_DURATION_S:
+                            logger.info(f"[{self.meeting_id}] ✂️ Принудительная отсечка речи по тайм-ауту ({MAX_SPEECH_DURATION_S}с)")
+                            
+                            # Рассчитываем конец текущего куска
+                            speech_end_walltime = speech_start_walltime + current_duration_s
+                            
+                            # Обрабатываем накопленный буфер
+                            self._process_speech_buffer(speech_buffer_for_asr, speech_start_walltime, speech_end_walltime, min_speech_duration)
+                            
+                            # Очищаем буфер и обновляем начало следующего куска
+                            speech_buffer_for_asr.clear()
+                            speech_start_walltime = speech_end_walltime # Следующий кусок начинается сразу
+                            # is_speaking остается True, так как мы все еще в блоке "речь идет"
 
                     else:
                         if is_speaking:
@@ -162,73 +240,23 @@ class AudioHandler:
                             if silence_accum_ms >= silence_duration_ms:
 
                                 if speech_buffer_for_asr:
-
-                                    full_audio_np = np.concatenate(speech_buffer_for_asr)
+                                    chunk_duration = (len(speech_buffer_for_asr) * VAD_CHUNK_SIZE) / sr
+                                    speech_end_walltime = speech_start_walltime + chunk_duration
+                                    
+                                    self._process_speech_buffer(speech_buffer_for_asr, speech_start_walltime, speech_end_walltime, min_speech_duration)
                                     speech_buffer_for_asr.clear()
 
-                                    chunk_duration = len(full_audio_np) / 16000.0
-                                    if chunk_duration >= min_speech_duration:
+                                is_speaking = False
+                                silence_accum_ms = 0
+                                pipeline_start_time = None
 
-                                        speech_end_walltime = speech_start_walltime + chunk_duration
-
-                                        is_speaking = False
-                                        silence_accum_ms = 0
-
-                                        #self._save_chunk(full_audio_np)
-
-                                        # ОТПРАВКА НА СЕРВЕР (WS)
-                                        # full_audio_np - это float32, отправляем как есть
-                                        transcribed_text = self._send_audio_to_service(full_audio_np.tobytes())
-                                        
-                                        if not transcribed_text:
-                                            continue
-
-                                        dialog = f"[{self.format_time_hms(speech_start_walltime)} - {self.format_time_hms(speech_end_walltime)}] {transcribed_text.strip()}"
-                                        
-                                        self.all_segments.append(dialog)
-                                        print(dialog)
-
-                                        # Чистый текст без таймингов
-                                        transcription = re.sub(r"\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*", "", dialog)
-
-                                        self.global_offset += chunk_duration
-
-                                        if transcription.lower().lstrip().startswith(STREAM_TRIGGER_WORD):
-
-                                            clean_transcription = ''.join(char for char in transcription.lower() if char.isalnum() or char.isspace())
-
-                                            if STREAM_STOP_WORD_1 in clean_transcription or STREAM_STOP_WORD_2 in clean_transcription or STREAM_STOP_WORD_3 in clean_transcription:
-                                                logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")
-                                                self.send_chat_message("Услышала Вас, завершаю работу!")
-                                                # self._speak_via_meet(response, pipeline_start_time)
-                                                self.stop()
-                                            else:
-                                                self.send_chat_message("Услышала Вас, действую...")
-                                                try:
-                                                    key, response = llm_response(transcription)
-                                                    logger.info(f"Ответ от LLM: {key, response}")
-                                                    if response:
-                                                        print("Отправляю ответ в чат...")
-                                                    if key == 0:
-                                                        asyncio.run(save_info_in_kb(response, self.email))
-                                                        self.send_chat_message("Ваша информация сохранена.")
-                                                    elif key == 1:
-                                                        info_from_kb = asyncio.run(get_info_from_kb(response, self.email))
-                                                        if info_from_kb == None:
-                                                            self.send_chat_message("Не нашла информации в вашей базе знаний.")
-                                                        else:
-                                                            self.send_chat_message(info_from_kb)
-                                                    elif key == 3:
-                                                        self.send_chat_message(response)
-
-                                                except Exception as chat_err:
-                                                    logger.error(f"[{self.meeting_id}] Ошибка при отправке ответа в чат: {chat_err}")
-
-                                        else:
-                                            pipeline_start_time = None
             except queue.Empty:
                 if is_speaking and speech_buffer_for_asr:
                     logger.info(f"[{self.meeting_id}] Тайм-аут, обрабатываем оставшуюся речь.")
+                    chunk_duration = (len(speech_buffer_for_asr) * VAD_CHUNK_SIZE) / sr
+                    speech_end_walltime = speech_start_walltime + chunk_duration
+                    self._process_speech_buffer(speech_buffer_for_asr, speech_start_walltime, speech_end_walltime, min_speech_duration)
+                    speech_buffer_for_asr.clear()
                     is_speaking = False
                 continue
             except Exception as e:

@@ -59,7 +59,7 @@ touch /workspace/logs/inference_service.log
 # Запускаем uvicorn в фоне. 
 # Важно: запускаем из корня проекта (/app), где лежит MaryRose
 cd /app
-uvicorn MaryRose.server.inference_service:app --host 0.0.0.0 --port 8001 --log-level info > /workspace/logs/inference_service.log 2>&1 &
+uvicorn server.inference_service:app --host 0.0.0.0 --port 8001 --log-level info > /workspace/logs/inference_service.log 2>&1 &
 INFERENCE_PID=$!
 
 echo "[Entrypoint] Ожидание запуска Inference Service (порт 8001)..."

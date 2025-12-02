@@ -175,20 +175,11 @@ class MeetListenerBot:
             
             try:
                 opt = uc.ChromeOptions()
-                
-                # Базовые настройки
                 opt.add_argument('--no-sandbox')
                 opt.add_argument('--disable-dev-shm-usage')
+                opt.add_argument('--window-size=1280,720')
                 opt.add_argument(f'--user-data-dir={self.chrome_profile_path}')
 
-                # --- ОПТИМИЗАЦИЯ ПРОИЗВОДИТЕЛЬНОСТИ (Этап 1) ---
-                opt.add_argument('--window-size=1024,768')      # Снижаем разрешение (было 1280x720)
-                opt.add_argument('--disable-gpu')               # Отключаем GPU (экономит CPU на эмуляции)
-                opt.add_argument('--disable-extensions')        # Отключаем расширения
-                opt.add_argument('--disable-infobars')
-                opt.add_argument('--disable-notifications')
-                opt.add_argument('--disable-popup-blocking')
-                
                 port = random.randint(10000, 20000)
                 opt.add_argument(f'--remote-debugging-port={port}')
                 logger.info(f"[{self.meeting_id}] Используется порт для отладки: {port}")

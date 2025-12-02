@@ -12,7 +12,7 @@ import requests
 
 from config.config import STREAM_SAMPLE_RATE, MEET_AUDIO_CHUNKS_DIR, MEET_FRAME_DURATION_MS
 from handlers.llm_handler import get_summary_response, get_title_response
-from config.load_models import asr_model
+from config.load_models import load_asr_model
 from utils.backend_request import send_results_to_backend
 
 logger = logging.getLogger(__name__)

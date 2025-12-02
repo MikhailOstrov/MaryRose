@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response
 from faster_whisper import WhisperModel
 
-from MaryRose.config.load_models import load_asr_model
+from config.load_models import load_asr_model
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)

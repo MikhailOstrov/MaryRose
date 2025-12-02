@@ -1,10 +1,11 @@
 import asyncio
 import logging
 import numpy as np
+import io
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response, UploadFile, File
 from faster_whisper import WhisperModel
 
 from config.load_models import load_asr_model
@@ -61,7 +62,7 @@ async def health_check(response: Response):
 
 def run_inference_sync(audio_float32: np.ndarray) -> str:
     """
-    Синхронная функция инференса, выполняемая в ThreadPoolExecutor.
+    Синхронная функция инференса (Raw Audio), выполняемая в ThreadPoolExecutor.
     """
     if asr_model is None:
         logger.warning("Попытка инференса без загруженной модели.")
@@ -86,14 +87,44 @@ def run_inference_sync(audio_float32: np.ndarray) -> str:
         logger.error(f"Ошибка при инференсе: {e}")
         return ""
 
+def run_file_inference_sync(file_obj) -> str:
+    """
+    Синхронная функция инференса (File-like object), выполняемая в ThreadPoolExecutor.
+    Используется для Telegram-бота.
+    """
+    if asr_model is None:
+        return ""
+    try:
+        # Whisper принимает file-like object и сам определяет формат
+        segments, _ = asr_model.transcribe(
+            file_obj, 
+            beam_size=3, # Для файлов можно чуть качественнее
+            best_of=1,
+            language="ru",
+            vad_filter=False,
+            condition_on_previous_text=False
+        )
+        return " ".join([segment.text for segment in segments]).strip()
+    except Exception as e:
+        logger.error(f"File inference error: {e}")
+        return ""
+
+@app.post("/transcribe_file")
+async def transcribe_file_endpoint(file: UploadFile = File(...)):
+    """
+    HTTP эндпоинт для транскрибации аудиофайлов (для Telegram бота).
+    """
+    content = await file.read()
+    file_obj = io.BytesIO(content)
+    
+    loop = asyncio.get_running_loop()
+    text = await loop.run_in_executor(executor, run_file_inference_sync, file_obj)
+    return {"text": text}
+
 @app.websocket("/transcribe")
 async def websocket_endpoint(websocket: WebSocket):
     """
-    WebSocket эндпоинт для транскрибации.
-    Протокол:
-    1. Клиент подключается.
-    2. Клиент отправляет бинарные данные (int16 PCM 16kHz).
-    3. Сервер возвращает текстовый ответ (JSON или просто текст? План говорит "text").
+    WebSocket эндпоинт для потоковой транскрибации (для Meet бота).
     """
     await websocket.accept()
     # logger.info(f"Новое WS соединение: {websocket.client}")
@@ -132,4 +163,3 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.close(code=1011, reason=str(e))
         except:
             pass
-

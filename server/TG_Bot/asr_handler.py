@@ -1,17 +1,34 @@
 import asyncio
 import io
+import aiohttp
+import logging
 
-from config.load_models import asr_model
+# from config.load_models import asr_model # УБРАНО
+logger = logging.getLogger(__name__)
 
 TRANSCRIBE_SEMAPHORE = asyncio.Semaphore(6)
+INFERENCE_URL = "http://localhost:8001/transcribe_file"
 
 async def transcribe_audio_async(audio_bytes: bytes) -> str:
-    loop = asyncio.get_event_loop()
+    """
+    Отправляет аудиофайл в Inference Service для распознавания.
+    """
+    async with aiohttp.ClientSession() as session:
+        data = aiohttp.FormData()
+        # Передаем байты как файл 'audio'
+        data.add_field('file', 
+                       audio_bytes, 
+                       filename='voice.ogg', 
+                       content_type='audio/ogg') # Или 'application/octet-stream', whisper разберется
 
-    def _sync_transcribe():
-        with io.BytesIO(audio_bytes) as audio_stream:
-            segments, _ = asr_model.transcribe(audio_stream, beam_size=3, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
-            
-            return " ".join(segment.text.strip() for segment in segments)
-            
-    return await loop.run_in_executor(None, _sync_transcribe)
+        try:
+            async with session.post(INFERENCE_URL, data=data) as response:
+                if response.status == 200:
+                    result = await response.json()
+                    return result.get("text", "")
+                else:
+                    logger.error(f"Inference Service error: {response.status} - {await response.text()}")
+                    return ""
+        except Exception as e:
+            logger.error(f"Failed to connect to Inference Service: {e}")
+            return ""

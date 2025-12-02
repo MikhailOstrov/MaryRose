@@ -2,6 +2,7 @@ import asyncio
 import io
 import aiohttp
 import logging
+import time
 
 # from config.load_models import asr_model # УБРАНО
 logger = logging.getLogger(__name__)
@@ -22,10 +23,14 @@ async def transcribe_audio_async(audio_bytes: bytes) -> str:
                        content_type='audio/ogg') # Или 'application/octet-stream', whisper разберется
 
         try:
+            start_ts = time.time()
             async with session.post(INFERENCE_URL, data=data) as response:
+                latency = time.time() - start_ts
                 if response.status == 200:
                     result = await response.json()
-                    return result.get("text", "")
+                    text = result.get("text", "")
+                    logger.info(f"TG Bot Transcribe latency: {latency:.3f}s. Text: {text[:50]}...")
+                    return text
                 else:
                     logger.error(f"Inference Service error: {response.status} - {await response.text()}")
                     return ""

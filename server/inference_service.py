@@ -2,6 +2,7 @@ import asyncio
 import logging
 import numpy as np
 import io
+import time
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 
@@ -68,6 +69,7 @@ def run_inference_sync(audio_float32: np.ndarray) -> str:
         logger.warning("Попытка инференса без загруженной модели.")
         return ""
     
+    start_time = time.time()
     try:
         # transcribe возвращает генератор сегментов
         # Параметры настроены под клиента audio_handler.py
@@ -82,6 +84,8 @@ def run_inference_sync(audio_float32: np.ndarray) -> str:
         
         # Собираем текст из всех сегментов
         text = " ".join([segment.text for segment in segments]).strip()
+        duration = time.time() - start_time
+        logger.info(f"Inference time (stream): {duration:.3f}s. Text: {text[:50]}...")
         return text
     except Exception as e:
         logger.error(f"Ошибка при инференсе: {e}")
@@ -94,6 +98,8 @@ def run_file_inference_sync(file_obj) -> str:
     """
     if asr_model is None:
         return ""
+    
+    start_time = time.time()
     try:
         # Whisper принимает file-like object и сам определяет формат
         segments, _ = asr_model.transcribe(
@@ -104,7 +110,10 @@ def run_file_inference_sync(file_obj) -> str:
             vad_filter=False,
             condition_on_previous_text=False
         )
-        return " ".join([segment.text for segment in segments]).strip()
+        text = " ".join([segment.text for segment in segments]).strip()
+        duration = time.time() - start_time
+        logger.info(f"Inference time (file): {duration:.3f}s. Text: {text[:50]}...")
+        return text
     except Exception as e:
         logger.error(f"File inference error: {e}")
         return ""
@@ -116,6 +125,7 @@ async def transcribe_file_endpoint(file: UploadFile = File(...)):
     """
     content = await file.read()
     file_obj = io.BytesIO(content)
+    logger.info(f"Получен файл для транскрибации, размер: {len(content)} байт")
     
     loop = asyncio.get_running_loop()
     text = await loop.run_in_executor(executor, run_file_inference_sync, file_obj)
@@ -127,7 +137,7 @@ async def websocket_endpoint(websocket: WebSocket):
     WebSocket эндпоинт для потоковой транскрибации (для Meet бота).
     """
     await websocket.accept()
-    # logger.info(f"Новое WS соединение: {websocket.client}")
+    logger.info(f"Новое WS соединение: {websocket.client}")
     
     try:
         while True:
@@ -136,6 +146,8 @@ async def websocket_endpoint(websocket: WebSocket):
             
             if not data:
                 continue
+            
+            # logger.info(f"Получен аудио чанк: {len(data)} байт")
                 
             # Конвертация байтов float32 numpy array
             # Клиент шлет готовый float32, нормализованный в [-1, 1]
@@ -151,11 +163,10 @@ async def websocket_endpoint(websocket: WebSocket):
             text = await loop.run_in_executor(executor, run_inference_sync, audio_float32)
             
             # Отправляем распознанный текст обратно клиенту
-            # logger.info(f"Распознано: '{text}'")
             await websocket.send_text(text)
             
     except WebSocketDisconnect:
-        # logger.info(f"WS соединение закрыто: {websocket.client}")
+        logger.info(f"WS соединение закрыто: {websocket.client}")
         pass
     except Exception as e:
         logger.error(f"Непредвиденная ошибка в WS хендлере: {e}")

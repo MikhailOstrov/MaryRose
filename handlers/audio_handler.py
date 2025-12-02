@@ -63,17 +63,27 @@ class AudioHandler:
         if not self.ws_connection:
             self._connect_websocket()
         
+        start_ts = time.time()
         try:
+            # logger.info(f"[{self.meeting_id}] Sending audio chunk: {len(audio_bytes)} bytes")
             self.ws_connection.send(audio_bytes)
             text = self.ws_connection.recv()
+            
+            latency = time.time() - start_ts
+            if text:
+                logger.info(f"[{self.meeting_id}] Transcribe latency: {latency:.3f}s. Text: {str(text)[:50]}...")
+            
             return str(text)
         except (ConnectionClosed, InvalidStatusCode) as e:
             logger.warning(f"[{self.meeting_id}] 🔌 Разрыв соединения WS: {e}. Переподключение...")
             self._connect_websocket()
             # Повторная отправка (один раз)
             try:
+                start_ts = time.time()
                 self.ws_connection.send(audio_bytes)
                 text = self.ws_connection.recv()
+                latency = time.time() - start_ts
+                logger.info(f"[{self.meeting_id}] Transcribe latency (retry): {latency:.3f}s. Text: {str(text)[:50]}...")
                 return str(text)
             except Exception as e2:
                  logger.error(f"[{self.meeting_id}] ❌ Ошибка повторной отправки: {e2}")

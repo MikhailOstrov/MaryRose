@@ -7,7 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 TRANSCRIBE_SEMAPHORE = asyncio.Semaphore(6)
-INFERENCE_URL = "http://localhost:8001/transcribe_file"
+INFERENCE_URL = "http://localhost:8000/transcribe_file"
 
 async def transcribe_audio_async(audio_bytes: bytes) -> str:
     """

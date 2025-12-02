@@ -37,7 +37,7 @@ class AudioHandler:
         self.send_chat_message = send_chat_message
         self.stop = stop
         
-        self.ws_url = "ws://localhost:8001/transcribe"
+        self.ws_url = "ws://localhost:8000/transcribe"
         self.ws_connection = None
 
     # Преобразование временных меток

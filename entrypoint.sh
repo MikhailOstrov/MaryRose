@@ -59,16 +59,16 @@ touch /workspace/logs/inference_service.log
 # Запускаем uvicorn в фоне. 
 # Важно: запускаем из корня проекта (/app), где лежит MaryRose
 cd /app
-uvicorn server.inference_service:app --host 0.0.0.0 --port 8001 --log-level info > /workspace/logs/inference_service.log 2>&1 &
+uvicorn server.inference_service:app --host 0.0.0.0 --port 8000 --log-level info > /workspace/logs/inference_service.log 2>&1 &
 INFERENCE_PID=$!
 
-echo "[Entrypoint] Ожидание запуска Inference Service (порт 8001)..."
+echo "[Entrypoint] Ожидание запуска Inference Service (порт 8000)..."
 # Цикл ожидания порта (через curl /health)
 # Модель грузится долго, дадим 5 минут (150 * 2s = 300s)
 MAX_RETRIES=150 
 for ((i=1;i<=MAX_RETRIES;i++)); do
     # Проверяем не просто порт, а статус модели (она вернет 200 только когда загрузится)
-    if curl -s http://127.0.0.1:8001/health | grep -q "ok"; then
+    if curl -s http://127.0.0.1:8000/health | grep -q "ok"; then
         echo "✅ [Entrypoint] Inference Service готов и модель загружена (попытка $i)!"
         break
     fi

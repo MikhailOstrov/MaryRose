@@ -104,4 +104,4 @@ ENV PYTHONPATH=/app
 EXPOSE 8000 8001
 ENTRYPOINT ["/app/entrypoint.sh"]
 # Основной сервер запускаем на 8000, так как 8001 занят инференсом
-CMD ["uvicorn", "server.server:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "server.server:app", "--host", "0.0.0.0", "--port", "8001"]

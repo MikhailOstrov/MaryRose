@@ -50,6 +50,46 @@ echo "=== [Entrypoint] Проверка системы ==="
 echo "Chrome version: $(google-chrome --version 2>/dev/null || echo 'Chrome не найден')"
 # ... (остальной ваш код диагностики) ...
 
+# --- 5.5. Запуск Inference Service ---
+echo "[Entrypoint] Запуск Inference Service..."
+# Создаем лог-файл
+mkdir -p /workspace/logs
+touch /workspace/logs/inference_service.log
+
+# Запускаем uvicorn в фоне. 
+# Важно: запускаем из корня проекта (/app), где лежит MaryRose
+cd /app
+uvicorn MaryRose.server.inference_service:app --host 0.0.0.0 --port 8001 --log-level info > /workspace/logs/inference_service.log 2>&1 &
+INFERENCE_PID=$!
+
+echo "[Entrypoint] Ожидание запуска Inference Service (порт 8001)..."
+# Цикл ожидания порта (через curl /health)
+# Модель грузится долго, дадим 5 минут (150 * 2s = 300s)
+MAX_RETRIES=150 
+for ((i=1;i<=MAX_RETRIES;i++)); do
+    # Проверяем не просто порт, а статус модели (она вернет 200 только когда загрузится)
+    if curl -s http://127.0.0.1:8001/health | grep -q "ok"; then
+        echo "✅ [Entrypoint] Inference Service готов и модель загружена (попытка $i)!"
+        break
+    fi
+    
+    # Проверка, жив ли процесс
+    if ! kill -0 $INFERENCE_PID 2>/dev/null; then
+        echo "❌ [Entrypoint] Inference Service упал! Смотри логи /workspace/logs/inference_service.log"
+        cat /workspace/logs/inference_service.log
+        exit 1
+    fi
+    
+    echo "⏳ [Entrypoint] Ожидание загрузки модели... ($i/$MAX_RETRIES)"
+    sleep 2
+done
+
+if (( i > MAX_RETRIES )); then
+    echo "❌ [Entrypoint] Таймаут ожидания Inference Service."
+    kill $INFERENCE_PID
+    exit 1
+fi
+
 # --- 6. Запуск основного приложения ---
 echo "=== [Entrypoint] Запуск основного приложения... ==="
 exec "$@"

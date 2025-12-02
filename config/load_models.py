@@ -81,10 +81,5 @@ def load_asr_model():
     print("ASR model loaded.")
     return asr_model
 
-# Загрузка моделей при импорте модуля
-print("=== Начинаем загрузку моделей в /workspace ===")
-asr_model = load_asr_model()
-print("=== Все модели успешно загружены ===")
-
-# Экспортируем загруженные модели
-__all__ = ['llm_model', 'asr_model', 'create_new_vad_model']
+# Экспортируем функции загрузки, а не сами модели
+__all__ = ['load_asr_model', 'create_new_vad_model']

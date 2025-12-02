@@ -6,12 +6,14 @@ import numpy as np
 import torch
 import re
 import asyncio
+from websockets.sync.client import connect
+from websockets.exceptions import ConnectionClosed, InvalidStatusCode
 
 from handlers.llm_handler import llm_response, get_summary_response, get_title_response
 from utils.kb_requests import save_info_in_kb, get_info_from_kb
 from config.config import (STREAM_SAMPLE_RATE, STREAM_TRIGGER_WORD, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, MEET_AUDIO_CHUNKS_DIR,
                         STREAM_STOP_WORD_3, MEET_FRAME_DURATION_MS, SUMMARY_OUTPUT_DIR)
-from config.load_models import create_new_vad_model, asr_model
+from config.load_models import create_new_vad_model
 from utils.backend_request import send_results_to_backend
 
 logger = logging.getLogger(__name__)
@@ -22,7 +24,7 @@ class AudioHandler:
         self.audio_queue = audio_queue
         self.is_running = is_running
         self.vad = create_new_vad_model()
-        self.asr_model = asr_model
+        # self.asr_model = asr_model # Модель больше не нужна локально, используем WS
         self.email = email
         self.start_time = time.time()
 
@@ -34,6 +36,9 @@ class AudioHandler:
 
         self.send_chat_message = send_chat_message
         self.stop = stop
+        
+        self.ws_url = "ws://localhost:8001/transcribe"
+        self.ws_connection = None
 
     # Преобразование временных меток
     def format_time_hms(self, seconds: float) -> str:
@@ -42,10 +47,48 @@ class AudioHandler:
         s = int(seconds % 60)
         return f"{h:02d}:{m:02d}:{s:02d}"
 
+    def _connect_websocket(self):
+        """Устанавливает WS соединение с Inference Service с повторными попытками."""
+        while self.is_running.is_set():
+            try:
+                self.ws_connection = connect(self.ws_url)
+                logger.info(f"[{self.meeting_id}] ✅ Подключено к Inference Service (WS).")
+                return
+            except Exception as e:
+                logger.warning(f"[{self.meeting_id}] ⚠️ Не удалось подключиться к Inference Service: {e}. Повтор через 2с...")
+                time.sleep(2)
+
+    def _send_audio_to_service(self, audio_bytes: bytes) -> str:
+        """Отправляет аудио и получает текст."""
+        if not self.ws_connection:
+            self._connect_websocket()
+        
+        try:
+            self.ws_connection.send(audio_bytes)
+            text = self.ws_connection.recv()
+            return str(text)
+        except (ConnectionClosed, InvalidStatusCode) as e:
+            logger.warning(f"[{self.meeting_id}] 🔌 Разрыв соединения WS: {e}. Переподключение...")
+            self._connect_websocket()
+            # Повторная отправка (один раз)
+            try:
+                self.ws_connection.send(audio_bytes)
+                text = self.ws_connection.recv()
+                return str(text)
+            except Exception as e2:
+                 logger.error(f"[{self.meeting_id}] ❌ Ошибка повторной отправки: {e2}")
+                 return ""
+        except Exception as e:
+            logger.error(f"[{self.meeting_id}] ❌ Ошибка WS: {e}")
+            return ""
+
     # Обработка аудиопотока -- транскрибация -- ответ (если обнаружен триггер)
     def _process_audio_stream(self):
         threading.current_thread().name = f'VADProcessor-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] VAD процессор запущен (Silero).")
+        
+        # Инициализируем соединение при старте потока
+        self._connect_websocket()
 
         vad_buffer = None
         VAD_CHUNK_SIZE = 512
@@ -123,12 +166,15 @@ class AudioHandler:
 
                                         #self._save_chunk(full_audio_np)
 
-                                        segments, _ = self.asr_model.transcribe(full_audio_np, beam_size=1, best_of=1, condition_on_previous_text=False, vad_filter=False, language="ru")
+                                        # ОТПРАВКА НА СЕРВЕР (WS)
+                                        # full_audio_np - это float32, отправляем как есть
+                                        transcribed_text = self._send_audio_to_service(full_audio_np.tobytes())
+                                        
+                                        if not transcribed_text:
+                                            continue
 
-                                        dialog = "\n".join(
-                                            f"[{self.format_time_hms(speech_start_walltime)} - {self.format_time_hms(speech_end_walltime)}] {segment.text.strip()}"
-                                            for segment in segments
-                                        )
+                                        dialog = f"[{self.format_time_hms(speech_start_walltime)} - {self.format_time_hms(speech_end_walltime)}] {transcribed_text.strip()}"
+                                        
                                         self.all_segments.append(dialog)
                                         print(dialog)
 
@@ -177,6 +223,13 @@ class AudioHandler:
                 continue
             except Exception as e:
                 logger.error(f"[{self.meeting_id}] Ошибка в цикле VAD: {e}", exc_info=True)
+        
+        # Закрываем сокет
+        if self.ws_connection:
+            try:
+                self.ws_connection.close()
+            except:
+                pass
 
     # Постобработка: объединение аудиочанков -- запуск диаризации и объединение с транскрибацией -- суммаризация -- генерация заголовка -- отправка результатов на внешний сервер
     def _perform_post_processing(self):

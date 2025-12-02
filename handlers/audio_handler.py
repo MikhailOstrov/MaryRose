@@ -168,7 +168,7 @@ class AudioHandler:
         recent_probs = []                     # для сглаживания
 
         # Настройки
-        vad_threshold = 0.1                   # вероятность речи
+        vad_threshold = 0.3                   # вероятность речи
         silence_duration_ms = 600             # сколько тишины нужно для конца речи
         min_speech_duration = 0.5             # минимальная длина речи
         MAX_SPEECH_DURATION_S = 30.0          # Максимальная длина речи перед принудительной отправкой

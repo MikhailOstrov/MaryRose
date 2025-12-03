@@ -147,8 +147,22 @@ class MeetListenerBot:
         """Инициализирует Chrome WebDriver с использованием фиксированной версии драйвера из системы."""
         logger.info(f"[{self.meeting_id}] Инициализация Chrome WebDriver...")
 
-        # Путь к системному драйверу из Dockerfile (используем напрямую без копирования для оптимизации)
+        # Путь к системному драйверу из Dockerfile
         system_driver_path = "/usr/local/bin/chromedriver"
+        driver_copy_path = None
+        
+        try:
+            # Создаем уникальную копию драйвера для этого бота (для изоляции и прав доступа)
+            # undetected-chromedriver требует прав на патчинг бинарника
+            driver_copy_path = self.chrome_profile_path / "chromedriver"
+            shutil.copy(system_driver_path, driver_copy_path)
+            # Делаем копию исполняемой
+            driver_copy_path.chmod(0o755)
+            
+            logger.info(f"[{self.meeting_id}] Создана копия chromedriver для патчинга в: {driver_copy_path}")
+        except Exception as e:
+            logger.error(f"[{self.meeting_id}] Не удалось создать копию chromedriver: {e}. Буду использовать системный драйвер (может вызвать ошибку прав).")
+            driver_copy_path = None
 
         with CHROME_LAUNCH_LOCK:
             logger.info(f"[{self.meeting_id}] Блокировка получена. Настройка PulseAudio env vars...")
@@ -188,7 +202,7 @@ class MeetListenerBot:
                     options=opt,
                     headless=True, # Включаем headless режим
                     use_subprocess=True,
-                    driver_executable_path=system_driver_path,
+                    driver_executable_path=str(driver_copy_path) if driver_copy_path else system_driver_path,
                     version_main=140  # Явно указываем версию Chrome из Dockerfile, чтобы не скачивалась новая
                 )
                 

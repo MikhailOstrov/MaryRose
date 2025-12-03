@@ -3,6 +3,7 @@ import time
 import queue
 import threading
 import random
+import requests # Добавили для загрузки скриншотов
 from datetime import datetime
 import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
@@ -287,21 +288,27 @@ class MeetListenerBot:
 
     # Скриншот для отладки 
     def _save_screenshot(self, name: str):
-        """Сохраняет скриншот для отладки и выводит Base64 в лог."""
+        """Сохраняет скриншот и загружает его на transfer.sh для удобного просмотра."""
         path = self.output_dir / f'{datetime.now().strftime("%H%M%S")}_{name}.png'
         try:
             if self.driver:
                 self.driver.save_screenshot(str(path))
-                logger.info(f"[{self.meeting_id}] Скриншот сохранен: {path}")
+                logger.info(f"[{self.meeting_id}] Скриншот сохранен локально: {path}")
                 
-                # --- BASE64 OUTPUT FOR DEBUGGING ---
+                # --- UPLOAD TO TRANSFER.SH ---
                 try:
-                    import base64
-                    with open(path, "rb") as image_file:
-                        encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
-                        logger.info(f"\n[{self.meeting_id}] === SCREENSHOT '{name}' BASE64 ===\n{encoded_string}\n=============================================== хуй сраный\n")
-                except Exception as e_b64:
-                    logger.warning(f"Failed to encode screenshot to base64: {e_b64}")
+                    with open(path, 'rb') as f:
+                        # transfer.sh принимает PUT запросы
+                        filename = f"{self.meeting_id}_{path.name}"
+                        response = requests.put(f"https://transfer.sh/{filename}", data=f)
+                        
+                        if response.status_code == 200:
+                            url = response.text.strip()
+                            logger.info(f"\n[{self.meeting_id}] 📸 Скриншот доступен по ссылке:\n👉 {url}\n")
+                        else:
+                            logger.warning(f"Не удалось загрузить скриншот: код {response.status_code}")
+                except Exception as e_upload:
+                    logger.warning(f"Ошибка при загрузке скриншота на сервер: {e_upload}")
 
         except Exception as e:
             logger.warning(f"[{self.meeting_id}] Не удалось сохранить скриншот '{name}': {e}")

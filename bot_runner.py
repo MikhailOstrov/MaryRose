@@ -3,7 +3,8 @@ import logging
 import sys
 import signal
 import time
-from api.meet_listener import MeetListenerBot
+# Заменили импорт Selenium бота на Playwright
+from api.meet_listener_pw import MeetListenerBotPW as MeetListenerBot
 from config.logging import setup_logging
 
 # Настраиваем логирование

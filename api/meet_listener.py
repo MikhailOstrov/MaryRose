@@ -238,6 +238,38 @@ class MeetListenerBot:
         
         logger.info(f"[{self.meeting_id}] Блокировка запуска Chrome освобождена.")
 
+    def _inject_optimization_scripts(self):
+        """Внедряет CSS/JS для скрытия видео и анимаций для снижения нагрузки на CPU."""
+        try:
+            logger.info(f"[{self.meeting_id}] 💉 Внедрение радикальных CSS-оптимизаций (скрытие видео)...")
+            js_code = """
+            // Создаем стиль для скрытия видео и отключения анимаций
+            var style = document.createElement('style');
+            style.type = 'text/css';
+            style.innerHTML = `
+                /* Скрываем все видео элементы */
+                video { display: none !important; opacity: 0 !important; height: 1px !important; width: 1px !important; }
+                
+                /* Отключаем анимации и переходы */
+                * { 
+                    transition: none !important; 
+                    animation: none !important; 
+                    background-image: none !important;
+                    box-shadow: none !important;
+                }
+                
+                /* Скрываем большие контейнеры с участниками (оставляем структуру, но не рендерим) */
+                div[data-allocation-index] { opacity: 0 !important; }
+            `;
+            document.head.appendChild(style);
+            
+            console.log('Optimization styles injected');
+            """;
+            self.driver.execute_script(js_code)
+            logger.info(f"[{self.meeting_id}] ✅ CSS-оптимизации внедрены: видео скрыто, анимации отключены.")
+        except Exception as e:
+            logger.warning(f"[{self.meeting_id}] Не удалось внедрить CSS-оптимизации: {e}")
+
     # Скриншот для отладки 
     def _save_screenshot(self, name: str):
         """Сохраняет скриншот для отладки."""
@@ -509,7 +541,8 @@ class MeetListenerBot:
             if self.joined_successfully:
                 logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")
 
-                
+                # Оптимизация: скрываем видео и анимации сразу после входа
+                self._inject_optimization_scripts()
 
                 processor_thread = threading.Thread(target=self.audio_handler._process_audio_stream,name=f'VADProcessor-{self.meeting_id}')
                 monitor_thread = threading.Thread(target=self._monitor_participants, name=f'ParticipantMonitor-{self.meeting_id}')

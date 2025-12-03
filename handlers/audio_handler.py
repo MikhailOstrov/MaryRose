@@ -194,11 +194,16 @@ class AudioHandler:
                 else:
                     vad_buffer = torch.cat([vad_buffer, new_audio_tensor])
 
+                # Определяем устройство, на котором находится модель
+                device = next(self.vad.parameters()).device
+
                 while vad_buffer is not None and vad_buffer.shape[0] >= VAD_CHUNK_SIZE:
                     chunk_to_process = vad_buffer[:VAD_CHUNK_SIZE]
                     vad_buffer = vad_buffer[VAD_CHUNK_SIZE:]
 
-                    speech_prob = self.vad(chunk_to_process, sr).item()
+                    # Переносим чанк на то же устройство, что и модель (GPU если доступно)
+                    chunk_to_process_device = chunk_to_process.to(device)
+                    speech_prob = self.vad(chunk_to_process_device, sr).item()
 
                     recent_probs.append(speech_prob)
                     if len(recent_probs) > 3:

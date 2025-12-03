@@ -109,11 +109,12 @@ class MeetListenerBot:
         max_failures = 2
 
         while self.is_running.is_set():
-            for _ in range(15): # Проверяем каждые 15 секунд
+            # Оптимизация: проверяем реже (раз в 3 секунды, 5 раз = 15 сек), чтобы не будить CPU каждую секунду
+            for _ in range(5): 
                 if not self.is_running.is_set():
                     logger.info(f"[{self.meeting_id}] Мониторинг участников остановлен.")
                     return
-                time.sleep(1)
+                time.sleep(3)
             
             try:
                 participant_element = self.driver.find_element(By.XPATH, participant_locator_xpath)
@@ -144,23 +145,10 @@ class MeetListenerBot:
     # Инициализация драйвера для подключения
     def _initialize_driver(self):
         """Инициализирует Chrome WebDriver с использованием фиксированной версии драйвера из системы."""
-        logger.info(f"[{self.meeting_id}] Создание изолированной копии chromedriver...")
+        logger.info(f"[{self.meeting_id}] Инициализация Chrome WebDriver...")
 
-        # Путь к системному драйверу из Dockerfile
+        # Путь к системному драйверу из Dockerfile (используем напрямую без копирования для оптимизации)
         system_driver_path = "/usr/local/bin/chromedriver"
-        driver_copy_path = None
-        
-        try:
-            # Создаем уникальную копию драйвера для этого бота (для изоляции)
-            driver_copy_path = self.chrome_profile_path / "chromedriver"
-            shutil.copy(system_driver_path, driver_copy_path)
-            # Делаем копию исполняемой
-            driver_copy_path.chmod(0o755)
-            
-            logger.info(f"[{self.meeting_id}] Создана изолированная копия chromedriver в: {driver_copy_path}")
-        except Exception as e:
-            logger.error(f"[{self.meeting_id}] Не удалось создать копию chromedriver: {e}. Буду использовать системный драйвер.")
-            driver_copy_path = None
 
         with CHROME_LAUNCH_LOCK:
             logger.info(f"[{self.meeting_id}] Блокировка получена. Настройка PulseAudio env vars...")
@@ -177,7 +165,13 @@ class MeetListenerBot:
                 opt = uc.ChromeOptions()
                 opt.add_argument('--no-sandbox')
                 opt.add_argument('--disable-dev-shm-usage')
-                opt.add_argument('--window-size=1280,720')
+                
+                # Оптимизация: уменьшаем разрешение и отключаем анимации
+                opt.add_argument('--window-size=800,600')
+                opt.add_argument('--disable-animations')
+                opt.add_argument('--disable-gpu')
+                opt.add_argument('--headless=new') # Новый режим headless
+
                 opt.add_argument(f'--user-data-dir={self.chrome_profile_path}')
 
                 port = random.randint(10000, 20000)
@@ -185,16 +179,16 @@ class MeetListenerBot:
                 logger.info(f"[{self.meeting_id}] Используется порт для отладки: {port}")
 
                 opt.add_experimental_option("prefs", {
-                    "profile.default_content_setting_values.media_stream_mic": 1,     # Разрешить микрофон
+                    # "profile.default_content_setting_values.media_stream_mic": 1,     # Разрешить микрофон
                     "profile.default_content_setting_values.media_stream_camera": 2,  # Блокировать камеру (Block=2)
                     "profile.default_content_setting_values.notifications": 2
                 })
                 
                 self.driver = uc.Chrome(
                     options=opt,
-                    headless=False,
+                    headless=True, # Включаем headless режим
                     use_subprocess=True,
-                    driver_executable_path=str(driver_copy_path) if driver_copy_path else "/usr/local/bin/chromedriver",
+                    driver_executable_path=system_driver_path,
                     version_main=140  # Явно указываем версию Chrome из Dockerfile, чтобы не скачивалась новая
                 )
                 
@@ -368,6 +362,7 @@ class MeetListenerBot:
             ]
 
             while elapsed_time < max_wait_time:
+                time.sleep(0.1) # Оптимизация: небольшая пауза перед проверкой
                 for i, xpath in enumerate(success_indicators):
                     try:
                         if self.driver.find_element(By.XPATH, xpath).is_displayed():

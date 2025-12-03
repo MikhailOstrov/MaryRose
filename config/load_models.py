@@ -35,7 +35,11 @@ def create_new_vad_model():
     model, _ = torch.hub.load(repo_or_dir='snakers4/silero-vad',
                               model='silero_vad',
                               force_reload=False)
-    print("✅ Новый экземпляр VAD создан.")
+    
+    # Оптимизация: перенос на GPU если доступно
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model.to(device)
+    print(f"✅ Новый экземпляр VAD создан на устройстве: {device}")
     return model
 
 # Функция проверки, загружены ли модели

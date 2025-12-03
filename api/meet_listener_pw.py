@@ -171,14 +171,14 @@ class MeetListenerBotPW:
                 args = [
                     '--no-sandbox',
                     '--disable-dev-shm-usage',
-                    '--window-size=1280,720', # Увеличим разрешение, иногда 800x600 скрывает элементы
+                    '--window-size=1280,720', 
                     '--disable-animations',
-                    '--enable-gpu-rasterization',
+                    '--enable-gpu-rasterization', # Оставим, может работать с swiftshader
                     '--enable-zero-copy',
-                    '--use-gl=desktop',
+                    '--use-gl=swiftshader', # <-- ИЗМЕНЕНО: Программный рендеринг для надежности скриншотов
                     '--ignore-gpu-blocklist',
                     '--blink-settings=imagesEnabled=false',
-                    '--disable-blink-features=AutomationControlled' # Скрываем автоматизацию
+                    '--disable-blink-features=AutomationControlled' 
                 ]
                 
                 # Формируем env с PulseAudio
@@ -355,13 +355,13 @@ class MeetListenerBotPW:
             logger.info(f"[{self.meeting_id}] Запрос отправлен. Ожидаю одобрения хоста (до 120с)...")
             max_wait_time = 120
             
-            # Индикаторы успеха
+            # Индикаторы успеха (Исправленные XPath для Playwright)
             success_indicators = [
-                '//button[@data-tooltip*="end call" or @aria-label*="end call" or @aria-label*="завершить"]',
+                '//button[contains(@data-tooltip, "end call") or contains(@aria-label, "end call") or contains(@aria-label, "завершить")]',
                 "//button[.//i[text()='people'] and @aria-label]",
                 '//div[@data-self-name]', 
                 '//div[contains(@class, "control") and (contains(@class, "bar") or contains(@class, "panel"))]',
-                '//button[@aria-label*="hand" or @aria-label*="рука" or @data-tooltip*="hand"]'
+                '//button[contains(@aria-label, "hand") or contains(@aria-label, "рука") or contains(@data-tooltip, "hand")]'
             ]
             # Индикаторы ошибки
             error_indicators = [

@@ -63,8 +63,12 @@ WORKDIR /app
 COPY requirements.txt .
 RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
 
-# Установка Playwright (добавляем браузеры после основных питон-пакетов)
-RUN python3.11 -m playwright install --with-deps chromium
+# --- УСТАНОВКА PLAYWRIGHT BROWSERS ---
+# Устанавливаем браузеры в глобальную директорию, доступную всем пользователям
+ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+RUN mkdir -p $PLAYWRIGHT_BROWSERS_PATH && \
+    python3.11 -m playwright install --with-deps chromium && \
+    chmod -R 777 $PLAYWRIGHT_BROWSERS_PATH
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     coreutils less nano

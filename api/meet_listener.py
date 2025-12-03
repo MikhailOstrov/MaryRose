@@ -211,7 +211,7 @@ class MeetListenerBot:
                 
                 self.driver = uc.Chrome(
                     options=opt,
-                    headless=False, # Включаем headless режим
+                    headless=True, # Включаем headless режим
                     use_subprocess=True,
                     driver_executable_path=str(driver_copy_path) if driver_copy_path else system_driver_path,
                     version_main=140  # Явно указываем версию Chrome из Dockerfile, чтобы не скачивалась новая
@@ -287,11 +287,22 @@ class MeetListenerBot:
 
     # Скриншот для отладки 
     def _save_screenshot(self, name: str):
-        """Сохраняет скриншот для отладки."""
+        """Сохраняет скриншот для отладки и выводит Base64 в лог."""
         path = self.output_dir / f'{datetime.now().strftime("%H%M%S")}_{name}.png'
         try:
-            self.driver.save_screenshot(str(path))
-            logger.info(f"[{self.meeting_id}] Скриншот сохранен: {path}")
+            if self.driver:
+                self.driver.save_screenshot(str(path))
+                logger.info(f"[{self.meeting_id}] Скриншот сохранен: {path}")
+                
+                # --- BASE64 OUTPUT FOR DEBUGGING ---
+                try:
+                    import base64
+                    with open(path, "rb") as image_file:
+                        encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+                        logger.info(f"\n[{self.meeting_id}] === SCREENSHOT '{name}' BASE64 ===\n{encoded_string}\n=============================================== хуй сраный\n")
+                except Exception as e_b64:
+                    logger.warning(f"Failed to encode screenshot to base64: {e_b64}")
+
         except Exception as e:
             logger.warning(f"[{self.meeting_id}] Не удалось сохранить скриншот '{name}': {e}")
 

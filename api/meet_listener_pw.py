@@ -194,21 +194,52 @@ class MeetListenerBotPW:
                     env=env,
                     viewport={"width": 1280, "height": 720},
                     permissions=['microphone'], 
-                    ignore_default_args=["--enable-automation"]
-                    # user_agent убрали, чтобы не конфликтовать с реальной ОС (Linux)
+                    ignore_default_args=["--enable-automation"],
+                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 )
                 
                 self.page = self.browser_context.pages[0]
                 if not self.page:
                     self.page = self.browser_context.new_page()
                 
-                # Дополнительная маскировка через JS
-                await_js = """
+                # --- STEALTH INJECTION ---
+                # Маскируемся под обычный Mac Chrome, скрываем SwiftShader и WebDriver
+                stealth_js = """
+                // 1. Подмена WebGL (Скрываем SwiftShader)
+                const getParameter = WebGLRenderingContext.prototype.getParameter;
+                WebGLRenderingContext.prototype.getParameter = function(parameter) {
+                    // UNMASKED_VENDOR_WEBGL
+                    if (parameter === 37445) {
+                        return 'Intel Inc.';
+                    }
+                    // UNMASKED_RENDERER_WEBGL
+                    if (parameter === 37446) {
+                        return 'Intel Iris OpenGL Engine';
+                    }
+                    return getParameter(parameter);
+                };
+
+                // 2. Скрываем webdriver
                 Object.defineProperty(navigator, 'webdriver', {
                     get: () => undefined
                 });
+                
+                // 3. Подменяем платформу
+                Object.defineProperty(navigator, 'platform', {
+                    get: () => 'MacIntel'
+                });
+
+                // 4. Языки
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en']
+                });
+
+                // 5. Плагины (Chrome всегда имеет PDF Viewer)
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5]
+                });
                 """
-                self.page.add_init_script(await_js)
+                self.page.add_init_script(stealth_js)
                 
                 # Настройка блокировки ресурсов (Network Interception)
                 self.page.route("**/*", self._handle_route)

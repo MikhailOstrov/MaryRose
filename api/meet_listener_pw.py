@@ -189,7 +189,7 @@ class MeetListenerBotPW:
 
                 self.browser_context = self.playwright.chromium.launch_persistent_context(
                     user_data_dir=str(self.chrome_profile_path),
-                    headless=True, # В Docker обычно True, но Xvfb позволяет False. Оставим как есть.
+                    headless=False, # В Docker обычно True, но Xvfb позволяет False. Оставим как есть.
                     args=args,
                     env=env,
                     viewport={"width": 1280, "height": 720},

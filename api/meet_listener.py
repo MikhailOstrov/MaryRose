@@ -183,8 +183,16 @@ class MeetListenerBot:
                 # Оптимизация: уменьшаем разрешение и отключаем анимации
                 opt.add_argument('--window-size=800,600')
                 opt.add_argument('--disable-animations')
-                opt.add_argument('--disable-gpu')
-                opt.add_argument('--disable-software-rasterizer') # Отключаем программный растеризатор
+                
+                # Включаем GPU ускорение! (Видюха RTX A5000 доступна)
+                # opt.add_argument('--disable-gpu')  <-- УБРАЛИ
+                # opt.add_argument('--disable-software-rasterizer') <-- УБРАЛИ
+                
+                opt.add_argument('--enable-gpu-rasterization')
+                opt.add_argument('--enable-zero-copy')
+                opt.add_argument('--use-gl=desktop') # Или 'egl', если desktop не сработает
+                opt.add_argument('--ignore-gpu-blocklist') # Игнорировать черный список драйверов
+
                 opt.add_argument('--blink-settings=imagesEnabled=false') # Отключаем загрузку изображений
 
                 opt.add_argument(f'--user-data-dir={self.chrome_profile_path}')

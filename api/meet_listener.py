@@ -184,7 +184,6 @@ class MeetListenerBot:
                 opt.add_argument('--window-size=800,600')
                 opt.add_argument('--disable-animations')
                 opt.add_argument('--disable-gpu')
-                opt.add_argument('--headless=new') # Новый режим headless
 
                 opt.add_argument(f'--user-data-dir={self.chrome_profile_path}')
 
@@ -200,7 +199,7 @@ class MeetListenerBot:
                 
                 self.driver = uc.Chrome(
                     options=opt,
-                    headless=True, # Включаем headless режим
+                    headless=False, # Включаем headless режим
                     use_subprocess=True,
                     driver_executable_path=str(driver_copy_path) if driver_copy_path else system_driver_path,
                     version_main=140  # Явно указываем версию Chrome из Dockerfile, чтобы не скачивалась новая

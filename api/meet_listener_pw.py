@@ -194,8 +194,8 @@ class MeetListenerBotPW:
                     env=env,
                     viewport={"width": 1280, "height": 720},
                     permissions=['microphone'], 
-                    ignore_default_args=["--enable-automation"],
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" # Реальный UA
+                    ignore_default_args=["--enable-automation"]
+                    # user_agent убрали, чтобы не конфликтовать с реальной ОС (Linux)
                 )
                 
                 self.page = self.browser_context.pages[0]
@@ -234,20 +234,22 @@ class MeetListenerBotPW:
 
     # Скриншот для отладки 
     def _save_screenshot(self, name: str):
-        """Сохраняет скриншот для отладки."""
+        """Сохраняет скриншот для отладки и выводит Base64 в лог."""
         path = self.output_dir / f'{datetime.now().strftime("%H%M%S")}_{name}.png'
         try:
             if self.page:
                 self.page.screenshot(path=str(path))
                 logger.info(f"[{self.meeting_id}] Скриншот сохранен: {path}")
                 
-                # --- ADDED FOR DEBUGGING ON RUNPOD ---
-                # Если это скриншот ошибки, выведем base64 в лог, чтобы можно было посмотреть
-                if "error" in name or "timeout" in name or "denied" in name:
+                # --- ALWAYS OUTPUT BASE64 FOR DEBUGGING ---
+                try:
                     import base64
                     with open(path, "rb") as image_file:
                         encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
-                        logger.error(f"\n[{self.meeting_id}] === ERROR SCREENSHOT BASE64 (Copy and decode online) ===\n{encoded_string}\n============================================================\n")
+                        logger.info(f"\n[{self.meeting_id}] === SCREENSHOT '{name}' BASE64 ===\n{encoded_string}\n===============================================\n")
+                except Exception as e_b64:
+                    logger.warning(f"Failed to encode screenshot to base64: {e_b64}")
+                    
         except Exception as e:
             logger.warning(f"[{self.meeting_id}] Не удалось сохранить скриншот '{name}': {e}")
 
@@ -392,9 +394,30 @@ class MeetListenerBotPW:
 
                 time.sleep(2)
                 elapsed = int(time.time() - start_time)
+                
+                # Отладочный вывод URL каждые 10 секунд
+                if elapsed % 10 == 0 and elapsed > 0:
+                     logger.info(f"[{self.meeting_id}] Текущий URL: {self.page.url}")
+
                 if elapsed % 30 == 0 and elapsed > 0:
                      logger.info(f"[{self.meeting_id}] Ожидание... {elapsed}с прошло.")
-                     self._save_screenshot(f"wait_{elapsed}s")
+                     screenshot_name = f"wait_{elapsed}s"
+                     self._save_screenshot(screenshot_name)
+                     
+                     # --- ADDED FOR DEBUGGING: Base64 скриншота ожидания ---
+                     try:
+                        path = self.output_dir / f'{datetime.now().strftime("%H%M%S")}_{screenshot_name}.png'
+                        # Ищем файл, так как _save_screenshot добавляет timestamp
+                        # Это немного криво, но для отладки сойдет. Лучше найдем последний созданный файл.
+                        files = sorted(list(self.output_dir.glob(f"*_{screenshot_name}.png")))
+                        if files:
+                            last_screenshot = files[-1]
+                            import base64
+                            with open(last_screenshot, "rb") as image_file:
+                                encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+                                logger.info(f"\n[{self.meeting_id}] === WAIT SCREENSHOT {elapsed}s BASE64 ===\n{encoded_string}\n===============================================\n")
+                     except Exception as e:
+                        logger.warning(f"Failed to base64 log screenshot: {e}")
 
             logger.warning(f"[{self.meeting_id}] ⚠️ Превышено время ожидания одобрения ({max_wait_time}с).")
             self._save_screenshot("99_join_timeout")

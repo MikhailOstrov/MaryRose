@@ -162,9 +162,12 @@ class AudioHandler:
         self._connect_websocket()
 
         vad_buffer = None
-        # Оптимизация: увеличен размер чанка для VAD (с 512 до 2048)
-        # Это снижает частоту вызовов модели в 4 раза, значительно разгружая CPU/GPU
-        VAD_CHUNK_SIZE = 2048 
+        # Silero VAD поддерживает только 512 сэмплов (при 16k)
+        VAD_CHUNK_SIZE = 512
+        # Буфер для накопления чанков перед прогоном через модель (оптимизация)
+        # Обрабатываем пачкой, но подаем в модель кусочками по 512
+        accumulated_chunks = []
+        
         speech_buffer_for_asr = []
         is_speaking = False
         recent_probs = []                     # для сглаживания
@@ -205,6 +208,9 @@ class AudioHandler:
 
                     # Переносим чанк на то же устройство, что и модель (GPU если доступно)
                     chunk_to_process_device = chunk_to_process.to(device)
+                    
+                    # ВАЖНО: Silero VAD требует точный размер входа (512), батчинг внутри модели не поддерживается "из коробки" для streaming
+                    # Поэтому вызываем модель для каждого чанка 512, но сам чанк уже на GPU
                     speech_prob = self.vad(chunk_to_process_device, sr).item()
 
                     recent_probs.append(speech_prob)

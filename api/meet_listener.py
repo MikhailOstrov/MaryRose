@@ -184,6 +184,8 @@ class MeetListenerBot:
                 opt.add_argument('--window-size=800,600')
                 opt.add_argument('--disable-animations')
                 opt.add_argument('--disable-gpu')
+                opt.add_argument('--disable-software-rasterizer') # Отключаем программный растеризатор
+                opt.add_argument('--blink-settings=imagesEnabled=false') # Отключаем загрузку изображений
 
                 opt.add_argument(f'--user-data-dir={self.chrome_profile_path}')
 
@@ -194,7 +196,9 @@ class MeetListenerBot:
                 opt.add_experimental_option("prefs", {
                     # "profile.default_content_setting_values.media_stream_mic": 1,     # Разрешить микрофон
                     "profile.default_content_setting_values.media_stream_camera": 2,  # Блокировать камеру (Block=2)
-                    "profile.default_content_setting_values.notifications": 2
+                    "profile.default_content_setting_values.notifications": 2,
+                    "profile.managed_default_content_settings.images": 2, # Блокировать картинки (через политику)
+                    "profile.default_content_setting_values.images": 2,   # Блокировать картинки (настройки профиля)
                 })
                 
                 self.driver = uc.Chrome(

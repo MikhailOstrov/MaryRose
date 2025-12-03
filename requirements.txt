@@ -37,6 +37,7 @@ scipy==1.11.3
 Pillow==10.1.0
 pyaudio==0.2.14
 silero-vad==5.1.2 # ---Добавил---
+playwright # ---Добавил для миграции---
 
 # Утилиты
 requests==2.31.0

@@ -3,7 +3,8 @@ import logging
 import sys
 import signal
 import time
-from api.meet_listener import MeetListenerBot
+# Заменили импорт Selenium бота на Playwright
+from api.meet_listener_pw import MeetListenerBotPW as MeetListenerBot
 from config.logging import setup_logging
 
 # Настраиваем логирование
@@ -43,7 +44,7 @@ def main():
     signal.signal(signal.SIGTERM, handle_shutdown_signal)
     signal.signal(signal.SIGINT, handle_shutdown_signal)
     
-    logger.info(f"Инициализация бота для meeting_id: {args.meeting_id}")
+    logger.info(f"Инициализация бота (Playwright) для meeting_id: {args.meeting_id}")
 
     try:
         # Создаем экземпляр бота и сохраняем его в глобальную переменную

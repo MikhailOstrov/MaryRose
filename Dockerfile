@@ -63,6 +63,9 @@ WORKDIR /app
 COPY requirements.txt .
 RUN python3.11 -m pip install --no-cache-dir -r requirements.txt
 
+# Установка Playwright (добавляем браузеры после основных питон-пакетов)
+RUN python3.11 -m playwright install --with-deps chromium
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     coreutils less nano
 RUN apt-get update && apt-get install -y openssh-server && apt-get clean

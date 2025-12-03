@@ -171,35 +171,44 @@ class MeetListenerBotPW:
                 args = [
                     '--no-sandbox',
                     '--disable-dev-shm-usage',
-                    '--window-size=800,600',
+                    '--window-size=1280,720', # Увеличим разрешение, иногда 800x600 скрывает элементы
                     '--disable-animations',
                     '--enable-gpu-rasterization',
                     '--enable-zero-copy',
                     '--use-gl=desktop',
                     '--ignore-gpu-blocklist',
-                    '--blink-settings=imagesEnabled=false' # Дополнительная мера
+                    '--blink-settings=imagesEnabled=false',
+                    '--disable-blink-features=AutomationControlled' # Скрываем автоматизацию
                 ]
                 
                 # Формируем env с PulseAudio
                 env = os.environ.copy()
                 env['PULSE_SINK'] = self.sink_name
-                # Можно также добавить PULSE_SOURCE если нужно, но в оригинале было закомментировано
                 
                 logger.info(f"[{self.meeting_id}] Запуск контекста с PULSE_SINK='{self.sink_name}'...")
 
                 self.browser_context = self.playwright.chromium.launch_persistent_context(
                     user_data_dir=str(self.chrome_profile_path),
-                    headless=False, # Как в оригинале
+                    headless=True, # В Docker обычно True, но Xvfb позволяет False. Оставим как есть.
                     args=args,
                     env=env,
-                    viewport={"width": 800, "height": 600},
-                    permissions=['microphone'], # Выдаем права сразу
-                    ignore_default_args=["--enable-automation"] # Чтобы не было инфобара (опционально)
+                    viewport={"width": 1280, "height": 720},
+                    permissions=['microphone'], 
+                    ignore_default_args=["--enable-automation"],
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36" # Реальный UA
                 )
                 
                 self.page = self.browser_context.pages[0]
                 if not self.page:
                     self.page = self.browser_context.new_page()
+                
+                # Дополнительная маскировка через JS
+                await_js = """
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+                """
+                self.page.add_init_script(await_js)
                 
                 # Настройка блокировки ресурсов (Network Interception)
                 self.page.route("**/*", self._handle_route)
@@ -231,6 +240,14 @@ class MeetListenerBotPW:
             if self.page:
                 self.page.screenshot(path=str(path))
                 logger.info(f"[{self.meeting_id}] Скриншот сохранен: {path}")
+                
+                # --- ADDED FOR DEBUGGING ON RUNPOD ---
+                # Если это скриншот ошибки, выведем base64 в лог, чтобы можно было посмотреть
+                if "error" in name or "timeout" in name or "denied" in name:
+                    import base64
+                    with open(path, "rb") as image_file:
+                        encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
+                        logger.error(f"\n[{self.meeting_id}] === ERROR SCREENSHOT BASE64 (Copy and decode online) ===\n{encoded_string}\n============================================================\n")
         except Exception as e:
             logger.warning(f"[{self.meeting_id}] Не удалось сохранить скриншот '{name}': {e}")
 
@@ -320,7 +337,17 @@ class MeetListenerBotPW:
                      logger.info(f"[{self.meeting_id}] Найдена кнопка 'Join now', кликаю...")
                      self.page.locator(join_now_selector).click()
                  else:
-                     logger.error(f"[{self.meeting_id}] Не найдена кнопка входа.")
+                     logger.error(f"[{self.meeting_id}] Не найдена кнопка входа. Делаю скриншот...")
+                     self._save_screenshot("error_no_join_button")
+                     
+                     # Дампим HTML для анализа
+                     try:
+                        html_path = self.output_dir / f"debug_{self.meeting_id}.html"
+                        with open(html_path, "w", encoding="utf-8") as f:
+                            f.write(self.page.content())
+                        logger.info(f"HTML страницы сохранен в {html_path}")
+                     except: pass
+                     
                      raise
 
             self._save_screenshot("03_after_ask_to_join")

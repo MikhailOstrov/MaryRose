@@ -49,7 +49,8 @@ else:
 ASR_MODEL_NAME = "deepdml/faster-whisper-large-v3-turbo-ct2" # Модель Whisper 
 
 STREAM_SAMPLE_RATE = 16000 # Частота для аудиочанков
-MEET_FRAME_DURATION_MS = 30 # Размер чанка
+# Оптимизация: увеличен буфер чтения до 60мс (снижает частоту I/O операций в 2 раза)
+MEET_FRAME_DURATION_MS = 60 # Размер чанка
 MEET_PAUSE_THRESHOLD_S = 1  # Пауза в секундах перед завершением записи
 SILENCE_THRESHOLD_FRAMES = 16 # Для определения пауз в речи
 

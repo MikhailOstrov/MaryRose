@@ -162,7 +162,9 @@ class AudioHandler:
         self._connect_websocket()
 
         vad_buffer = None
-        VAD_CHUNK_SIZE = 512
+        # Оптимизация: увеличен размер чанка для VAD (с 512 до 2048)
+        # Это снижает частоту вызовов модели в 4 раза, значительно разгружая CPU/GPU
+        VAD_CHUNK_SIZE = 2048 
         speech_buffer_for_asr = []
         is_speaking = False
         recent_probs = []                     # для сглаживания

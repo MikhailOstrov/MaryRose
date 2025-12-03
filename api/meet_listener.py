@@ -242,31 +242,38 @@ class MeetListenerBot:
         """Внедряет CSS/JS для скрытия видео и анимаций для снижения нагрузки на CPU."""
         try:
             logger.info(f"[{self.meeting_id}] 💉 Внедрение радикальных CSS-оптимизаций (скрытие видео)...")
-            js_code = """
-            // Создаем стиль для скрытия видео и отключения анимаций
-            var style = document.createElement('style');
-            style.type = 'text/css';
-            style.innerHTML = `
-                /* Скрываем все видео элементы */
-                video { display: none !important; opacity: 0 !important; height: 1px !important; width: 1px !important; }
-                
-                /* Отключаем анимации и переходы */
-                * { 
-                    transition: none !important; 
-                    animation: none !important; 
-                    background-image: none !important;
-                    box-shadow: none !important;
-                }
-                
-                /* Скрываем большие контейнеры с участниками (оставляем структуру, но не рендерим) */
-                div[data-allocation-index] { opacity: 0 !important; }
-            `;
-            document.head.appendChild(style);
             
-            console.log('Optimization styles injected');
+            # Вариант 1: Безопасное добавление стилей через textContent (обход TrustedHTML)
+            js_code = """
+            try {
+                var css = `
+                    /* Скрываем все видео элементы */
+                    video { display: none !important; opacity: 0 !important; height: 1px !important; width: 1px !important; }
+                    
+                    /* Отключаем анимации и переходы */
+                    * { 
+                        transition: none !important; 
+                        animation: none !important; 
+                        background-image: none !important;
+                        box-shadow: none !important;
+                    }
+                    
+                    /* Скрываем большие контейнеры с участниками */
+                    div[data-allocation-index] { opacity: 0 !important; }
+                `;
+                
+                var style = document.createElement('style');
+                style.type = 'text/css';
+                style.appendChild(document.createTextNode(css));
+                document.head.appendChild(style);
+                console.log('Optimization styles injected via textNode');
+            } catch(e) {
+                console.error('JS injection failed:', e);
+            }
             """;
             self.driver.execute_script(js_code)
-            logger.info(f"[{self.meeting_id}] ✅ CSS-оптимизации внедрены: видео скрыто, анимации отключены.")
+            logger.info(f"[{self.meeting_id}] ✅ CSS-оптимизации внедрены через JS.")
+            
         except Exception as e:
             logger.warning(f"[{self.meeting_id}] Не удалось внедрить CSS-оптимизации: {e}")
 

@@ -168,16 +168,12 @@ class MeetListenerBotPW:
             try:
                 self.playwright = sync_playwright().start()
                 
-                # Аргументы запуска Chromium
+                # Аргументы запуска Chromium (максимально приближенные к обычному запуску)
                 args = [
-                    '--no-sandbox',
-                    '--disable-dev-shm-usage',
-                    '--window-size=1280,720', 
-                    '--disable-animations',
-                    '--enable-gpu-rasterization',
-                    '--enable-zero-copy',
-                    '--ignore-gpu-blocklist',
-                    '--disable-blink-features=AutomationControlled' 
+                    '--disable-blink-features=AutomationControlled',
+                    '--start-maximized', # Запуск на весь экран
+                    '--disable-infobars',
+                    '--no-default-browser-check'
                 ]
                 
                 # Формируем env с PulseAudio
@@ -188,14 +184,14 @@ class MeetListenerBotPW:
 
                 self.browser_context = self.playwright.chromium.launch_persistent_context(
                     user_data_dir=str(self.chrome_profile_path),
-                    channel="chrome", # Используем настоящий Chrome вместо встроенного Chromium
-                    headless=False, # В Docker обычно True, но Xvfb позволяет False. Оставим как есть.
+                    channel="chrome", # Используем настоящий Chrome
+                    headless=False,
                     args=args,
                     env=env,
-                    viewport={"width": 1280, "height": 720},
+                    viewport=None, # Отключаем эмуляцию viewport (важно для undetected поведения)
                     permissions=['microphone'], 
                     ignore_default_args=["--enable-automation"],
-                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    # Убираем ручной user_agent, пусть Chrome подставит свой родной
                 )
                 
                 self.page = self.browser_context.pages[0]
@@ -205,39 +201,34 @@ class MeetListenerBotPW:
                 # --- STEALTH INJECTION ---
                 # Маскируемся под обычный Windows Chrome
                 stealth_js = """
-                // 1. Подмена WebGL
-                const getParameter = WebGLRenderingContext.prototype.getParameter;
-                WebGLRenderingContext.prototype.getParameter = function(parameter) {
-                    // UNMASKED_VENDOR_WEBGL
-                    if (parameter === 37445) {
-                        return 'Google Inc. (Intel)';
-                    }
-                    // UNMASKED_RENDERER_WEBGL
-                    if (parameter === 37446) {
-                        return 'ANGLE (Intel, Intel(R) UHD Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)';
-                    }
-                    return getParameter(parameter);
-                };
+                // 1. Добавляем window.chrome (обязательно для Chrome)
+                if (!window.chrome) {
+                    window.chrome = {
+                        runtime: {},
+                        loadTimes: function() {},
+                        csi: function() {},
+                        app: {}
+                    };
+                }
 
                 // 2. Скрываем webdriver
                 Object.defineProperty(navigator, 'webdriver', {
                     get: () => undefined
                 });
+
+                // 3. Плагины (для Chrome всегда должны быть)
+                if (navigator.plugins.length === 0) {
+                     Object.defineProperty(navigator, 'plugins', {
+                        get: () => [1, 2, 3, 4, 5]
+                    });
+                }
                 
-                // 3. Подменяем платформу на Windows
-                Object.defineProperty(navigator, 'platform', {
-                    get: () => 'Win32'
-                });
-
-                // 4. Языки
-                Object.defineProperty(navigator, 'languages', {
-                    get: () => ['ru-RU', 'ru', 'en-US', 'en']
-                });
-
-                // 5. Плагины
-                Object.defineProperty(navigator, 'plugins', {
-                    get: () => [1, 2, 3, 4, 5]
-                });
+                // 4. Языки (берем из системы или дефолт)
+                if (!navigator.languages || navigator.languages.length === 0) {
+                    Object.defineProperty(navigator, 'languages', {
+                        get: () => ['ru-RU', 'ru', 'en-US', 'en']
+                    });
+                }
                 """
                 self.page.add_init_script(stealth_js)
                 

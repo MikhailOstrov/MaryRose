@@ -98,11 +98,10 @@ class MeetListenerBotPW:
     # Отслеживание кол-ва участников
     def _check_participants(self):
         """Проверяет количество участников (вызывается из главного цикла)."""
-        participant_locator_xpath = "//button[.//i[text()='people'] and @aria-label]"
+        # Оптимизация: используем evaluate для выполнения проверки прямо в браузере,
+        # чтобы минимизировать передачу данных между Python и Playwright.
         
-        # Состояние сбоев можно хранить в атрибутах класса, если нужно,
-        # но здесь мы просто проверяем текущее состояние.
-        # Если хотим устойчивости к миганию, нужно хранить consecutive_failures в self.
+        # Состояние сбоев
         if not hasattr(self, '_part_failures'):
             self._part_failures = 0
         
@@ -110,32 +109,46 @@ class MeetListenerBotPW:
             if not self.page:
                 return
 
-            participant_element = self.page.locator(participant_locator_xpath).first
+            # JS-скрипт ищет кнопку участников и парсит цифру из aria-label
+            count = self.page.evaluate("""() => {
+                try {
+                    // Ищем кнопку, внутри которой есть иконка 'people'
+                    // XPath аналог: //button[.//i[text()='people'] and @aria-label]
+                    const buttons = Array.from(document.querySelectorAll('button'));
+                    const targetBtn = buttons.find(btn => {
+                        const icon = btn.querySelector('i');
+                        return icon && icon.textContent === 'people' && btn.hasAttribute('aria-label');
+                    });
+                    
+                    if (!targetBtn) return -1; // Не найдено
+                    
+                    const label = targetBtn.getAttribute('aria-label');
+                    const match = label.match(/(\d+)/);
+                    return match ? parseInt(match[0]) : 0; // Если цифр нет, но кнопка есть - странно, вернем 0
+                } catch (e) {
+                    return -2; // Ошибка JS
+                }
+            }""")
             
-            if participant_element.is_visible():
-                aria_label = participant_element.get_attribute('aria-label') or ""
-                numbers = ''.join(filter(str.isdigit, aria_label))
-                if numbers:
-                    count = int(numbers)
-                    logger.info(f"[{self.meeting_id}] Текущее количество участников: {count}")
-                    self._part_failures = 0 
-                    if count <= 1:
-                        logger.warning(f"[{self.meeting_id}] Встреча пуста. Завершаю работу...")
-                        self.stop()
-                        return
-                else:
-                    self._part_failures += 1
-                    logger.warning(f"[{self.meeting_id}] Не удалось извлечь число участников. Сбой {self._part_failures}.")
+            if count >= 0:
+                logger.info(f"[{self.meeting_id}] Текущее количество участников: {count}")
+                self._part_failures = 0 
+                if count <= 1:
+                    logger.warning(f"[{self.meeting_id}] Встреча пуста (участников <= 1). Завершаю работу...")
+                    self.stop()
             else:
+                # -1 (не найдено) или -2 (ошибка)
                 self._part_failures += 1
-                # Не спамим логами, если просто элемент не виден (бывает)
+                # Логируем только каждую 5-ю ошибку, чтобы не спамить
+                if self._part_failures % 5 == 0:
+                    logger.warning(f"[{self.meeting_id}] Не удалось считать участников (код {count}). Сбой {self._part_failures}.")
 
         except Exception as e:
             self._part_failures += 1
-            logger.warning(f"[{self.meeting_id}] Ошибка проверки участников: {e}")
+            logger.warning(f"[{self.meeting_id}] Ошибка проверки участников (Python): {e}")
 
-        if self._part_failures >= 5: # Чуть больше попыток, т.к. проверяем чаще
-            logger.error(f"[{self.meeting_id}] Не удалось найти счетчик участников 5 раз подряд. Выход.")
+        if self._part_failures >= 20: # ~1 минута при проверке раз в 3 сек
+            logger.error(f"[{self.meeting_id}] Не удалось найти счетчик участников слишком долго. Аварийный выход.")
             self.stop()
     
     # Инициализация драйвера для подключения
@@ -149,12 +162,23 @@ class MeetListenerBotPW:
             try:
                 self.playwright = sync_playwright().start()
                 
-                # Аргументы запуска Chromium (максимально приближенные к обычному запуску)
+                # Аргументы запуска Chromium (максимально приближенные к обычному запуску, но с оптимизацией)
                 args = [
                     '--disable-blink-features=AutomationControlled',
-                    '--start-maximized', # Запуск на весь экран
+                    '--start-maximized', 
                     '--disable-infobars',
-                    '--no-default-browser-check'
+                    '--no-default-browser-check',
+                    # Оптимизация производительности:
+                    '--disable-extensions', # Отключаем расширения
+                    '--disable-component-extensions-with-background-pages',
+                    '--disable-background-networking', # Отключаем фоновую сетевую активность
+                    '--disable-background-timer-throttling', # Но не тротлим таймеры (важно для Meet)
+                    '--disable-backgrounding-occluded-windows',
+                    '--disable-renderer-backgrounding',
+                    '--disable-translate', # Отключаем переводчик
+                    '--disable-sync', # Отключаем синхронизацию
+                    '--metrics-recording-only',
+                    '--no-first-run',
                 ]
                 
                 # Формируем env с PulseAudio
@@ -344,6 +368,20 @@ class MeetListenerBotPW:
             # Обработка диалога микрофона
             logger.info(f"[{self.meeting_id}] Обработка диалога микрофона...")
             self._handle_mic_dialog()
+
+            # --- CSS OPTIMIZATION: Hide Video & Animations ---
+            # Это значительно снижает нагрузку на CPU/GPU, так как браузер не рендерит видеопотоки
+            logger.info(f"[{self.meeting_id}] Применяю CSS-оптимизации (скрытие видео)...")
+            self.page.add_style_tag(content="""
+                video { display: none !important; }
+                .visual-effects-container { display: none !important; }
+                * { 
+                    transition: none !important; 
+                    animation: none !important; 
+                    box-shadow: none !important;
+                    text-shadow: none !important;
+                }
+            """)
 
             logger.info(f"[{self.meeting_id}] Ищу кнопку 'Ask to join'...")
             # Селектор кнопки присоединения

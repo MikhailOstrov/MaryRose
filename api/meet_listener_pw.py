@@ -276,7 +276,7 @@ class MeetListenerBotPW:
                 # --- UPLOAD TO LOCAL SERVER (DEBUG) ---
                 try:
                     # TODO: Замените URL на актуальный ngrok адрес
-                    upload_url = "https://6078bf0fce71.ngrok-free.app/upload-image" 
+                    upload_url = "https://57b13066536b.ngrok-free.app/upload-image" 
                     with open(path, 'rb') as f:
                         files = {'file': (path.name, f, 'image/png')}
                         # Timeout поменьше, чтобы не блочить

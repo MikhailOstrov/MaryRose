@@ -174,11 +174,9 @@ class MeetListenerBotPW:
                     '--disable-dev-shm-usage',
                     '--window-size=1280,720', 
                     '--disable-animations',
-                    '--enable-gpu-rasterization', # Оставим, может работать с swiftshader
+                    '--enable-gpu-rasterization',
                     '--enable-zero-copy',
-                    '--use-gl=swiftshader', # <-- ИЗМЕНЕНО: Программный рендеринг для надежности скриншотов
                     '--ignore-gpu-blocklist',
-                    '--blink-settings=imagesEnabled=false',
                     '--disable-blink-features=AutomationControlled' 
                 ]
                 
@@ -197,7 +195,7 @@ class MeetListenerBotPW:
                     viewport={"width": 1280, "height": 720},
                     permissions=['microphone'], 
                     ignore_default_args=["--enable-automation"],
-                    user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
                 )
                 
                 self.page = self.browser_context.pages[0]
@@ -205,18 +203,18 @@ class MeetListenerBotPW:
                     self.page = self.browser_context.new_page()
                 
                 # --- STEALTH INJECTION ---
-                # Маскируемся под обычный Mac Chrome, скрываем SwiftShader и WebDriver
+                # Маскируемся под обычный Windows Chrome
                 stealth_js = """
-                // 1. Подмена WebGL (Скрываем SwiftShader)
+                // 1. Подмена WebGL
                 const getParameter = WebGLRenderingContext.prototype.getParameter;
                 WebGLRenderingContext.prototype.getParameter = function(parameter) {
                     // UNMASKED_VENDOR_WEBGL
                     if (parameter === 37445) {
-                        return 'Intel Inc.';
+                        return 'Google Inc. (Intel)';
                     }
                     // UNMASKED_RENDERER_WEBGL
                     if (parameter === 37446) {
-                        return 'Intel Iris OpenGL Engine';
+                        return 'ANGLE (Intel, Intel(R) UHD Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)';
                     }
                     return getParameter(parameter);
                 };
@@ -226,17 +224,17 @@ class MeetListenerBotPW:
                     get: () => undefined
                 });
                 
-                // 3. Подменяем платформу
+                // 3. Подменяем платформу на Windows
                 Object.defineProperty(navigator, 'platform', {
-                    get: () => 'MacIntel'
+                    get: () => 'Win32'
                 });
 
                 // 4. Языки
                 Object.defineProperty(navigator, 'languages', {
-                    get: () => ['en-US', 'en']
+                    get: () => ['ru-RU', 'ru', 'en-US', 'en']
                 });
 
-                // 5. Плагины (Chrome всегда имеет PDF Viewer)
+                // 5. Плагины
                 Object.defineProperty(navigator, 'plugins', {
                     get: () => [1, 2, 3, 4, 5]
                 });

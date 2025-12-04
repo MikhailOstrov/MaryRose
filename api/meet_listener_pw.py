@@ -179,6 +179,8 @@ class MeetListenerBotPW:
                     '--disable-sync', # Отключаем синхронизацию
                     '--metrics-recording-only',
                     '--no-first-run',
+                    '--headless=new', # <-- ПОПЫТКА: Новый Headless режим Chrome (почти как настоящий)
+                    # Если Google спалит headless=new, придется вернуть headless=False
                 ]
                 
                 # Формируем env с PulseAudio
@@ -190,7 +192,9 @@ class MeetListenerBotPW:
                 self.browser_context = self.playwright.chromium.launch_persistent_context(
                     user_data_dir=str(self.chrome_profile_path),
                     channel="chrome", # Используем настоящий Chrome
-                    headless=True,
+                    headless=False, # Игнорируем аргумент headless здесь, так как он передается в args='--headless=new'
+                    # Важно: Playwright ругается если передать headless=True И аргумент --headless=new одновременно.
+                    # Поэтому ставим headless=False, а режим задаем через args.
                     args=args,
                     env=env,
                     viewport=None, # Отключаем эмуляцию viewport (важно для undetected поведения)
@@ -254,10 +258,26 @@ class MeetListenerBotPW:
 
     def _handle_route(self, route):
         """Блокирует загрузку изображений, медиа и шрифтов для экономии ресурсов."""
-        if route.request.resource_type in ["image", "media", "font"]:
-            route.abort()
-        else:
-            route.continue_()
+        # Блокируем не только типы ресурсов, но и конкретные "тяжелые" домены или пути Google Meet,
+        # которые отвечают за логирование, эффекты и предзагрузку.
+        req = route.request
+        if req.resource_type in ["image", "media", "font", "stylesheet"]:
+            # Stylesheet блокировать опасно, может сломаться верстка кнопок. 
+            # Но для аудио-бота верстка не важна, главное функционал.
+            # Попробуем оставить стили, если будут проблемы - уберем из списка.
+            if req.resource_type != "stylesheet": 
+                route.abort()
+                return
+
+        # Блокировка аналитики и логов Google (снижает трафик и CPU)
+        url = req.url
+        if "play-log" in url or "gen_204" in url or "batchexecute" in url:
+            # batchexecute - это основной канал RPC Google, его блокировать нельзя!
+            if "play-log" in url or "gen_204" in url:
+                route.abort()
+                return
+        
+        route.continue_()
 
     # Скриншот для отладки 
     def _save_screenshot(self, name: str):

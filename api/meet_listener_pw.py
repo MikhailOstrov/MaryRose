@@ -37,6 +37,7 @@ class MeetListenerBotPW:
         self.page = None
         
         self.audio_queue = queue.Queue() # Для аудиопотока
+        self.chat_queue = queue.Queue() # Для сообщений в чат
 
         self.is_running = threading.Event()
         self.is_running.set()
@@ -70,92 +71,72 @@ class MeetListenerBotPW:
         )
 
 
-    def _monitor_remaining_seconds(self):
-        threading.current_thread().name = f'RemainingSecondsMonitor-{self.meeting_id}'
-        logger.info(f"[{self.meeting_id}] Мониторинг оставшегося времени запущен.")
-        while self.is_running.is_set() and self.remaining_seconds > 0:
-            if self.remaining_seconds <= 600 and not self.notified_10_min:
-                self.send_chat_message("Оставшееся время: 10 минут. Через 10 минут ассистент завершит работу.")
-                logger.info(f"[{self.meeting_id}] Оставшееся время: {self.remaining_seconds} секунд. Через 10 минут ассистент завершит работу.")
-                self.notified_10_min = True
-            if self.remaining_seconds <= 300 and not self.notified_5_min:
-                self.send_chat_message(" Оставшееся время: 5 минут. Через 5 минут ассистент завершит работу.")
-                logger.info(f"[{self.meeting_id}] Оставшееся время: {self.remaining_seconds} секунд. Через 5 минут ассистент завершит работу.")
-                self.notified_5_min = True
-
-            if self.remaining_seconds >= 13*60:
-                time.sleep(60)
-                self.remaining_seconds -= 60
-            else:
-                time.sleep(1)
-                self.remaining_seconds -= 1
-            
-        if self.remaining_seconds <= 0 and self.is_running.is_set():
-            logger.info(f"[{self.meeting_id}] Оставшееся время закончилось. Завершаю работу.")
-            try:
+    def _update_timer(self):
+        """Проверяет оставшееся время и отправляет уведомления (вызывается из главного цикла)."""
+        if self.remaining_seconds <= 0:
+            if self.is_running.is_set():
+                logger.info(f"[{self.meeting_id}] Оставшееся время закончилось. Завершаю работу.")
                 self.send_chat_message(" Оставшееся время закончилось. Ассистент завершает работу.")
-                time.sleep(2)
-            except Exception as e:
-                logger.warning(f"[{self.meeting_id}] Не удалось отправить сообщение в чат: {e}")
-            finally:
+                # Даем время на отправку сообщения в цикле перед остановкой
                 self.stop()
-        else:
-            logger.info(f"[{self.meeting_id}] Мониторинг оставшегося времени остановлен.")
+            return
+
+        # Уведомления
+        if self.remaining_seconds <= 600 and not self.notified_10_min:
+            self.send_chat_message("Оставшееся время: 10 минут. Через 10 минут ассистент завершит работу.")
+            logger.info(f"[{self.meeting_id}] Оставшееся время: {self.remaining_seconds} секунд. Через 10 минут ассистент завершит работу.")
+            self.notified_10_min = True
+        
+        if self.remaining_seconds <= 300 and not self.notified_5_min:
+            self.send_chat_message(" Оставшееся время: 5 минут. Через 5 минут ассистент завершит работу.")
+            logger.info(f"[{self.meeting_id}] Оставшееся время: {self.remaining_seconds} секунд. Через 5 минут ассистент завершит работу.")
+            self.notified_5_min = True
+            
+        # Декремент происходит в основном цикле каждую секунду
+        self.remaining_seconds -= 1
 
     # Отслеживание кол-ва участников
-    def _monitor_participants(self):
-        """Отслеживает количество участников. Если бот остается один, он завершает работу."""
-        threading.current_thread().name = f'ParticipantMonitor-{self.meeting_id}'
-        logger.info(f"[{self.meeting_id}] Мониторинг участников запущен.")
-        
+    def _check_participants(self):
+        """Проверяет количество участников (вызывается из главного цикла)."""
         participant_locator_xpath = "//button[.//i[text()='people'] and @aria-label]"
-        consecutive_failures = 0
-        max_failures = 2
-
-        while self.is_running.is_set():
-            # Оптимизация: проверяем реже (раз в 3 секунды, 5 раз = 15 сек), чтобы не будить CPU каждую секунду
-            for _ in range(5): 
-                if not self.is_running.is_set():
-                    logger.info(f"[{self.meeting_id}] Мониторинг участников остановлен.")
-                    return
-                time.sleep(3)
-            
-            try:
-                if not self.page:
-                    continue
-                    
-                # В Playwright используем locator и get_attribute
-                participant_element = self.page.locator(participant_locator_xpath).first
-                
-                # Проверяем видимость, чтобы не падать если элемента нет
-                if participant_element.is_visible():
-                    aria_label = participant_element.get_attribute('aria-label') or ""
-                    numbers = ''.join(filter(str.isdigit, aria_label))
-                    if numbers:
-                        count = int(numbers)
-                        logger.info(f"[{self.meeting_id}] Текущее количество участников: {count}")
-                        consecutive_failures = 0 # Сбрасываем счетчик при успехе
-                        if count <= 1:
-                            logger.warning(f"[{self.meeting_id}] Встреча пуста. Завершаю работу...")
-                            self.stop()
-                            return
-                    else:
-                        # Это может произойти, если элемент найден, но в нем нет цифр
-                        consecutive_failures += 1
-                        logger.warning(f"[{self.meeting_id}] Не удалось извлечь число участников из элемента. Попытка {consecutive_failures}/{max_failures}.")
-                else:
-                     # Элемент не виден
-                    consecutive_failures += 1
-                    logger.warning(f"[{self.meeting_id}] Элемент участников не найден (not visible). Попытка {consecutive_failures}/{max_failures}.")
-
-            except Exception as e:
-                consecutive_failures += 1
-                logger.warning(f"[{self.meeting_id}] Не удалось найти счетчик участников: {e}. Попытка {consecutive_failures}/{max_failures}.")
-
-            if consecutive_failures >= max_failures:
-                logger.error(f"[{self.meeting_id}] Не удалось найти счетчик участников {max_failures} раз подряд. Предполагаю, что встреча завершена.")
-                self.stop()
+        
+        # Состояние сбоев можно хранить в атрибутах класса, если нужно,
+        # но здесь мы просто проверяем текущее состояние.
+        # Если хотим устойчивости к миганию, нужно хранить consecutive_failures в self.
+        if not hasattr(self, '_part_failures'):
+            self._part_failures = 0
+        
+        try:
+            if not self.page:
                 return
+
+            participant_element = self.page.locator(participant_locator_xpath).first
+            
+            if participant_element.is_visible():
+                aria_label = participant_element.get_attribute('aria-label') or ""
+                numbers = ''.join(filter(str.isdigit, aria_label))
+                if numbers:
+                    count = int(numbers)
+                    logger.info(f"[{self.meeting_id}] Текущее количество участников: {count}")
+                    self._part_failures = 0 
+                    if count <= 1:
+                        logger.warning(f"[{self.meeting_id}] Встреча пуста. Завершаю работу...")
+                        self.stop()
+                        return
+                else:
+                    self._part_failures += 1
+                    logger.warning(f"[{self.meeting_id}] Не удалось извлечь число участников. Сбой {self._part_failures}.")
+            else:
+                self._part_failures += 1
+                # Не спамим логами, если просто элемент не виден (бывает)
+
+        except Exception as e:
+            self._part_failures += 1
+            logger.warning(f"[{self.meeting_id}] Ошибка проверки участников: {e}")
+
+        if self._part_failures >= 5: # Чуть больше попыток, т.к. проверяем чаще
+            logger.error(f"[{self.meeting_id}] Не удалось найти счетчик участников 5 раз подряд. Выход.")
+            self.stop()
     
     # Инициализация драйвера для подключения
     def _initialize_driver(self):
@@ -559,38 +540,72 @@ class MeetListenerBotPW:
             if self.joined_successfully:
                 logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")
 
-                # Оптимизация: скрытие видео уже реализовано через network interception в _initialize_driver
-
+                # Потоки, не использующие Playwright
                 processor_thread = threading.Thread(target=self.audio_handler._process_audio_stream,name=f'VADProcessor-{self.meeting_id}')
-                monitor_thread = threading.Thread(target=self._monitor_participants, name=f'ParticipantMonitor-{self.meeting_id}')
                 capture_thread = threading.Thread(target=self._audio_capture_thread, name=f'AudioCapture-{self.meeting_id}')
-                remaining_seconds_thread = threading.Thread(target=self._monitor_remaining_seconds, name=f'RemainingSecondsMonitor-{self.meeting_id}')
 
                 processor_thread.start()
-                monitor_thread.start()
                 capture_thread.start()
-                remaining_seconds_thread.start()
-
-                capture_thread.join()
-                processor_thread.join()
-                monitor_thread.join()
-                remaining_seconds_thread.join()
                 
-                logger.info(f"[{self.meeting_id}] Основные рабочие потоки завершены.")
+                logger.info(f"[{self.meeting_id}] Основные фоновые потоки (audio, processing) запущены.")
+                
+                # --- ГЛАВНЫЙ ЦИКЛ СОБЫТИЙ ---
+                # Здесь выполняются все действия с Playwright (в главном потоке)
+                last_participant_check = time.time()
+                last_timer_update = time.time()
+                
+                try:
+                    while self.is_running.is_set():
+                        now = time.time()
+                        
+                        # 1. Обработка очереди сообщений
+                        try:
+                            while not self.chat_queue.empty():
+                                msg = self.chat_queue.get_nowait()
+                                self._perform_chat_action(msg)
+                        except Exception as e:
+                            logger.error(f"[{self.meeting_id}] Ошибка при обработке очереди чата: {e}")
+                        
+                        # 2. Проверка участников (раз в 3 сек)
+                        if now - last_participant_check > 3:
+                            self._check_participants()
+                            last_participant_check = now
+                            
+                        # 3. Таймер (раз в 1 сек)
+                        if now - last_timer_update >= 1:
+                            self._update_timer()
+                            last_timer_update = now
+                            
+                        # 4. Проверка здоровья потоков
+                        if not capture_thread.is_alive():
+                            logger.warning(f"[{self.meeting_id}] Поток захвата аудио упал!")
+                            self.stop()
+                        
+                        if not processor_thread.is_alive() and self.is_running.is_set():
+                            logger.warning(f"[{self.meeting_id}] Поток обработки аудио завершился неожиданно.")
+                            self.stop()
+
+                        time.sleep(0.1) # Небольшая пауза, чтобы не грузить CPU циклом
+                        
+                except KeyboardInterrupt:
+                    logger.info(f"[{self.meeting_id}] Прерывание клавиатуры в главном цикле.")
+                    self.stop()
+                
+                # Ожидание завершения потоков, если они еще живы
+                if capture_thread.is_alive():
+                    capture_thread.join(timeout=2)
+                if processor_thread.is_alive():
+                    processor_thread.join(timeout=2)
+
             else:
                 logger.warning(f"[{self.meeting_id}] Не удалось присоединиться к встрече. Завершаю работу.")
 
         except Exception as e:
             logger.critical(f"[{self.meeting_id}] ❌ Критическая ошибка в работе бота: {e}", exc_info=True)
         finally:
-
-            if self.post_processing_thread:
-                logger.info(f"[{self.meeting_id}] Ожидание завершения потока постобработки...")
-                self.post_processing_thread.join()
-                logger.info(f"[{self.meeting_id}] Поток постобработки успешно завершен.")
-
-            self.stop()
-            logger.info(f"[{self.meeting_id}] Основной метод run завершен. Процесс готов к выходу.")
+            # Вызываем очистку (включает закрытие браузера и постобработку)
+            self._cleanup()
+            logger.info(f"[{self.meeting_id}] Основной метод run завершен.")
 
     def _leave_meeting(self):
 
@@ -635,14 +650,15 @@ class MeetListenerBotPW:
 
     # Остановка бота
     def stop(self):
-
         if not self.is_running.is_set():
             return
         
         logger.info(f"[{self.meeting_id}] Получена команда на завершение...")
-
         self.is_running.clear()
-
+        # Основная очистка произойдет в run() после выхода из цикла
+        
+    def _cleanup(self):
+        """Освобождение ресурсов (вызывается из run)."""
         if self.joined_successfully:
             self._leave_meeting()
         
@@ -653,8 +669,7 @@ class MeetListenerBotPW:
                 name=f'PostProcessor-{self.meeting_id}'
             )
             self.post_processing_thread.start()
-        else:
-            logger.info(f"[{self.meeting_id}] Пропускаю постобработку, так как вход в конференцию не был успешен.")
+            self.post_processing_thread.join() # Ждем завершения обработки
 
         # Закрытие Playwright
         try:
@@ -677,10 +692,14 @@ class MeetListenerBotPW:
         except Exception as e:
             logger.error(f"[{self.meeting_id}] Ошибка при удалении профиля Chrome: {e}")
         
-        logger.info(f"[{self.meeting_id}] Процедура остановки инициирована, основные ресурсы освобождены.")
+        logger.info(f"[{self.meeting_id}] Процедура остановки завершена.")
 
     def send_chat_message(self, message: str):
+        """Добавляет сообщение в очередь отправки (потокобезопасно)."""
+        self.chat_queue.put(message)
 
+    def _perform_chat_action(self, message: str):
+        """Реальная отправка сообщения через Playwright (вызывается в main loop)."""
         if not self.page or not self.joined_successfully:
             logger.warning(f"[{self.meeting_id}] Пропускаю отправку сообщения: бот не в конференции.")
             return
@@ -700,15 +719,8 @@ class MeetListenerBotPW:
             # --- Шаг 2: Найти поле ввода, ввести текст и отправить ---
             self.page.locator(textarea_selector).fill(message)
             time.sleep(0.2)
-
-            send_button_selector = 'button[aria-label*="Send a message"][aria-label*="Send"], button[aria-label*="Отправить сообщение"][aria-label*="Отправить"]'
-            # Иногда кнопка отправки - это просто кнопка с иконкой send.
-            # Попробуем более универсальный селектор для кнопки отправки рядом с textarea
             
-            # В оригинале: '//button[contains(@aria-label, "Send a message") or contains(@aria-label, "Отправить сообщение")][.//i[text()="send"]]'
-            # Перевод в CSS/Locator:
             self.page.locator('button').filter(has_text="send").first.click()
-            # Или если там иконка material icons с текстом 'send'
             
             logger.info(f"[{self.meeting_id}] ✅ Сообщение в чат успешно отправлено.")
 

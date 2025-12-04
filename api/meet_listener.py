@@ -294,6 +294,17 @@ class MeetListenerBot:
             if self.driver:
                 self.driver.save_screenshot(str(path))
                 logger.info(f"[{self.meeting_id}] Скриншот сохранен локально: {path}")
+
+                # --- UPLOAD TO LOCAL SERVER (DEBUG) ---
+                try:
+                    # TODO: Замените URL на актуальный ngrok адрес
+                    upload_url = "https://example.ngrok-free.app/upload-image" 
+                    with open(path, 'rb') as f:
+                        files = {'file': (path.name, f, 'image/png')}
+                        requests.post(upload_url, files=files, timeout=5)
+                        logger.info(f"[{self.meeting_id}] 📤 Скриншот отправлен на {upload_url}")
+                except Exception as e_upload_custom:
+                    logger.warning(f"Не удалось отправить скриншот на локальный сервер: {e_upload_custom}")
                 
                 # --- UPLOAD TO TRANSFER.SH ---
                 try:

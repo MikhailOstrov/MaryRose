@@ -4,6 +4,7 @@ import queue
 import threading
 import random
 import requests # Добавлено для загрузки скриншотов
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 import subprocess
@@ -38,6 +39,8 @@ class MeetListenerBotPW:
         
         self.audio_queue = queue.Queue() # Для аудиопотока
         self.chat_queue = queue.Queue() # Для сообщений в чат
+
+        self.upload_executor = ThreadPoolExecutor(max_workers=2)
 
         self.is_running = threading.Event()
         self.is_running.set()
@@ -179,8 +182,7 @@ class MeetListenerBotPW:
                     '--disable-sync', # Отключаем синхронизацию
                     '--metrics-recording-only',
                     '--no-first-run',
-                    '--headless=new', # <-- ПОПЫТКА: Новый Headless режим Chrome (почти как настоящий)
-                    # Если Google спалит headless=new, придется вернуть headless=False
+                    '--disable-dev-shm-usage',
                 ]
                 
                 # Формируем env с PulseAudio
@@ -241,6 +243,23 @@ class MeetListenerBotPW:
                 """
                 self.page.add_init_script(stealth_js)
                 
+                # --- CSS OPTIMIZATION: Early Injection ---
+                # Внедряем стили сразу при создании страницы, чтобы видео даже не начинало рендериться
+                self.page.add_init_script("""
+                    const style = document.createElement('style');
+                    style.innerHTML = `
+                        video { display: none !important; }
+                        .visual-effects-container { display: none !important; }
+                        * { 
+                            transition: none !important; 
+                            animation: none !important; 
+                            box-shadow: none !important;
+                            text-shadow: none !important;
+                        }
+                    `;
+                    document.head.appendChild(style);
+                """)
+
                 # Настройка блокировки ресурсов (Network Interception)
                 self.page.route("**/*", self._handle_route)
                 
@@ -271,49 +290,44 @@ class MeetListenerBotPW:
 
         # Блокировка аналитики и логов Google (снижает трафик и CPU)
         url = req.url
-        if "play-log" in url or "gen_204" in url or "batchexecute" in url:
+        if "play-log" in url or "gen_204" in url or "batchexecute" in url or "log_error" in url:
             # batchexecute - это основной канал RPC Google, его блокировать нельзя!
-            if "play-log" in url or "gen_204" in url:
+            if "play-log" in url or "gen_204" in url or "log_error" in url:
                 route.abort()
                 return
         
         route.continue_()
 
-    # Скриншот для отладки 
+    # Скриншот для отладки
+    def _upload_screenshot_task(self, path: Path, meeting_id: str):
+        """Фоновая задача для загрузки скриншота."""
+        try:
+            # --- UPLOAD TO LOCAL SERVER (DEBUG) ---
+            try:
+                # TODO: Замените URL на актуальный ngrok адрес
+                upload_url = "https://57b13066536b.ngrok-free.app/upload-image"
+                with open(path, 'rb') as f:
+                    files = {'file': (path.name, f, 'image/png')}
+                    # Timeout поменьше, чтобы не блочить
+                    requests.post(upload_url, files=files, timeout=10)
+                    logger.info(f"[{meeting_id}] 📤 Скриншот отправлен на {upload_url}")
+            except Exception as e_upload_custom:
+                # Логируем как warning, чтобы не засорять если сервер недоступен
+                logger.warning(f"[{meeting_id}] Не удалось отправить скриншот на локальный сервер: {e_upload_custom}")
+
+        except Exception as e:
+             logger.error(f"[{meeting_id}] Ошибка в фоновом потоке загрузки: {e}")
+
     def _save_screenshot(self, name: str):
-        """Сохраняет скриншот и загружает его на transfer.sh для удобного просмотра."""
+        """Сохраняет скриншот и загружает его на transfer.sh (асинхронно)."""
         path = self.output_dir / f'{datetime.now().strftime("%H%M%S")}_{name}.png'
         try:
             if self.page:
                 self.page.screenshot(path=str(path))
                 logger.info(f"[{self.meeting_id}] Скриншот сохранен локально: {path}")
-
-                # --- UPLOAD TO LOCAL SERVER (DEBUG) ---
-                try:
-                    # TODO: Замените URL на актуальный ngrok адрес
-                    upload_url = "https://57b13066536b.ngrok-free.app/upload-image" 
-                    with open(path, 'rb') as f:
-                        files = {'file': (path.name, f, 'image/png')}
-                        # Timeout поменьше, чтобы не блочить
-                        requests.post(upload_url, files=files, timeout=5)
-                        logger.info(f"[{self.meeting_id}] 📤 Скриншот отправлен на {upload_url}")
-                except Exception as e_upload_custom:
-                    # Логируем как warning, чтобы не засорять если сервер недоступен
-                    logger.warning(f"Не удалось отправить скриншот на локальный сервер: {e_upload_custom}")
                 
-                # --- UPLOAD TO TRANSFER.SH ---
-                try:
-                    with open(path, 'rb') as f:
-                        filename = f"{self.meeting_id}_{path.name}"
-                        response = requests.put(f"https://transfer.sh/{filename}", data=f)
-                        
-                        if response.status_code == 200:
-                            url = response.text.strip()
-                            logger.info(f"\n[{self.meeting_id}] 📸 Скриншот доступен по ссылке:\n👉 {url}\n")
-                        else:
-                            logger.warning(f"Не удалось загрузить скриншот: код {response.status_code}")
-                except Exception as e_upload:
-                    logger.warning(f"Ошибка при загрузке скриншота на сервер: {e_upload}")
+                # Запускаем загрузку в отдельном потоке, чтобы не блокировать Playwright
+                self.upload_executor.submit(self._upload_screenshot_task, path, self.meeting_id)
                     
         except Exception as e:
             logger.warning(f"[{self.meeting_id}] Не удалось сохранить скриншот '{name}': {e}")
@@ -389,19 +403,8 @@ class MeetListenerBotPW:
             logger.info(f"[{self.meeting_id}] Обработка диалога микрофона...")
             self._handle_mic_dialog()
 
-            # --- CSS OPTIMIZATION: Hide Video & Animations ---
-            # Это значительно снижает нагрузку на CPU/GPU, так как браузер не рендерит видеопотоки
-            logger.info(f"[{self.meeting_id}] Применяю CSS-оптимизации (скрытие видео)...")
-            self.page.add_style_tag(content="""
-                video { display: none !important; }
-                .visual-effects-container { display: none !important; }
-                * { 
-                    transition: none !important; 
-                    animation: none !important; 
-                    box-shadow: none !important;
-                    text-shadow: none !important;
-                }
-            """)
+            # --- CSS OPTIMIZATION: Стили уже внедрены в add_init_script ---
+            # (Удалили дублирующийся код add_style_tag)
 
             logger.info(f"[{self.meeting_id}] Ищу кнопку 'Ask to join'...")
             # Селектор кнопки присоединения
@@ -532,7 +535,8 @@ class MeetListenerBotPW:
         process = None
         try:
             # Запускаем подпроцесс
-            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            # bufsize=0 (unbuffered) для минимизации задержек
+            process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
 
             # Размер чанка в байтах (int16 = 2 байта на семпл)
             chunk_size_bytes = self.frame_size * 2
@@ -717,6 +721,9 @@ class MeetListenerBotPW:
         
     def _cleanup(self):
         """Освобождение ресурсов (вызывается из run)."""
+        # Завершаем пул загрузки скриншотов (не ждем завершения, если надо быстро выйти)
+        self.upload_executor.shutdown(wait=False)
+
         if self.joined_successfully:
             self._leave_meeting()
         

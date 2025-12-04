@@ -190,7 +190,7 @@ class MeetListenerBotPW:
                 self.browser_context = self.playwright.chromium.launch_persistent_context(
                     user_data_dir=str(self.chrome_profile_path),
                     channel="chrome", # Используем настоящий Chrome
-                    headless=False,
+                    headless=True,
                     args=args,
                     env=env,
                     viewport=None, # Отключаем эмуляцию viewport (важно для undetected поведения)

@@ -185,9 +185,6 @@ class MeetListenerBot:
                 opt.add_argument('--window-size=800,600')
                 opt.add_argument('--disable-animations')
                 
-                # Включаем GPU ускорение! (Видюха RTX A5000 доступна)
-                # opt.add_argument('--disable-gpu')  <-- УБРАЛИ
-                # opt.add_argument('--disable-software-rasterizer') <-- УБРАЛИ
                 
                 opt.add_argument('--enable-gpu-rasterization')
                 opt.add_argument('--enable-zero-copy')
@@ -206,8 +203,7 @@ class MeetListenerBot:
                     # "profile.default_content_setting_values.media_stream_mic": 1,     # Разрешить микрофон
                     "profile.default_content_setting_values.media_stream_camera": 2,  # Блокировать камеру (Block=2)
                     "profile.default_content_setting_values.notifications": 2,
-                    "profile.managed_default_content_settings.images": 2, # Блокировать картинки (через политику)
-                    "profile.default_content_setting_values.images": 2,   # Блокировать картинки (настройки профиля)
+
                 })
                 
                 self.driver = uc.Chrome(
@@ -247,44 +243,7 @@ class MeetListenerBot:
         
         logger.info(f"[{self.meeting_id}] Блокировка запуска Chrome освобождена.")
 
-    def _inject_optimization_scripts(self):
-        """Внедряет CSS/JS для скрытия видео и анимаций для снижения нагрузки на CPU."""
-        try:
-            logger.info(f"[{self.meeting_id}] 💉 Внедрение радикальных CSS-оптимизаций (скрытие видео)...")
-            
-            # Вариант 1: Безопасное добавление стилей через textContent (обход TrustedHTML)
-            js_code = """
-            try {
-                var css = `
-                    /* Скрываем все видео элементы */
-                    video { display: none !important; opacity: 0 !important; height: 1px !important; width: 1px !important; }
-                    
-                    /* Отключаем анимации и переходы */
-                    * { 
-                        transition: none !important; 
-                        animation: none !important; 
-                        background-image: none !important;
-                        box-shadow: none !important;
-                    }
-                    
-                    /* Скрываем большие контейнеры с участниками */
-                    div[data-allocation-index] { opacity: 0 !important; }
-                `;
-                
-                var style = document.createElement('style');
-                style.type = 'text/css';
-                style.appendChild(document.createTextNode(css));
-                document.head.appendChild(style);
-                console.log('Optimization styles injected via textNode');
-            } catch(e) {
-                console.error('JS injection failed:', e);
-            }
-            """;
-            self.driver.execute_script(js_code)
-            logger.info(f"[{self.meeting_id}] ✅ CSS-оптимизации внедрены через JS.")
-            
-        except Exception as e:
-            logger.warning(f"[{self.meeting_id}] Не удалось внедрить CSS-оптимизации: {e}")
+    
 
     # Скриншот для отладки 
     def _save_screenshot(self, name: str):
@@ -295,31 +254,19 @@ class MeetListenerBot:
                 self.driver.save_screenshot(str(path))
                 logger.info(f"[{self.meeting_id}] Скриншот сохранен локально: {path}")
 
-                # --- UPLOAD TO LOCAL SERVER (DEBUG) ---
-                try:
-                    # TODO: Замените URL на актуальный ngrok адрес
-                    upload_url = "https://example.ngrok-free.app/upload-image" 
-                    with open(path, 'rb') as f:
-                        files = {'file': (path.name, f, 'image/png')}
-                        requests.post(upload_url, files=files, timeout=5)
-                        logger.info(f"[{self.meeting_id}] 📤 Скриншот отправлен на {upload_url}")
-                except Exception as e_upload_custom:
-                    logger.warning(f"Не удалось отправить скриншот на локальный сервер: {e_upload_custom}")
+                # # --- UPLOAD TO LOCAL SERVER (DEBUG) ---
+                # try:
+                #     # Замените URL на актуальный ngrok адрес
+                #     upload_url = "https://example.ngrok-free.app/upload-image" 
+                #     with open(path, 'rb') as f:
+                #         files = {'file': (path.name, f, 'image/png')}
+                #         requests.post(upload_url, files=files, timeout=5)
+                #         logger.info(f"[{self.meeting_id}] 📤 Скриншот отправлен на {upload_url}")
+                # except Exception as e_upload_custom:
+                #     logger.warning(f"Не удалось отправить скриншот на локальный сервер: {e_upload_custom}")
                 
                 # --- UPLOAD TO TRANSFER.SH ---
-                try:
-                    with open(path, 'rb') as f:
-                        # transfer.sh принимает PUT запросы
-                        filename = f"{self.meeting_id}_{path.name}"
-                        response = requests.put(f"https://transfer.sh/{filename}", data=f)
-                        
-                        if response.status_code == 200:
-                            url = response.text.strip()
-                            logger.info(f"\n[{self.meeting_id}] 📸 Скриншот доступен по ссылке:\n👉 {url}\n")
-                        else:
-                            logger.warning(f"Не удалось загрузить скриншот: код {response.status_code}")
-                except Exception as e_upload:
-                    logger.warning(f"Ошибка при загрузке скриншота на сервер: {e_upload}")
+           
 
         except Exception as e:
             logger.warning(f"[{self.meeting_id}] Не удалось сохранить скриншот '{name}': {e}")
@@ -544,6 +491,16 @@ class MeetListenerBot:
 
                 # Помещаем сырые байты в очередь для дальнейшей обработки
                 self.audio_queue.put(audio_chunk_bytes)
+                
+                # --- ДИАГНОСТИКА ТИШИНЫ ---
+                # Проверяем, идут ли одни нули (тишина)
+                # audio_chunk_bytes содержит int16. Если все байты 0, значит тишина.
+                if all(b == 0 for b in audio_chunk_bytes):
+                    if chunk_count % 300 == 0: # Каждые ~300 чанков (раз в ~0.6 сек) проверяем, но логируем реже
+                         # Чтобы не спамить, логируем только раз в 10 секунд (300 * 16 ~ 5000)
+                         if chunk_count % 5000 == 0:
+                            logger.warning(f"[{self.meeting_id}] ⚠️ ВНИМАНИЕ: Parec захватывает абсолютную тишину (все нули). Проверьте настройки PulseAudio/Chrome.")
+                # ---------------------------
         
         except FileNotFoundError:
             logger.critical(f"[{self.meeting_id}] ❌ КОМАНДА 'parec' НЕ НАЙДЕНА! Установите пакет 'pulseaudio-utils'.")
@@ -585,8 +542,7 @@ class MeetListenerBot:
             if self.joined_successfully:
                 logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")
 
-                # Оптимизация: скрываем видео и анимации сразу после входа
-                self._inject_optimization_scripts()
+                # Оптимизация: скрываем видео и анимации сразу 
 
                 processor_thread = threading.Thread(target=self.audio_handler._process_audio_stream,name=f'VADProcessor-{self.meeting_id}')
                 monitor_thread = threading.Thread(target=self._monitor_participants, name=f'ParticipantMonitor-{self.meeting_id}')

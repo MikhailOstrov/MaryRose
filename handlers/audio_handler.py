@@ -221,6 +221,12 @@ class AudioHandler:
                     now = time.time()
                     meeting_elapsed_sec = now - self.start_time
 
+                    # --- ЛОГИРОВАНИЕ VAD (Heartbeat) ---
+                    # Логируем текущую вероятность речи раз в 5 секунд, чтобы понимать, что VAD жив
+                    if int(meeting_elapsed_sec) % 5 == 0 and int((meeting_elapsed_sec - (VAD_CHUNK_SIZE/sr))) % 5 != 0:
+                         logger.info(f"[{self.meeting_id}] VAD Heartbeat: prob={smooth_prob:.2f} (threshold={vad_threshold}), is_speaking={is_speaking}")
+                    # -----------------------------------
+
                     if smooth_prob > vad_threshold:
                         if not is_speaking:
                             logger.info(f"[{self.meeting_id}] ▶️ Начало речи")

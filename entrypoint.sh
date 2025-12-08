@@ -1,96 +1,75 @@
 #!/bin/bash
 set -e
 
-echo "=== [Entrypoint] Проверка системных ресурсов ==="
-df -h
-echo "=============================================="
+echo "=== [Entrypoint] Start (User: $(whoami)) ==="
 
-echo "=== [Entrypoint] Запуск от пользователя: $(whoami) ==="
+# 1. Запуск SSH (мы root, нам можно)
+echo "[Entrypoint] Starting SSH..."
+mkdir -p /run/sshd
+ssh-keygen -A
+/usr/sbin/sshd
+echo "✅ SSH started."
 
-# --- 0. Настройка /workspace ---
-echo "[Entrypoint] Проверка и настройка /workspace..."
-mkdir -p /workspace/.cache/torch /workspace/.cache/nemo /workspace/.cache/huggingface /workspace/models /workspace/logs
+# 2. Подготовка прав для appuser
+echo "[Entrypoint] Fixing permissions..."
+chown -R appuser:appuser /workspace /app /tmp
+mkdir -p /tmp/runtime-appuser
+chown appuser:appuser /tmp/runtime-appuser
+chmod 0700 /tmp/runtime-appuser
+
+# Экспорт переменных для appuser (чтобы они были видны внутри runuser)
 export TORCH_HOME=/workspace/.cache/torch
 export NEMO_CACHE_DIR=/workspace/.cache/nemo
 export HF_HOME=/workspace/.cache/huggingface
 export LOGS_DIR=/workspace/logs
-echo "✅ [Entrypoint] /workspace настроен."
+export PYTHONPATH=/app
+export XDG_RUNTIME_DIR=/tmp/runtime-appuser
 
+# 3. Запуск PulseAudio (от имени appuser)
+echo "[Entrypoint] Starting PulseAudio (as appuser)..."
+runuser -u appuser -- pulseaudio --start --log-target=stderr --exit-idle-time=-1
+sleep 2
 
-
-# --- 1. Настройка пользовательского окружения ---
-export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-"/tmp/runtime-$(whoami)"}
-mkdir -p -m 0700 "$XDG_RUNTIME_DIR"
-
-# !!! УДАЛЕНО: Глобальный запуск Xvfb и установка DISPLAY больше не нужны !!!
-# Xvfb :99 -screen 0 1280x720x16 -nolisten tcp &
-# sleep 2
-# export DISPLAY=:99
-
-# Запускаем PulseAudio в пользовательском режиме (это остается)
-echo "[Entrypoint] Запуск PulseAudio в пользовательском режиме..."
-pulseaudio --start --log-target=stderr --exit-idle-time=-1
-sleep 2 # Пауза для инициализации
-
-# --- 2. Проверка служб ---
-echo "[Entrypoint] Проверка служб..."
-if ! pactl info >/dev/null 2>&1; then
-    echo "❌ [Entrypoint] CRITICAL: PulseAudio не запустился."
+# Проверка PulseAudio
+if ! runuser -u appuser -- pactl info >/dev/null 2>&1; then
+    echo "❌ PulseAudio failed to start."
     exit 1
 fi
-echo "✅ [Entrypoint] PulseAudio готов."
+echo "✅ PulseAudio is ready."
 
-
-
-# --- 4. Предзагрузка моделей (остается без изменений) ---
-# ... (ваш код предзагрузки) ...
-
-# --- 5. Финальная диагностика ---
-echo "=== [Entrypoint] Проверка системы ==="
-echo "Chrome version: $(google-chrome --version 2>/dev/null || echo 'Chrome не найден')"
-# ... (остальной ваш код диагностики) ...
-
-# --- 5.5. Запуск Inference Service ---
-echo "[Entrypoint] Запуск Inference Service..."
-# Создаем лог-файл
+# 4. Запуск Inference Service (от имени appuser)
+echo "[Entrypoint] Starting Inference Service..."
 mkdir -p /workspace/logs
 touch /workspace/logs/inference_service.log
+chown appuser:appuser /workspace/logs/inference_service.log
 
-# Запускаем uvicorn в фоне. 
-# Важно: запускаем из корня проекта (/app), где лежит MaryRose
+# Запускаем в фоне от appuser
 cd /app
-# Убрали перенаправление в файл, чтобы логи были видны в docker logs
-uvicorn server.inference_service:app --host 0.0.0.0 --port 8000 --log-level info &
+runuser -u appuser -- python3.11 -m uvicorn server.inference_service:app --host 0.0.0.0 --port 8000 --log-level info &
 INFERENCE_PID=$!
 
-echo "[Entrypoint] Ожидание запуска Inference Service (порт 8000)..."
-# Цикл ожидания порта (через curl /health)
-# Модель грузится долго, дадим 5 минут (150 * 2s = 300s)
-MAX_RETRIES=150 
+# Ждем запуска
+MAX_RETRIES=150
+echo "Waiting for Inference Service..."
 for ((i=1;i<=MAX_RETRIES;i++)); do
-    # Проверяем не просто порт, а статус модели (она вернет 200 только когда загрузится)
     if curl -s http://127.0.0.1:8000/health | grep -q "ok"; then
-        echo "✅ [Entrypoint] Inference Service готов и модель загружена (попытка $i)!"
+        echo "✅ Inference Service is ready!"
         break
     fi
-    
-    # Проверка, жив ли процесс
     if ! kill -0 $INFERENCE_PID 2>/dev/null; then
-        echo "❌ [Entrypoint] Inference Service упал! Смотри логи /workspace/logs/inference_service.log"
-        cat /workspace/logs/inference_service.log
+        echo "❌ Inference Service died."
         exit 1
     fi
-    
-    echo "⏳ [Entrypoint] Ожидание загрузки модели... ($i/$MAX_RETRIES)"
     sleep 2
 done
 
-if (( i > MAX_RETRIES )); then
-    echo "❌ [Entrypoint] Таймаут ожидания Inference Service."
-    kill $INFERENCE_PID
-    exit 1
+# 5. Запуск основного приложения
+echo "=== [Entrypoint] Starting Main App ==="
+# Если команда по умолчанию (запуск сервера)
+if [ "$1" = "uvicorn" ] && [ "$2" = "server.server:app" ]; then
+    # Запускаем от appuser
+    exec runuser -u appuser -- "$@"
+else
+    # Если передана другая команда (например bash), запускаем как есть (root)
+    exec "$@"
 fi
-
-# --- 6. Запуск основного приложения ---
-echo "=== [Entrypoint] Запуск основного приложения... ==="
-exec "$@"

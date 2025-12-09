@@ -35,8 +35,8 @@ class VirtualAudioManager:
         """Создает виртуальный sink и remap-source (виртуальный микрофон), который его слушает."""
         logger.info(f"[{self.meeting_id}] Создание виртуальных аудиоустройств: {self.sink_name}, {self.source_name}")
 
-        # Явно указываем сокет системного PulseAudio
-        pulse_server = "/var/run/pulse/native"
+        # Сокет, который мы определили в entrypoint.sh
+        pulse_server = "unix:/tmp/pulse-socket"
 
         # 1. Создаем Null Sink (виртуальные колонки). Звук от Chrome пойдет сюда.
         cmd_sink = [
@@ -74,7 +74,7 @@ class VirtualAudioManager:
     def destroy_devices(self):
         """Удаляет созданные модули PulseAudio в обратном порядке."""
         logger.info(f"[{self.meeting_id}] Уничтожение виртуальных аудиоустройств.")
-        pulse_server = "/var/run/pulse/native"
+        pulse_server = "unix:/tmp/pulse-socket"
         # Сначала удаляем remap-source, который зависит от sink'а
         if self.remap_source_module_id:
             run_pa_command(["pactl", "-s", pulse_server, "unload-module", self.remap_source_module_id])

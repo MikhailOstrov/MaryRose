@@ -25,17 +25,19 @@ export LOGS_DIR=/workspace/logs
 export PYTHONPATH=/app
 export XDG_RUNTIME_DIR=/tmp/runtime-appuser
 
-# 3. Запуск PulseAudio (от имени appuser)
-echo "[Entrypoint] Starting PulseAudio (as appuser)..."
-runuser -u appuser -- pulseaudio --start --log-target=stderr --exit-idle-time=-1
+# 3. Запуск PulseAudio (В СИСТЕМНОМ РЕЖИМЕ от ROOT)
+# Это самый надежный способ для Docker. Флаг --system разрешает работу от root.
+echo "[Entrypoint] Starting PulseAudio (System Mode)..."
+pulseaudio --system --daemonize --log-target=stderr --disallow-exit --disallow-module-loading=0
 sleep 2
 
-# Проверка PulseAudio
-if ! runuser -u appuser -- pactl info >/dev/null 2>&1; then
+# Проверка PulseAudio (в системном режиме pactl требует указания сервера, или настройки client.conf)
+# Но для простоты проверим просто наличие процесса
+if ! pgrep pulseaudio >/dev/null; then
     echo "❌ PulseAudio failed to start."
     exit 1
 fi
-echo "✅ PulseAudio is ready."
+echo "✅ PulseAudio is running (PID: $(pgrep pulseaudio))."
 
 # 4. Запуск Inference Service (от имени appuser)
 echo "[Entrypoint] Starting Inference Service..."

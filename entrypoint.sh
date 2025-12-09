@@ -3,63 +3,53 @@ set -e
 
 echo "=== [Entrypoint] Start (User: $(whoami)) ==="
 
-# 1. Запуск SSH (как root)
+# 1. Запуск SSH
 echo "[Entrypoint] Starting SSH..."
 mkdir -p /run/sshd
 ssh-keygen -A
 /usr/sbin/sshd
 echo "✅ SSH started."
 
-# 2. Подготовка папок и прав
-echo "[Entrypoint] Fixing permissions..."
-mkdir -p /app/chrome_profile /workspace/logs /tmp/runtime-appuser
+# 2. Настройка прав и папок
+mkdir -p /app/chrome_profile /workspace/logs
 chmod 777 /app/chrome_profile /workspace/logs
-chmod 0700 /tmp/runtime-appuser
-chown appuser:appuser /tmp/runtime-appuser
 
-# Чистим старые сокеты
-rm -rf /tmp/pulse-socket
-
-# 3. Запуск PulseAudio (USER MODE, as appuser)
-echo "[Entrypoint] Starting PulseAudio (User Mode as appuser)..."
-
-# Создаем конфиг в папке приложения (где точно есть права)
-cat > /app/default.pa <<EOF
-load-module module-native-protocol-unix auth-anonymous=1 socket=/tmp/pulse-socket
-load-module module-null-sink sink_name=auto_null
-set-default-sink auto_null
-EOF
-
-# Даем права на чтение всем
-chmod 644 /app/default.pa
-
-# Запускаем от имени appuser
-runuser -u appuser -- pulseaudio --start --log-target=stderr --exit-idle-time=-1 --file=/app/default.pa -vvvv
-sleep 2
-
-# 4. Настройка окружения для ВСЕХ (и root, и appuser)
-# Теперь любой процесс будет знать, где искать PulseAudio
-export PULSE_SERVER=unix:/tmp/pulse-socket
 export TORCH_HOME=/workspace/.cache/torch
 export NEMO_CACHE_DIR=/workspace/.cache/nemo
 export HF_HOME=/workspace/.cache/huggingface
 export LOGS_DIR=/workspace/logs
 export PYTHONPATH=/app
 
-# Проверяем (от root)
-echo "Testing PulseAudio connection..."
-if ! pactl info >/dev/null 2>&1; then
-    echo "❌ PulseAudio check failed. Logs:"
-    cat /workspace/logs/pulseaudio.log 2>/dev/null || true
+# Важно: для системного режима сокет лежит тут
+export PULSE_SERVER=unix:/var/run/pulse/native
+
+# 3. Настройка PulseAudio (SYSTEM MODE)
+echo "[Entrypoint] Configuring PulseAudio..."
+
+# ХАК: Добавляем разрешение на анонимный вход и tcp в системный конфиг
+# Это разрешает root'у и всем локальным процессам подключаться к системному демону.
+cat >> /etc/pulse/system.pa <<EOF
+load-module module-native-protocol-unix auth-anonymous=1 socket=/var/run/pulse/native
+load-module module-null-sink sink_name=auto_null
+set-default-sink auto_null
+EOF
+
+# Чистим старые PID файлы
+rm -rf /var/run/pulse /var/lib/pulse
+
+# Запускаем в системном режиме
+echo "[Entrypoint] Starting PulseAudio (System Mode)..."
+pulseaudio --system --daemonize --log-target=stderr --disallow-exit --disallow-module-loading=0 -vvvv
+sleep 2
+
+if ! pgrep pulseaudio >/dev/null; then
+    echo "❌ PulseAudio failed to start."
     exit 1
 fi
-echo "✅ PulseAudio is active (Socket: /tmp/pulse-socket)"
+echo "✅ PulseAudio is running (PID: $(pgrep pulseaudio))."
+chmod 777 /var/run/pulse/native
 
-# Даем всем права на сокет (на всякий случай)
-chmod 777 /tmp/pulse-socket
-
-# 5. Запуск Inference Service (от ROOT)
-# Ему не нужен звук, ему нужна GPU. Root - это ок.
+# 4. Запуск Inference Service
 echo "[Entrypoint] Starting Inference Service..."
 touch /workspace/logs/inference_service.log
 cd /app
@@ -80,7 +70,6 @@ for ((i=1;i<=MAX_RETRIES;i++)); do
     sleep 2
 done
 
-# 6. Запуск основного приложения (от ROOT)
-# Chrome с флагом --no-sandbox работает от рута.
+# 5. Запуск приложения
 echo "=== [Entrypoint] Starting Main App ==="
 exec "$@"

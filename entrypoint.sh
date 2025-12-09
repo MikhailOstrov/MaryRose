@@ -3,51 +3,51 @@ set -e
 
 echo "=== [Entrypoint] Start (User: $(whoami)) ==="
 
-# 1. Запуск SSH (мы root, нам можно)
+# 1. Запуск SSH
 echo "[Entrypoint] Starting SSH..."
 mkdir -p /run/sshd
 ssh-keygen -A
 /usr/sbin/sshd
 echo "✅ SSH started."
 
-# 2. Подготовка прав для appuser
-echo "[Entrypoint] Fixing permissions..."
-chown -R appuser:appuser /workspace /app /tmp
-mkdir -p /tmp/runtime-appuser
-chown appuser:appuser /tmp/runtime-appuser
-chmod 0700 /tmp/runtime-appuser
+# 2. Настройка прав (на всякий случай, хоть мы и root)
+# Chrome не любит работать от root без флага --no-sandbox, но он у нас есть в коде.
+# Также нужно убедиться, что Chrome может писать в свои папки.
+mkdir -p /app/chrome_profile
+chmod 777 /app/chrome_profile
 
-# Экспорт переменных для appuser (чтобы они были видны внутри runuser)
 export TORCH_HOME=/workspace/.cache/torch
 export NEMO_CACHE_DIR=/workspace/.cache/nemo
 export HF_HOME=/workspace/.cache/huggingface
 export LOGS_DIR=/workspace/logs
 export PYTHONPATH=/app
-export XDG_RUNTIME_DIR=/tmp/runtime-appuser
+# Для системного PulseAudio
+export PULSE_SERVER=unix:/var/run/pulse/native
 
-# 3. Запуск PulseAudio (В СИСТЕМНОМ РЕЖИМЕ от ROOT)
-# Это самый надежный способ для Docker. Флаг --system разрешает работу от root.
+# 3. Запуск PulseAudio (System Mode)
 echo "[Entrypoint] Starting PulseAudio (System Mode)..."
+# Удаляем старые сокеты, если есть
+rm -rf /var/run/pulse /var/lib/pulse /root/.config/pulse
 pulseaudio --system --daemonize --log-target=stderr --disallow-exit --disallow-module-loading=0
 sleep 2
 
-# Проверка PulseAudio (в системном режиме pactl требует указания сервера, или настройки client.conf)
-# Но для простоты проверим просто наличие процесса
 if ! pgrep pulseaudio >/dev/null; then
     echo "❌ PulseAudio failed to start."
     exit 1
 fi
 echo "✅ PulseAudio is running (PID: $(pgrep pulseaudio))."
 
-# 4. Запуск Inference Service (от имени appuser)
+# Даем всем доступ к сокету PulseAudio (на всякий случай)
+chmod -R 777 /var/run/pulse
+
+# 4. Запуск Inference Service (от ROOT)
 echo "[Entrypoint] Starting Inference Service..."
 mkdir -p /workspace/logs
 touch /workspace/logs/inference_service.log
-chown appuser:appuser /workspace/logs/inference_service.log
 
-# Запускаем в фоне от appuser
+# Запускаем в фоне
 cd /app
-runuser -u appuser -- python3.11 -m uvicorn server.inference_service:app --host 0.0.0.0 --port 8000 --log-level info &
+python3.11 -m uvicorn server.inference_service:app --host 0.0.0.0 --port 8000 --log-level info &
 INFERENCE_PID=$!
 
 # Ждем запуска
@@ -65,13 +65,7 @@ for ((i=1;i<=MAX_RETRIES;i++)); do
     sleep 2
 done
 
-# 5. Запуск основного приложения
+# 5. Запуск основного приложения (от ROOT)
 echo "=== [Entrypoint] Starting Main App ==="
-# Если команда по умолчанию (запуск сервера)
-if [ "$1" = "uvicorn" ] && [ "$2" = "server.server:app" ]; then
-    # Запускаем от appuser
-    exec runuser -u appuser -- "$@"
-else
-    # Если передана другая команда (например bash), запускаем как есть (root)
-    exec "$@"
-fi
+# Просто запускаем команду как есть (от root)
+exec "$@"

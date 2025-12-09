@@ -21,21 +21,20 @@ chown appuser:appuser /tmp/runtime-appuser
 rm -rf /tmp/pulse-socket
 
 # 3. Запуск PulseAudio (USER MODE, as appuser)
-# Мы не используем системный режим. Мы запускаем как юзер, но с кастомным сокетом в /tmp.
 echo "[Entrypoint] Starting PulseAudio (User Mode as appuser)..."
 
-# Создаем конфиг для анонимного доступа (unix socket в /tmp/pulse-socket)
-# Это позволит и руту, и appuser'у подключаться к нему.
-cat > /tmp/default.pa <<EOF
+# Создаем конфиг в папке приложения (где точно есть права)
+cat > /app/default.pa <<EOF
 load-module module-native-protocol-unix auth-anonymous=1 socket=/tmp/pulse-socket
 load-module module-null-sink sink_name=auto_null
 set-default-sink auto_null
 EOF
 
-chown appuser:appuser /tmp/default.pa
+# Даем права на чтение всем
+chmod 644 /app/default.pa
 
 # Запускаем от имени appuser
-runuser -u appuser -- pulseaudio --start --log-target=stderr --exit-idle-time=-1 --file=/tmp/default.pa -vvvv
+runuser -u appuser -- pulseaudio --start --log-target=stderr --exit-idle-time=-1 --file=/app/default.pa -vvvv
 sleep 2
 
 # 4. Настройка окружения для ВСЕХ (и root, и appuser)

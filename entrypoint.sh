@@ -10,9 +10,7 @@ ssh-keygen -A
 /usr/sbin/sshd
 echo "✅ SSH started."
 
-# 2. Настройка прав (на всякий случай, хоть мы и root)
-# Chrome не любит работать от root без флага --no-sandbox, но он у нас есть в коде.
-# Также нужно убедиться, что Chrome может писать в свои папки.
+# 2. Настройка прав
 mkdir -p /app/chrome_profile
 chmod 777 /app/chrome_profile
 
@@ -21,14 +19,28 @@ export NEMO_CACHE_DIR=/workspace/.cache/nemo
 export HF_HOME=/workspace/.cache/huggingface
 export LOGS_DIR=/workspace/logs
 export PYTHONPATH=/app
-# Для системного PulseAudio
 export PULSE_SERVER=unix:/var/run/pulse/native
 
-# 3. Запуск PulseAudio (System Mode)
+# 3. Запуск PulseAudio (System Mode с полным доступом)
 echo "[Entrypoint] Starting PulseAudio (System Mode)..."
-# Удаляем старые сокеты, если есть
+
+# Удаляем старое
 rm -rf /var/run/pulse /var/lib/pulse /root/.config/pulse
-pulseaudio --system --daemonize --log-target=stderr --disallow-exit --disallow-module-loading=0
+
+# Создаем кастомный конфиг, разрешающий анонимный доступ
+cat > /tmp/system.pa <<EOF
+load-module module-device-restore
+load-module module-stream-restore
+load-module module-card-restore
+load-module module-augment-properties
+load-module module-always-sink
+load-module module-native-protocol-unix auth-anonymous=1 socket=/var/run/pulse/native
+load-module module-null-sink sink_name=auto_null
+set-default-sink auto_null
+EOF
+
+# Запускаем с нашим конфигом
+pulseaudio --system --daemonize --log-target=stderr --disallow-exit --disallow-module-loading=0 --file=/tmp/system.pa -vvvv
 sleep 2
 
 if ! pgrep pulseaudio >/dev/null; then
@@ -37,20 +49,18 @@ if ! pgrep pulseaudio >/dev/null; then
 fi
 echo "✅ PulseAudio is running (PID: $(pgrep pulseaudio))."
 
-# Даем всем доступ к сокету PulseAudio (на всякий случай)
-chmod -R 777 /var/run/pulse
+# Даем права на сокет (хотя auth-anonymous должен помочь, но для надежности)
+chmod 777 /var/run/pulse/native
 
-# 4. Запуск Inference Service (от ROOT)
+# 4. Запуск Inference Service
 echo "[Entrypoint] Starting Inference Service..."
 mkdir -p /workspace/logs
 touch /workspace/logs/inference_service.log
 
-# Запускаем в фоне
 cd /app
 python3.11 -m uvicorn server.inference_service:app --host 0.0.0.0 --port 8000 --log-level info &
 INFERENCE_PID=$!
 
-# Ждем запуска
 MAX_RETRIES=150
 echo "Waiting for Inference Service..."
 for ((i=1;i<=MAX_RETRIES;i++)); do
@@ -65,7 +75,6 @@ for ((i=1;i<=MAX_RETRIES;i++)); do
     sleep 2
 done
 
-# 5. Запуск основного приложения (от ROOT)
+# 5. Запуск основного приложения
 echo "=== [Entrypoint] Starting Main App ==="
-# Просто запускаем команду как есть (от root)
 exec "$@"

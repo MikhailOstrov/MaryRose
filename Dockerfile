@@ -92,8 +92,8 @@ RUN dos2unix /app/entrypoint.sh && \
     chown -R appuser:appuser /app /workspace
 
 # --- ШАГ 7: ПЕРЕКЛЮЧЕНИЕ НА НЕПРИВИЛЕГИРОВАННОГО ПОЛЬЗОВАТЕЛЯ ---
-# ОСТАЕМСЯ РУТОМ для запуска SSH. Права понижаем в entrypoint.sh.
-# USER appuser
+# ЭТА КОМАНДА ДОЛЖНА БЫТЬ!
+USER appuser
 
 # Настройка переменных окружения, которые понадобятся appuser
 ENV HOME=/home/appuser 
@@ -108,8 +108,7 @@ ENV LOGS_DIR=/workspace/logs
 ENV PYTHONPATH=/app
 
 # --- ШАГ 8: ЗАПУСК ---
-# Открываем порты: 22 (SSH), 8000 (Inference), 8001 (Main App)
-EXPOSE 22 8000 8001
+EXPOSE 8000 8001
 ENTRYPOINT ["/app/entrypoint.sh"]
 # Основной сервер запускаем на 8000, так как 8001 занят инференсом
 CMD ["uvicorn", "server.server:app", "--host", "0.0.0.0", "--port", "8001"]

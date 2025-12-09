@@ -35,12 +35,9 @@ class VirtualAudioManager:
         """Создает виртуальный sink и remap-source (виртуальный микрофон), который его слушает."""
         logger.info(f"[{self.meeting_id}] Создание виртуальных аудиоустройств: {self.sink_name}, {self.source_name}")
 
-        # Используем стандартный системный сокет
-        pulse_server = "unix:/var/run/pulse/native"
-
         # 1. Создаем Null Sink (виртуальные колонки). Звук от Chrome пойдет сюда.
         cmd_sink = [
-            "pactl", "-s", pulse_server, "load-module", "module-null-sink",
+            "pactl", "load-module", "module-null-sink",
             f"sink_name={self.sink_name}",
             f"sink_properties=device.description='Virtual_Sink_for_Meet_{self.meeting_id}'"
         ]
@@ -54,7 +51,7 @@ class VirtualAudioManager:
         # 2. Создаем Remap Source. Это и будет наш виртуальный микрофон для Meet.
         # Он берет звук из "монитора" нашего sink'а и представляет его как обычный микрофон.
         cmd_remap = [
-            "pactl", "-s", pulse_server, "load-module", "module-remap-source",
+            "pactl", "load-module", "module-remap-source",
             f"source_name={self.source_name}",
             f"master={self.monitor_name}",
             f"source_properties=device.description='Virtual_Mic_for_Meet_{self.meeting_id}'"
@@ -74,13 +71,12 @@ class VirtualAudioManager:
     def destroy_devices(self):
         """Удаляет созданные модули PulseAudio в обратном порядке."""
         logger.info(f"[{self.meeting_id}] Уничтожение виртуальных аудиоустройств.")
-        pulse_server = "unix:/var/run/pulse/native"
         # Сначала удаляем remap-source, который зависит от sink'а
         if self.remap_source_module_id:
-            run_pa_command(["pactl", "-s", pulse_server, "unload-module", self.remap_source_module_id])
+            run_pa_command(["pactl", "unload-module", self.remap_source_module_id])
             self.remap_source_module_id = None
         # Затем удаляем сам sink
         if self.sink_module_id:
-            run_pa_command(["pactl", "-s", pulse_server, "unload-module", self.sink_module_id])
+            run_pa_command(["pactl", "unload-module", self.sink_module_id])
             self.sink_module_id = None
         logger.info(f"[{self.meeting_id}] Виртуальные аудиоустройства уничтожены.")

@@ -7,7 +7,7 @@ from config.config import SUMMARY_PROMPT, TITLE_PROMPT, CLIENT
 def get_summary_response(cleaned_dialogue: str) -> str:
 
     chat_completion = CLIENT.chat.completions.create(
-        model="openai/gpt-4.1-mini", 
+        model="gpt-4o-mini", 
         messages=[
             {"role": "system", "content": SUMMARY_PROMPT},
             {"role": "user", "content": cleaned_dialogue}
@@ -19,7 +19,7 @@ def get_summary_response(cleaned_dialogue: str) -> str:
 def get_title_response(cleaned_dialogue: str) -> str:
 
     chat_completion = CLIENT.chat.completions.create(
-        model="openai/gpt-4o-mini", 
+        model="gpt-4o-mini", 
         messages=[
             {"role": "system", "content": TITLE_PROMPT},
             {"role": "user", "content": cleaned_dialogue}
@@ -42,7 +42,7 @@ def llm_response(user_text: str) -> str:
     Ответ отправь в формате {{"key": 3, "text": <твой ответ>}}'''
 
     chat_completion = CLIENT.chat.completions.create(
-        model="openai/gpt-4o-mini",
+        model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": instruction},
             {"role": "user", "content": user_text}
@@ -66,7 +66,7 @@ def llm_response_after_kb(user_text: str) -> str:
     к тебе, то ответь, что вопрос не по формату разговора.'''
 
     chat_completion = CLIENT.chat.completions.create(
-        model="openai/gpt-4o-mini",
+        model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": instruction},
             {"role": "user", "content": user_text}
@@ -84,7 +84,7 @@ def mary_check(user_text: str) -> str:
     а не об боте' - не обращение.'''
 
     chat_completion = CLIENT.chat.completions.create(
-        model="openai/gpt-4o-mini",
+        model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": instruction},
             {"role": "user", "content": user_text}

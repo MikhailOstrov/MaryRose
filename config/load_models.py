@@ -1,22 +1,17 @@
 import os
 from pathlib import Path
-import torch
-import onnx_asr
-from dotenv import load_dotenv
 
 # Настройка путей для RunPod (модели сохраняются в персистентный /workspace)
 os.environ['HOME'] = '/app'
 os.environ['TORCH_HOME'] = '/workspace/.cache/torch'
+os.environ['NEMO_CACHE_DIR'] = '/workspace/.cache/nemo'
 os.environ['HF_HOME'] = '/workspace/.cache/huggingface'
 os.environ['LOGS_DIR'] = '/workspace/logs'
-
-os.environ['OPENBLAS_NUM_THREADS'] = '1'
-os.environ['MKL_NUM_THREADS'] = '1'
-os.environ['OMP_NUM_THREADS'] = '1'
 
 # Создаем необходимые директории в /workspace
 workspace_dirs = [
     '/workspace/.cache/torch',
+    '/workspace/.cache/nemo', 
     '/workspace/.cache/huggingface',
     '/workspace/models',
     '/workspace/logs'
@@ -25,47 +20,70 @@ for dir_path in workspace_dirs:
     Path(dir_path).mkdir(parents=True, exist_ok=True)
     print(f"Создана директория: {dir_path}")
 
+from faster_whisper import WhisperModel
+from huggingface_hub import snapshot_download
+from dotenv import load_dotenv
+import torch
+
+from config.config import ASR_MODEL_NAME, hf_token
 
 load_dotenv() 
 
-# Создает и возвращает НОВЫЙ, ИЗОЛИРОВАННЫЙ экземпляр VAD-модели Silero. Использует кэш, чтобы не скачивать модель каждый раз..
+# Создает и возвращает НОВЫЙ, ИЗОЛИРОВАННЫЙ экземпляр VAD-модели Silero. Использует кэш, чтобы не скачивать модель каждый раз./
 def create_new_vad_model():
     print("Создание нового экземпляра VAD-модели из кэша...")
     model, _ = torch.hub.load(repo_or_dir='snakers4/silero-vad',
                               model='silero_vad',
                               force_reload=False)
-    print("✅ Новый экземпляр VAD создан.")
+    
+    # Оптимизация: перенос на GPU если доступно
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    model.to(device)
+    print(f"✅ Новый экземпляр VAD создан на устройстве: {device}")
     return model
 
-# Проверка и загрузка ASR модели
+# Функция проверки, загружены ли модели
+def check_model_exists(model_identifier, model_type="whisper"):
+    """Проверяет существование модели в /workspace"""
+    if model_type == "whisper":
+        model_path = Path(f"/workspace/.cache/torch/whisper/{model_identifier}")
+        return model_path.exists()
+    elif model_type == "huggingface":
+        hf_cache = Path(f"/workspace/.cache/huggingface/hub")
+        if not hf_cache.exists():
+            return False
+        for model_dir in hf_cache.iterdir():
+            if model_identifier.replace("/", "--") in model_dir.name:
+                return True
+        return False
+    elif model_type == "torch_hub":
+        torch_cache = Path(f"/workspace/.cache/torch/hub")
+        return torch_cache.exists() and any(torch_cache.iterdir())
+    return False
+
+# Проверка и загрузка Whisper
 def load_asr_model():
+    print(f"Проверка локального кэша для ASR модели: {ASR_MODEL_NAME}")
     try:
-        local_model_dir = "/app/onnx"
-        providers = ['CUDAExecutionProvider'] 
-        asr_model = onnx_asr.load_model("gigaam-v2-ctc", local_model_dir, providers=providers)
+        local_path = snapshot_download(
+            repo_id=ASR_MODEL_NAME,
+            cache_dir="/workspace/.cache/huggingface",
+            local_files_only=True,
+            token=hf_token
+        )
+        print(f"Найден локальный путь ASR модели: {local_path}")
     except Exception as e:
-        print(f"Произошла ошибка с загрузкой модели. {e}")
-        asr_model = None
+        print(f"Локальный кэш ASR не найден, скачиваю из сети: {e}")
+        local_path = snapshot_download(
+            repo_id=ASR_MODEL_NAME,
+            cache_dir="/workspace/.cache/huggingface",
+            local_files_only=False,
+            token=hf_token
+        )
+        print(f"ASR модель скачана в: {local_path}")
+    asr_model = WhisperModel(local_path, compute_type="float16")
+    print("ASR model loaded.")
     return asr_model
 
-def load_te_model():
-    # Загружаем модель для расстановки знаков препинания и заглавных букв (опционально)
-    try:
-        model, example_texts, languages, punct, apply_te = torch.hub.load(repo_or_dir='snakers4/silero-models', model='silero_te')
-        return apply_te
-    except Exception as e:
-        print(f"Ошибка загрузки TE модели: {e}")
-        return None
-
-
-# Загрузка моделей при импорте модуля (Eager loading)
-print("=== Начинаем загрузку моделей в /workspace ===")
-# В исходном варианте модели загружались сразу. 
-# Если нужно сохранить ленивую загрузку (как было в inference_service), можно не вызывать здесь load_asr_model().
-# Но пользовательский код вызывает их здесь.
-# asr_model = load_asr_model() # Внимание: inference_service вызывает load_asr_model() сам.
-# te_model = load_te_model()
-
-print("=== Модели инициализированы (функции доступны) ===")
-
-__all__ = ['load_asr_model', 'create_new_vad_model', 'load_te_model']
+# Экспортируем функции загрузки, а не сами модели
+__all__ = ['load_asr_model', 'create_new_vad_model']

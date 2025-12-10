@@ -1,10 +1,13 @@
 import asyncio
+import io
 import aiohttp
 import logging
 import time
 
+# from config.load_models import asr_model # УБРАНО
 logger = logging.getLogger(__name__)
 
+TRANSCRIBE_SEMAPHORE = asyncio.Semaphore(6)
 INFERENCE_URL = "http://localhost:8000/transcribe_file"
 
 async def transcribe_audio_async(audio_bytes: bytes) -> str:

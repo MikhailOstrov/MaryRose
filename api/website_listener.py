@@ -1,20 +1,21 @@
 import os
 import threading
 import logging
+import asyncio
 import subprocess
-import requests
-import re
+from datetime import datetime
+from uuid import uuid4
+
 import numpy as np
 import soundfile as sf
+import requests
 
 from config.config import STREAM_SAMPLE_RATE, MEET_AUDIO_CHUNKS_DIR, MEET_FRAME_DURATION_MS
 from handlers.llm_handler import get_summary_response, get_title_response
+from config.load_models import load_asr_model
 from utils.backend_request import send_results_to_backend
 
 logger = logging.getLogger(__name__)
-
-# URL инференс сервиса
-INFERENCE_URL = "http://localhost:8000/transcribe_file"
 
 class WebsiteListenerBot:
     
@@ -24,6 +25,8 @@ class WebsiteListenerBot:
 
         self.is_running = threading.Event()
         self.is_running.set()
+
+        self.asr_model = asr_model  # Whisper
 
         self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.session_id
         os.makedirs(self.output_dir, exist_ok=True)
@@ -55,50 +58,41 @@ class WebsiteListenerBot:
     # Постобработка: транскрипция всего файла + summary + title
     def _perform_post_processing(self):
         threading.current_thread().name = f'PostProcessor-{self.meeting_id}'
-        logger.info(f"[{self.meeting_id}] Запускаю постобработку (отправка на Inference Service)...")
+        logger.info(f"[{self.meeting_id}] Запускаю постобработку...")
 
         try:
             # Запускаем ASR на полном файле
-            # Отправляем весь файл на сервис
-            if not os.path.exists(self.full_audio_path):
-                logger.warning("Нет файла для обработки.")
-                return
+            segments, _ = self.asr_model.transcribe(
+                str(self.full_audio_path),
+                beam_size=3, best_of=3,
+                condition_on_previous_text=False,
+                vad_filter=False,
+                language="ru"
+            )
 
-            with open(self.full_audio_path, 'rb') as f:
-                logger.info("Отправка файла на транскрибацию...")
-                try:
-                    response = requests.post(INFERENCE_URL, files={'file': f}, timeout=300)
-                    
-                    if response.status_code == 200:
-                        full_text = response.json().get("text", "")
-                        logger.info("Транскрибация получена.")
-                    else:
-                        logger.error(f"Ошибка сервиса инференса: {response.status_code} - {response.text}")
-                        full_text = ""
-                except Exception as req_err:
-                     logger.error(f"Ошибка соединения с сервисом инференса: {req_err}")
-                     full_text = ""
+            full_text = "\n".join(
+                f"[{self.format_time_hms(seg.start)} - {self.format_time_hms(seg.end)}] {seg.text.strip()}"
+                for seg in segments
+            )
 
-            cleaned_dialogue = full_text 
-            
-            if cleaned_dialogue:
-                # Суммаризация
-                logger.info(f"[{self.meeting_id}] Создание summary...")
-                summary_text = get_summary_response(cleaned_dialogue)
-                
-                # Заголовок
-                logger.info(f"[{self.meeting_id}] Создание title...")
-                title_text = get_title_response(cleaned_dialogue)
+            import re
+            cleaned_dialogue = re.sub(r"\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*", "", full_text)
 
-                # Отправляем результат
-                send_results_to_backend(
-                    meeting_id=self.meeting_id,
-                    full_text=full_text,
-                    summary=summary_text or "",  # Гарантируем, что отправляется строка
-                    title=title_text or ""      # Гарантируем, что отправляется строка
-                )
-            else:
-                logger.warning("Пустой текст после транскрибации.")
+            # Суммаризация
+            logger.info(f"[{self.meeting_id}] Создание summary...")
+            summary_text = get_summary_response(cleaned_dialogue)
+
+            # Заголовок
+            logger.info(f"[{self.meeting_id}] Создание title...")
+            title_text = get_title_response(cleaned_dialogue)
+
+            # Отправляем результат, используя централизованную функцию
+            send_results_to_backend(
+                meeting_id=self.meeting_id,
+                full_text=full_text,
+                summary=summary_text or "",  # Гарантируем, что отправляется строка
+                title=title_text or ""      # Гарантируем, что отправляется строка
+            )
 
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка постобработки: {e}", exc_info=True)
@@ -132,7 +126,7 @@ class WebsiteListenerBot:
 
     # Новый метод для обработки готового аудио файла
     def process_audio_file(self, input_file_path: str):
-        """Обрабатывает готовый аудио файл (.webm)"""
+        """Обрабатывает готовый аудио файл (.webm) используя ту же логику что и вебсокет."""
         threading.current_thread().name = f'AudioProcessor-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] Запускаю обработку файла: {input_file_path}")
 

@@ -56,7 +56,6 @@ def llm_response(user_text: str) -> str:
 
     except json.JSONDecodeError as e:
         print(f"Ошибка при парсинге JSON: {e}")
-        return 3, "Извините, произошла ошибка при обработке запроса." # Fallback
     return key_value, text_value
 
 def llm_response_after_kb(user_text: str) -> str:
@@ -75,35 +74,3 @@ def llm_response_after_kb(user_text: str) -> str:
     )
 
     return chat_completion.choices[0].message.content
-
-def mary_check(text: str) -> int:
-    """
-    Проверяет, является ли сообщение обращением к ассистенту, требующим реакции.
-    Возвращает 1, если нужно реагировать, 0 - если нет (просто упоминание или шум).
-    """
-    instruction = """
-    Проанализируй текст сообщения, которое началось с обращения к ассистенту 'Мэри' (или похожего).
-    Твоя задача определить, является ли это действительным запросом или командой, на которую нужно ответить или выполнить действие.
-    
-    Ответь ТОЛЬКО цифрой:
-    1 - если это осмысленный запрос, вопрос или команда.
-    0 - если это случайное упоминание, обрывок фразы или текст, не требующий реакции.
-    """
-    
-    try:
-        chat_completion = CLIENT.chat.completions.create(
-            model="openai/gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": instruction},
-                {"role": "user", "content": text}
-            ],
-            temperature=0.1 # Делаем модель более детерминированной
-        )
-        content = chat_completion.choices[0].message.content.strip()
-        # Пытаемся найти цифру в ответе
-        if '1' in content:
-            return 1
-        return 0
-    except Exception as e:
-        print(f"Error in mary_check: {e}")
-        return 1 # Fallback: лучше ответить лишний раз, чем пропустить

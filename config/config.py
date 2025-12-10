@@ -38,6 +38,7 @@ hf_token = os.getenv("HUGGING_FACE_HUB_TOKEN")
 CLIENT = OpenAI(
     api_key=os.getenv("PROXY_API"),
     base_url=os.getenv("BASE_OPENAI_URL"),
+    timeout=180.0,
 )
 
 if hf_token:

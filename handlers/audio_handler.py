@@ -24,7 +24,7 @@ class AudioHandler:
         self.audio_queue = audio_queue
         self.is_running = is_running
         self.vad = create_new_vad_model()
-        # self.asr_model = asr_model # Модель больше не нужна локально, используем WS
+        # self.asr_model больше не нужен локально
         self.email = email
         self.start_time = time.time()
 
@@ -63,15 +63,15 @@ class AudioHandler:
         if not self.ws_connection:
             self._connect_websocket()
         
-        start_ts = time.time()
+        # start_ts = time.time()
         try:
             # logger.info(f"[{self.meeting_id}] Sending audio chunk: {len(audio_bytes)} bytes")
             self.ws_connection.send(audio_bytes)
             text = self.ws_connection.recv()
             
-            latency = time.time() - start_ts
-            if text:
-                logger.info(f"[{self.meeting_id}] Transcribe latency: {latency:.3f}s. Text: {str(text)[:50]}...")
+            # latency = time.time() - start_ts
+            # if text:
+            #     logger.info(f"[{self.meeting_id}] Transcribe latency: {latency:.3f}s. Text: {str(text)[:50]}...")
             
             return str(text)
         except (ConnectionClosed, InvalidStatusCode) as e:
@@ -79,11 +79,8 @@ class AudioHandler:
             self._connect_websocket()
             # Повторная отправка (один раз)
             try:
-                start_ts = time.time()
                 self.ws_connection.send(audio_bytes)
                 text = self.ws_connection.recv()
-                latency = time.time() - start_ts
-                logger.info(f"[{self.meeting_id}] Transcribe latency (retry): {latency:.3f}s. Text: {str(text)[:50]}...")
                 return str(text)
             except Exception as e2:
                  logger.error(f"[{self.meeting_id}] ❌ Ошибка повторной отправки: {e2}")
@@ -106,8 +103,8 @@ class AudioHandler:
                 try:
                     key, response = llm_response(transcription)
                     logger.info(f"Ответ от LLM: {key, response}")
-                    if response:
-                        print("Отправляю ответ в чат...")
+                    # if response:
+                    #     print("Отправляю ответ в чат...")
                     if key == 0:
                         asyncio.run(save_info_in_kb(response, self.email))
                         self.send_chat_message("Ваша информация сохранена.")
@@ -164,9 +161,6 @@ class AudioHandler:
         vad_buffer = None
         # Silero VAD поддерживает только 512 сэмплов (при 16k)
         VAD_CHUNK_SIZE = 512
-        # Буфер для накопления чанков перед прогоном через модель (оптимизация)
-        # Обрабатываем пачкой, но подаем в модель кусочками по 512
-        accumulated_chunks = []
         
         speech_buffer_for_asr = []
         is_speaking = False
@@ -181,9 +175,6 @@ class AudioHandler:
 
         silence_accum_ms = 0
         speech_start_walltime = None
-
-        # Таймер для всего пайплайна обработки речи
-        pipeline_start_time = None
 
         while self.is_running.is_set():
             try:
@@ -209,8 +200,6 @@ class AudioHandler:
                     # Переносим чанк на то же устройство, что и модель (GPU если доступно)
                     chunk_to_process_device = chunk_to_process.to(device)
                     
-                    # ВАЖНО: Silero VAD требует точный размер входа (512), батчинг внутри модели не поддерживается "из коробки" для streaming
-                    # Поэтому вызываем модель для каждого чанка 512, но сам чанк уже на GPU
                     speech_prob = self.vad(chunk_to_process_device, sr).item()
 
                     recent_probs.append(speech_prob)
@@ -221,18 +210,12 @@ class AudioHandler:
                     now = time.time()
                     meeting_elapsed_sec = now - self.start_time
 
-                    # --- ЛОГИРОВАНИЕ VAD (Heartbeat) ---
-                    # Логируем текущую вероятность речи раз в 5 секунд, чтобы понимать, что VAD жив
-                    if int(meeting_elapsed_sec) % 5 == 0 and int((meeting_elapsed_sec - (VAD_CHUNK_SIZE/sr))) % 5 != 0:
-                         logger.info(f"[{self.meeting_id}] VAD Heartbeat: prob={smooth_prob:.2f} (threshold={vad_threshold}), is_speaking={is_speaking}")
-                    # -----------------------------------
-
                     if smooth_prob > vad_threshold:
                         if not is_speaking:
                             logger.info(f"[{self.meeting_id}] ▶️ Начало речи")
                             is_speaking = True
                             speech_start_walltime = meeting_elapsed_sec
-                            pipeline_start_time = time.time()  # Запуск таймера пайплайна
+                            # pipeline_start_time = time.time()
 
                         speech_buffer_for_asr.append(chunk_to_process.numpy())
                         silence_accum_ms = 0
@@ -251,7 +234,6 @@ class AudioHandler:
                             # Очищаем буфер и обновляем начало следующего куска
                             speech_buffer_for_asr.clear()
                             speech_start_walltime = speech_end_walltime # Следующий кусок начинается сразу
-                            # is_speaking остается True, так как мы все еще в блоке "речь идет"
 
                     else:
                         if is_speaking:
@@ -267,7 +249,6 @@ class AudioHandler:
 
                                 is_speaking = False
                                 silence_accum_ms = 0
-                                pipeline_start_time = None
 
             except queue.Empty:
                 if is_speaking and speech_buffer_for_asr:
@@ -294,10 +275,8 @@ class AudioHandler:
         logger.info(f"[{self.meeting_id}] Начинаю постобработку...")
 
         try:
-
             full = "\n".join(self.all_segments)
-        
-            print(f"Финальный диалог: \n {full}")
+            # print(f"Финальный диалог: \n {full}")
 
             now = time.time()
             meeting_elapsed_sec = now - self.start_time
@@ -312,12 +291,12 @@ class AudioHandler:
                 # Суммаризация
                 logger.info(f"[{self.meeting_id}] Создание резюме...")
                 summary_text = get_summary_response(cleaned_dialogue)
-                print(f"Это вывод summary: \n{summary_text}")
+                # print(f"Это вывод summary: \n{summary_text}")
                 
                 # Генерация заголовка
                 logger.info(f"[{self.meeting_id}] Создание заголовка...")
                 title_text = get_title_response(cleaned_dialogue)
-                print(f"Это вывод заголовка: \n{title_text}")
+                # print(f"Это вывод заголовка: \n{title_text}")
 
                 # Отправка результатов на внешний сервер
                 send_results_to_backend(self.meeting_id, full, summary_text, title_text, int(meeting_elapsed_sec))

@@ -4,6 +4,7 @@ uvicorn[standard]==0.24.0
 python-multipart==0.0.6
 websockets==12.0
 pydantic==2.5.2
+aiohttp==3.9.1 # Для асинхронных HTTP запросов
 
 # onnx-asr[gpu,hub]
 onnxruntime-gpu==1.20.0

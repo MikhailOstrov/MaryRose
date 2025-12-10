@@ -54,11 +54,9 @@ def load_te_model():
     return apply_te
 
 
-# Загрузка моделей при импорте модуля
-print("=== Начинаем загрузку моделей в /workspace ===")
-asr_model = load_asr_model()
-te_model = load_te_model()
-print("=== Все модели успешно загружены ===")
 
-__all__ = ['asr_model', 'create_new_vad_model', 'te_model']
+# Загрузка моделей перенесена в соответствующие сервисы
+# asr_model и te_model больше не загружаются глобально при импорте
+
+__all__ = ['load_asr_model', 'create_new_vad_model', 'load_te_model']
 # Экспортируем загруженные модели

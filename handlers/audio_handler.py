@@ -10,11 +10,14 @@ import tempfile
 import re
 import asyncio
 import collections
+from websockets.sync.client import connect
+from websockets.exceptions import ConnectionClosed, InvalidStatusCode
 
 from handlers.llm_handler import llm_response, get_summary_response, get_title_response, mary_check
 from utils.kb_requests import save_info_in_kb, get_info_from_kb
-from config.config import (STREAM_SAMPLE_RATE, MEET_AUDIO_CHUNKS_DIR, SUMMARY_OUTPUT_DIR, TRIGGER_WORDS, STOP_WORDS)
-from config.load_models import create_new_vad_model, asr_model, te_model
+from config.load_models import create_new_vad_model
+from config.config import (STREAM_SAMPLE_RATE, STREAM_TRIGGER_WORD, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, MEET_AUDIO_CHUNKS_DIR,
+                        STREAM_STOP_WORD_3, MEET_FRAME_DURATION_MS, SUMMARY_OUTPUT_DIR)
 from utils.backend_request import send_results_to_backend
 
 logger = logging.getLogger(__name__)
@@ -25,9 +28,10 @@ class AudioHandler:
         self.audio_queue = audio_queue
         self.is_running = is_running
         self.vad = create_new_vad_model()
-        self.te_model = te_model
-        self.asr_model = asr_model
+        # self.te_model = te_model
+        # self.asr_model = asr_model
         #self.speak_via_meet=speak_via_meet
+        # self.asr_model = asr_model # Модель больше не нужна локально, используем WS
         self.email = email
         self.start_time = time.time()
 
@@ -39,6 +43,9 @@ class AudioHandler:
 
         self.send_chat_message = send_chat_message
         self.stop = stop
+        
+        self.ws_url = "ws://localhost:8000/transcribe"
+        self.ws_connection = None
 
     # Преобразование временных меток
     def format_time_hms(self, seconds: float) -> str:
@@ -47,10 +54,119 @@ class AudioHandler:
         s = int(seconds % 60)
         return f"{h:02d}:{m:02d}:{s:02d}"
 
+    def _connect_websocket(self):
+        """Устанавливает WS соединение с Inference Service с повторными попытками."""
+        while self.is_running.is_set():
+            try:
+                self.ws_connection = connect(self.ws_url)
+                logger.info(f"[{self.meeting_id}] ✅ Подключено к Inference Service (WS).")
+                return
+            except Exception as e:
+                logger.warning(f"[{self.meeting_id}] ⚠️ Не удалось подключиться к Inference Service: {e}. Повтор через 2с...")
+                time.sleep(2)
+
+    def _send_audio_to_service(self, audio_bytes: bytes) -> str:
+        """Отправляет аудио и получает текст."""
+        if not self.ws_connection:
+            self._connect_websocket()
+        
+        start_ts = time.time()
+        try:
+            # logger.info(f"[{self.meeting_id}] Sending audio chunk: {len(audio_bytes)} bytes")
+            self.ws_connection.send(audio_bytes)
+            text = self.ws_connection.recv()
+            
+            latency = time.time() - start_ts
+            if text:
+                logger.info(f"[{self.meeting_id}] Transcribe latency: {latency:.3f}s. Text: {str(text)[:50]}...")
+            
+            return str(text)
+        except (ConnectionClosed, InvalidStatusCode) as e:
+            logger.warning(f"[{self.meeting_id}] 🔌 Разрыв соединения WS: {e}. Переподключение...")
+            self._connect_websocket()
+            # Повторная отправка (один раз)
+            try:
+                start_ts = time.time()
+                self.ws_connection.send(audio_bytes)
+                text = self.ws_connection.recv()
+                latency = time.time() - start_ts
+                logger.info(f"[{self.meeting_id}] Transcribe latency (retry): {latency:.3f}s. Text: {str(text)[:50]}...")
+                return str(text)
+            except Exception as e2:
+                 logger.error(f"[{self.meeting_id}] ❌ Ошибка повторной отправки: {e2}")
+                 return ""
+        except Exception as e:
+            logger.error(f"[{self.meeting_id}] ❌ Ошибка WS: {e}")
+            return ""
+
+    def _handle_transcription_logic(self, transcription, pipeline_start_time):
+        """Обрабатывает полученный текст (триггеры, ответы LLM)."""
+        if transcription.lower().lstrip().startswith(STREAM_TRIGGER_WORD):
+            clean_transcription = ''.join(char for char in transcription.lower() if char.isalnum() or char.isspace())
+
+            if STREAM_STOP_WORD_1 in clean_transcription or STREAM_STOP_WORD_2 in clean_transcription or STREAM_STOP_WORD_3 in clean_transcription:
+                logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")
+                self.send_chat_message("Услышала Вас, завершаю работу!")
+                self.stop()
+            else:
+                self.send_chat_message("Услышала Вас, действую...")
+                try:
+                    key, response = llm_response(transcription)
+                    logger.info(f"Ответ от LLM: {key, response}")
+                    if response:
+                        print("Отправляю ответ в чат...")
+                    if key == 0:
+                        asyncio.run(save_info_in_kb(response, self.email))
+                        self.send_chat_message("Ваша информация сохранена.")
+                    elif key == 1:
+                        info_from_kb = asyncio.run(get_info_from_kb(response, self.email))
+                        if info_from_kb == None:
+                            self.send_chat_message("Не нашла информации в вашей базе знаний.")
+                        else:
+                            self.send_chat_message(info_from_kb)
+                    elif key == 3:
+                        self.send_chat_message(response)
+
+                except Exception as chat_err:
+                    logger.error(f"[{self.meeting_id}] Ошибка при отправке ответа в чат: {chat_err}")
+
+    def _process_speech_buffer(self, speech_buffer, start_ts, end_ts, min_duration=0.5):
+        """Собирает аудио из буфера, отправляет на транскрибацию и обрабатывает результат."""
+        if not speech_buffer:
+            return
+
+        full_audio_np = np.concatenate(speech_buffer)
+        chunk_duration = len(full_audio_np) / STREAM_SAMPLE_RATE
+
+        if chunk_duration < min_duration:
+            return
+
+        # ОТПРАВКА НА СЕРВЕР (WS)
+        transcribed_text = self._send_audio_to_service(full_audio_np.tobytes())
+        
+        if not transcribed_text:
+            return
+
+        dialog = f"[{self.format_time_hms(start_ts)} - {self.format_time_hms(end_ts)}] {transcribed_text.strip()}"
+        
+        self.all_segments.append(dialog)
+        print(dialog)
+
+        # Чистый текст без таймингов
+        transcription = re.sub(r"\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*", "", dialog)
+        
+        self.global_offset += chunk_duration
+        
+        # Обработка логики (триггеры и т.д.)
+        self._handle_transcription_logic(transcription, None)
+
     # Обработка аудиопотока -- транскрибация -- ответ (если обнаружен триггер)
     def _process_audio_stream(self):
         threading.current_thread().name = f'VADProcessor-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] VAD процессор запущен (Silero).")
+        
+        # Инициализируем соединение при старте потока
+        self._connect_websocket()
 
         vad_buffer = None
         VAD_CHUNK_SIZE = 512
@@ -59,11 +175,13 @@ class AudioHandler:
         recent_probs = collections.deque(maxlen=3)                    # для сглаживания
 
         # Настройки
-        vad_threshold = 0.1                   # вероятность речи
+        vad_threshold = 0.3                   # вероятность речи
         silence_duration_ms = 600             # сколько тишины нужно для конца речи
         min_speech_duration = 0.5             # минимальная длина речи
  
-        chuck_duration = (VAD_CHUNK_SIZE / STREAM_SAMPLE_RATE) * 1000
+        chuck_duration = (VAD_CHUNK_SIZE / STREAM_SAMPLE_RATE) * 1000 # ------------------------------------ ПРОВЕРИТЬ НУЖНО ЛИ ЭТО
+        MAX_SPEECH_DURATION_S = 30.0          # Максимальная длина речи перед принудительной отправкой
+        sr = STREAM_SAMPLE_RATE
 
         silence_accum_ms = 0
         speech_start_walltime = None
@@ -107,6 +225,22 @@ class AudioHandler:
 
                         speech_buffer_for_asr.append(chunk_to_process.numpy())
                         silence_accum_ms = 0
+                        
+                        # --- ПРОВЕРКА НА МАКСИМАЛЬНУЮ ДЛИТЕЛЬНОСТЬ ---
+                        current_duration_s = (len(speech_buffer_for_asr) * VAD_CHUNK_SIZE) / sr
+                        if current_duration_s >= MAX_SPEECH_DURATION_S:
+                            logger.info(f"[{self.meeting_id}] ✂️ Принудительная отсечка речи по тайм-ауту ({MAX_SPEECH_DURATION_S}с)")
+                            
+                            # Рассчитываем конец текущего куска
+                            speech_end_walltime = speech_start_walltime + current_duration_s
+                            
+                            # Обрабатываем накопленный буфер
+                            self._process_speech_buffer(speech_buffer_for_asr, speech_start_walltime, speech_end_walltime, min_speech_duration)
+                            
+                            # Очищаем буфер и обновляем начало следующего куска
+                            speech_buffer_for_asr.clear()
+                            speech_start_walltime = speech_end_walltime # Следующий кусок начинается сразу
+                            # is_speaking остается True, так как мы все еще в блоке "речь идет"
 
                     else:
                         if is_speaking:
@@ -114,83 +248,93 @@ class AudioHandler:
                             if silence_accum_ms >= silence_duration_ms:
 
                                 if speech_buffer_for_asr:
-
-                                    if len(speech_buffer_for_asr) == 1:
-                                        full_audio_np = speech_buffer_for_asr[0]
-                                    else:
-                                        full_audio_np = np.concatenate(speech_buffer_for_asr)
-
+                                    chunk_duration = (len(speech_buffer_for_asr) * VAD_CHUNK_SIZE) / sr
+                                    speech_end_walltime = speech_start_walltime + chunk_duration
+                                    
+                                    self._process_speech_buffer(speech_buffer_for_asr, speech_start_walltime, speech_end_walltime, min_speech_duration)
                                     speech_buffer_for_asr.clear()
 
-                                    chunk_duration = len(full_audio_np) / 16000.0
-                                    if chunk_duration >= min_speech_duration:
+                                is_speaking = False
+                                silence_accum_ms = 0
+                                pipeline_start_time = None
 
-                                        speech_end_walltime = speech_start_walltime + chunk_duration
+                                        # speech_end_walltime = speech_start_walltime + chunk_duration
 
-                                        is_speaking = False
-                                        silence_accum_ms = 0
+                                        # is_speaking = False
+                                        # silence_accum_ms = 0
 
-                                        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
-                                            temp_path = temp_wav.name
-                                            sf.write(temp_path, full_audio_np, STREAM_SAMPLE_RATE, subtype='PCM_16')
+                                        # with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
+                                        #     temp_path = temp_wav.name
+                                        #     sf.write(temp_path, full_audio_np, STREAM_SAMPLE_RATE, subtype='PCM_16')
 
-                                        # Распознаём
-                                        try:
-                                            transcription = self.asr_model.recognize(temp_path)
-                                            logger.info(f"Текст распознан: {transcription}")
-                                            os.unlink(temp_path)
-                                        except Exception as e:
-                                            logger.error(f"[{self.meeting_id}] Ошибка распознавания: {e}")
+                                        # # Распознаём
+                                        # try:
+                                        #     transcription = self.asr_model.recognize(temp_path)
+                                        #     logger.info(f"Текст распознан: {transcription}")
+                                        #     os.unlink(temp_path)
+                                        # except Exception as e:
+                                        #     logger.error(f"[{self.meeting_id}] Ошибка распознавания: {e}")
 
-                                        transcription_te  = te_model(transcription, lan='ru')
-                                        dialog = f"[{self.format_time_hms(speech_start_walltime)} - {self.format_time_hms(speech_end_walltime)}] {transcription_te.strip()}"
+                                        # transcription_te  = te_model(transcription, lan='ru')
+                                        # dialog = f"[{self.format_time_hms(speech_start_walltime)} - {self.format_time_hms(speech_end_walltime)}] {transcription_te.strip()}"
                                         
-                                        self.all_segments.append(dialog)
-                                        print(dialog)
+                                        # self.all_segments.append(dialog)
+                                        # print(dialog)
 
-                                        self.global_offset += chunk_duration
-                                        if any(transcription.startswith(trigger) for trigger in TRIGGER_WORDS) and any(word in transcription for word in STOP_WORDS):
-                                            #self.speak_via_meet("Услышала Вас, завершаю работу!")
-                                            self.stop()
-                                            continue 
+                                        # self.global_offset += chunk_duration
+                                        # if any(transcription.startswith(trigger) for trigger in TRIGGER_WORDS) and any(word in transcription for word in STOP_WORDS):
+                                        #     #self.speak_via_meet("Услышала Вас, завершаю работу!")
+                                        #     self.stop()
+                                        #     continue 
 
-                                        elif any(trigger in transcription for trigger in TRIGGER_WORDS):
-                                            choice = mary_check(transcription_te)
-                                            logger.info(f"Решение: {choice}")
-                                            if choice == 1:
-                                                #self.speak_via_meet("Секунду...")
-                                                try:
-                                                    key, response = llm_response(transcription_te)
-                                                    logger.info(f"Ответ от LLM: {key, response}")
-                                                    if key == 0:
-                                                        asyncio.run(save_info_in_kb(response, self.email))
-                                                        #self.speak_via_meet("Ваша информация сохранена.")
-                                                    elif key == 1:
-                                                        info_from_kb = asyncio.run(get_info_from_kb(response, self.email))
-                                                        if info_from_kb is None:
-                                                            #self.speak_via_meet("Не нашла информации в вашей базе знаний.")
-                                                            self.send_chat_message("Не нашла информации в вашей базе знаний.")
-                                                        else:
-                                                            #self.speak_via_meet("Вывожу в чат найденную информацию...")
-                                                            self.send_chat_message(info_from_kb)
-                                                    elif key == 3:
-                                                        #self.speak_via_meet(response)
-                                                        self.send_chat_message(response)
+                                        # elif any(trigger in transcription for trigger in TRIGGER_WORDS):
+                                        #     choice = mary_check(transcription_te)
+                                        #     logger.info(f"Решение: {choice}")
+                                        #     if choice == 1:
+                                        #         #self.speak_via_meet("Секунду...")
+                                        #         try:
+                                        #             key, response = llm_response(transcription_te)
+                                        #             logger.info(f"Ответ от LLM: {key, response}")
+                                        #             if key == 0:
+                                        #                 asyncio.run(save_info_in_kb(response, self.email))
+                                        #                 #self.speak_via_meet("Ваша информация сохранена.")
+                                        #             elif key == 1:
+                                        #                 info_from_kb = asyncio.run(get_info_from_kb(response, self.email))
+                                        #                 if info_from_kb is None:
+                                        #                     #self.speak_via_meet("Не нашла информации в вашей базе знаний.")
+                                        #                     self.send_chat_message("Не нашла информации в вашей базе знаний.")
+                                        #                 else:
+                                        #                     #self.speak_via_meet("Вывожу в чат найденную информацию...")
+                                        #                     self.send_chat_message(info_from_kb)
+                                        #             elif key == 3:
+                                        #                 #self.speak_via_meet(response)
+                                        #                 self.send_chat_message(response)
 
-                                                except Exception as chat_err:
-                                                    logger.error(f"[{self.meeting_id}] Ошибка при отправке ответа в чат: {chat_err}")
-                                            else:
-                                                pass
+                                        #         except Exception as chat_err:
+                                        #             logger.error(f"[{self.meeting_id}] Ошибка при отправке ответа в чат: {chat_err}")
+                                        #     else:
+                                        #         pass
 
-                                        else:
-                                            pipeline_start_time = None
+                                        # else:
+                                        #     pipeline_start_time = None
             except queue.Empty:
                 if is_speaking and speech_buffer_for_asr:
                     logger.info(f"[{self.meeting_id}] Тайм-аут, обрабатываем оставшуюся речь.")
+                    chunk_duration = (len(speech_buffer_for_asr) * VAD_CHUNK_SIZE) / sr
+                    speech_end_walltime = speech_start_walltime + chunk_duration
+                    self._process_speech_buffer(speech_buffer_for_asr, speech_start_walltime, speech_end_walltime, min_speech_duration)
+                    speech_buffer_for_asr.clear()
                     is_speaking = False
                 continue
             except Exception as e:
                 logger.error(f"[{self.meeting_id}] Ошибка в цикле VAD: {e}", exc_info=True)
+        
+        # Закрываем сокет
+        if self.ws_connection:
+            try:
+                self.ws_connection.close()
+            except:
+                pass
 
     # Постобработка: суммаризация -- генерация заголовка -- отправка результатов на внешний сервер
     def _perform_post_processing(self):

@@ -3,20 +3,20 @@ import threading
 import logging
 import asyncio
 import subprocess
-from datetime import datetime
-from uuid import uuid4
-
+import requests
+import io
+import time
 import numpy as np
 import soundfile as sf
-import requests
 import re
 
 from config.config import STREAM_SAMPLE_RATE, MEET_AUDIO_CHUNKS_DIR, MEET_FRAME_DURATION_MS
 from handlers.llm_handler import get_summary_response, get_title_response
-from config.load_models import asr_model, te_model
 from utils.backend_request import send_results_to_backend
 
 logger = logging.getLogger(__name__)
+
+INFERENCE_URL = "http://localhost:8000/transcribe_file"
 
 class WebsiteListenerBot:
     
@@ -27,8 +27,8 @@ class WebsiteListenerBot:
         self.is_running = threading.Event()
         self.is_running.set()
 
-        self.asr_model = asr_model
-        self.te_model = te_model
+        # self.asr_model = asr_model # Убрано
+        # self.te_model = te_model   # Убрано
 
         self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.session_id
         os.makedirs(self.output_dir, exist_ok=True)
@@ -57,7 +57,7 @@ class WebsiteListenerBot:
             except Exception as e:
                 logger.error(f"[{self.meeting_id}] Ошибка при записи аудио: {e}")
 
-    def split_audio_into_chunks(audio_path, chunk_duration=29, sample_rate=16000):
+    def split_audio_into_chunks(self, audio_path, chunk_duration=29, sample_rate=16000):
         try:
             # Читаем аудиофайл
             audio_data, sr = sf.read(audio_path)
@@ -87,14 +87,31 @@ class WebsiteListenerBot:
                 chunk_duration_sec = len(chunk_data) / sample_rate
                 chunk_durations.append(chunk_duration_sec)
                 
-                print(f"Создан чанк {i+1}: {chunk_path} ({chunk_duration_sec:.2f} сек)")
+                # print(f"Создан чанк {i+1}: {chunk_path} ({chunk_duration_sec:.2f} сек)")
             
-            print(f"Всего создано {len(chunk_paths)} чанков")
+            logger.info(f"[{self.meeting_id}] Аудио разбито на {len(chunk_paths)} чанков")
             return chunk_paths, chunk_durations  # Возвращаем оба списка
             
         except Exception as e:
-            print(f"Ошибка при разделении аудио: {e}")
+            logger.error(f"[{self.meeting_id}] Ошибка при разделении аудио: {e}")
             return [], []
+
+    def _send_file_to_inference(self, file_path) -> str:
+        """Отправляет файл на сервер инференса."""
+        try:
+            with open(file_path, 'rb') as f:
+                files = {'file': ('chunk.wav', f, 'audio/wav')}
+                response = requests.post(INFERENCE_URL, files=files, timeout=60) # Timeout побольше для чанков
+                
+            if response.status_code == 200:
+                result = response.json()
+                return result.get("text", "")
+            else:
+                logger.error(f"[{self.meeting_id}] Ошибка инференса: {response.status_code} - {response.text}")
+                return ""
+        except Exception as e:
+            logger.error(f"[{self.meeting_id}] Ошибка подключения к инференсу: {e}")
+            return ""
 
     # Постобработка: транскрипция всего файла + summary + title
     def _perform_post_processing(self):
@@ -118,11 +135,11 @@ class WebsiteListenerBot:
                     break
                 
                 chunk_duration = chunk_durations[idx]
-                logger.info(f"[{self.meeting_id}] Обрабатываю чанк {idx+1}: offset={current_offset:.2f}s, duration={chunk_duration:.2f}s")
+                logger.info(f"[{self.meeting_id}] Обрабатываю чанк {idx+1}: offset={current_offset:.2f}s")
                 
-                # Распознавание: возвращает только текст
-                transcription = self.asr_model.recognize(chunk)
-                transcription_te = te_model(transcription, lan='ru')
+                # Распознавание через внешний сервис (уже включает TE)
+                transcription_te = self._send_file_to_inference(chunk)
+                
                 # Абсолютное время для всего чанка
                 absolute_start = current_offset
                 absolute_end = current_offset + chunk_duration
@@ -130,34 +147,39 @@ class WebsiteListenerBot:
                 # Формируем строку для этого чанка
                 start_str = self.format_time_hms(absolute_start)
                 end_str = self.format_time_hms(absolute_end)
-                full_text_parts.append(f"[{start_str} - {end_str}] {transcription_te.strip()}")
+                
+                if transcription_te:
+                    full_text_parts.append(f"[{start_str} - {end_str}] {transcription_te.strip()}")
                 
                 # Обновляем offset для следующего чанка
                 current_offset += chunk_duration
             
             # Собираем полный текст
             full_text = "\n".join(full_text_parts)
-            logger.info(f"[{self.meeting_id}] Полный текст собран: {len(chunk_paths)} чанков")
+            logger.info(f"[{self.meeting_id}] Полный текст собран: {len(full_text_parts)} фрагментов")
             
             # Очищаем от временных меток для суммаризации
             cleaned_dialogue = re.sub(r"\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*", "", full_text)
             
-            # Суммаризация
-            logger.info(f"[{self.meeting_id}] Создание summary...")
-            summary_text = get_summary_response(cleaned_dialogue)
-            
-            # Заголовок
-            logger.info(f"[{self.meeting_id}] Создание title...")
-            title_text = get_title_response(cleaned_dialogue)
-            
-            # Отправляем результат
-            send_results_to_backend(
-                meeting_id=self.meeting_id,
-                full_text=full_text,
-                summary=summary_text or "",
-                title=title_text or ""
-            )
-            
+            if cleaned_dialogue.strip():
+                # Суммаризация
+                logger.info(f"[{self.meeting_id}] Создание summary...")
+                summary_text = get_summary_response(cleaned_dialogue)
+                
+                # Заголовок
+                logger.info(f"[{self.meeting_id}] Создание title...")
+                title_text = get_title_response(cleaned_dialogue)
+                
+                # Отправляем результат
+                send_results_to_backend(
+                    meeting_id=self.meeting_id,
+                    full_text=full_text,
+                    summary=summary_text or "",
+                    title=title_text or ""
+                )
+            else:
+                 logger.warning(f"[{self.meeting_id}] Пустой текст диалога, пропускаем summary.")
+
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка постобработки: {e}", exc_info=True)
         finally:

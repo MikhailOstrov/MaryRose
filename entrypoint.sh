@@ -140,7 +140,7 @@ chown appuser:appuser /workspace/logs/inference_service.log
 
 # Запускаем в фоне через gosu
 cd /app
-gosu appuser uvicorn server.inference_service:app --host 0.0.0.0 --port 8000 --log-level info > /workspace/logs/inference_service.log 2>&1 &
+gosu appuser uvicorn server.inference_service:app --host 0.0.0.0 --port 8000 --log-level info 2>&1 | tee /workspace/logs/inference_service.log &
 INFERENCE_PID=$!
 
 log "Ожидание запуска Inference Service (порт 8000)..."

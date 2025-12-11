@@ -50,8 +50,7 @@ def load_asr_model():
             print("⚠️ WARNING: CUDAExecutionProvider не найден! Инференс будет идти на CPU.")
 
         local_model_dir = "/app/onnx"
-        # Пробуем сначала TensorRT, потом CUDA
-        providers = ['TensorrtExecutionProvider', 'CUDAExecutionProvider'] 
+        providers = ['CUDAExecutionProvider'] 
         asr_model = onnx_asr.load_model("gigaam-v2-ctc", local_model_dir, providers=providers)
         
         # Проверяем, на каком устройстве реально загрузилась модель

@@ -85,13 +85,22 @@ def run_inference_sync(audio_float32: np.ndarray) -> str:
     try:
         # Универсальный вызов метода распознавания
         text = ""
-        if hasattr(asr_model, "recognize"):
-             text = asr_model.recognize(audio_float32)
-        elif hasattr(asr_model, "transcribe"):
-             text = asr_model.transcribe(audio_float32)
-        else:
-             # Fallback: вызов как callable
-             text = asr_model(audio_float32)
+        try:
+            if hasattr(asr_model, "recognize"):
+                # Пробуем передать beam_size=1 для Greedy Decoding (меньше нагрузка на CPU)
+                try:
+                    text = asr_model.recognize(audio_float32, beam_size=1)
+                except TypeError:
+                    # Если аргумент не поддерживается, вызываем без него
+                    text = asr_model.recognize(audio_float32)
+            elif hasattr(asr_model, "transcribe"):
+                 text = asr_model.transcribe(audio_float32)
+            else:
+                 # Fallback: вызов как callable
+                 text = asr_model(audio_float32)
+        except Exception as e:
+            logger.error(f"Ошибка при вызове модели: {e}")
+            return ""
 
         # Обработка результата (если вернулся список сегментов)
         if isinstance(text, list):

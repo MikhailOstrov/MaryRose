@@ -25,6 +25,7 @@ for dir_path in workspace_dirs:
 
 import torch
 import onnx_asr
+import onnxruntime as ort
 from dotenv import load_dotenv
 
 
@@ -42,11 +43,53 @@ def create_new_vad_model():
 # Проверка и загрузка ASR модели
 def load_asr_model():
     try:
+        available_providers = ort.get_available_providers()
+        print(f"🔍 ONNX Runtime Available Providers: {available_providers}")
+        
+        if 'CUDAExecutionProvider' not in available_providers:
+            print("⚠️ WARNING: CUDAExecutionProvider не найден! Инференс будет идти на CPU.")
+
         local_model_dir = "/app/onnx"
         providers = ['CUDAExecutionProvider'] 
         asr_model = onnx_asr.load_model("gigaam-v2-ctc", local_model_dir, providers=providers)
+        
+        # Проверяем, на каком устройстве реально загрузилась модель
+        active_providers = None
+        device_info = "❓ Не удалось определить"
+        
+        try:
+            # Пытаемся получить доступ к сессии ONNX Runtime через различные возможные атрибуты
+            session = None
+            if hasattr(asr_model, 'session'):
+                session = asr_model.session
+            elif hasattr(asr_model, 'model') and hasattr(asr_model.model, 'session'):
+                session = asr_model.model.session
+            elif hasattr(asr_model, '_session'):
+                session = asr_model._session
+            elif hasattr(asr_model, 'onnx_session'):
+                session = asr_model.onnx_session
+            
+            if session is not None:
+                active_providers = session.get_providers()
+                if 'CUDAExecutionProvider' in active_providers:
+                    device_info = "✅ GPU (CUDAExecutionProvider)"
+                elif 'CPUExecutionProvider' in active_providers:
+                    device_info = "⚠️ CPU (CPUExecutionProvider)"
+                else:
+                    device_info = f"❓ {active_providers}"
+            else:
+                # Если не нашли сессию напрямую, пробуем через рефлексию
+                print("⚠️ Не удалось найти сессию ONNX Runtime в объекте модели для проверки устройства")
+        except Exception as e:
+            print(f"⚠️ Ошибка при проверке устройства модели: {e}")
+        
+        print(f"📊 ASR модель загружена на: {device_info}")
+        if active_providers:
+            print(f"   Активные провайдеры: {active_providers}")
+        
     except Exception as e:
         print(f"Произошла ошибка с загрузкой модели. {e}")
+        asr_model = None
     return asr_model
 
 def load_te_model():

@@ -180,7 +180,7 @@ class AudioHandler:
         min_speech_duration = 0.5             # минимальная длина речи
  
         chuck_duration = (VAD_CHUNK_SIZE / STREAM_SAMPLE_RATE) * 1000 # ------------------------------------ ПРОВЕРИТЬ НУЖНО ЛИ ЭТО
-        MAX_SPEECH_DURATION_S = 30.0          # Максимальная длина речи перед принудительной отправкой
+        MAX_SPEECH_DURATION_S = 15.0          # Максимальная длина речи перед принудительной отправкой
         sr = STREAM_SAMPLE_RATE
 
         silence_accum_ms = 0

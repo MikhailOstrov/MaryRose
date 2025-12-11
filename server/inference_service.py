@@ -179,16 +179,20 @@ async def websocket_endpoint(websocket: WebSocket):
             data = await websocket.receive_bytes()
             if not data:
                 continue
-            
+            start_time = time.time()
             try:
                 audio_float32 = np.frombuffer(data, dtype=np.float32)
             except Exception as e:
                 logger.error(f"Ошибка конвертации аудио данных: {e}")
                 continue
-            
+
+            duration = time.time() - start_time
+            logger.info(f"Conversion time: {duration:.3f}s ----------")
             loop = asyncio.get_running_loop()
             text = await loop.run_in_executor(executor, run_inference_sync, audio_float32)
-            
+
+            duration = time.time() - start_time
+            logger.info(f"Inference time: {duration:.3f}s ----------")
             # Отправляем только если текст не пустой (опционально)
             if text:
                 await websocket.send_text(text)

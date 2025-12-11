@@ -76,6 +76,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Настройка SSH
+RUN mkdir -p /var/run/sshd && \
+    sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config && \
+    # Устанавливаем пароль root:root для удобства отладки
+    echo 'root:root' | chpasswd
+
 
 
 
@@ -94,22 +100,25 @@ RUN dos2unix /app/entrypoint.sh && \
     chown -R appuser:appuser /app /workspace
 
 # --- ШАГ 7: ПЕРЕКЛЮЧЕНИЕ НА НЕПРИВИЛЕГИРОВАННОГО ПОЛЬЗОВАТЕЛЯ ---
-# ЭТА КОМАНДА ДОЛЖНА БЫТЬ!
-USER appuser
+# ВАЖНО: Мы НЕ переключаемся на пользователя здесь. 
+# Контейнер стартует как root, чтобы entrypoint.sh мог настроить права на volmes и XDG_RUNTIME_DIR.
+# Переключение на appuser происходит внутри entrypoint.sh через gosu.
+# USER appuser
 
-# Настройка переменных окружения, которые понадобятся appuser
-ENV HOME=/home/appuser 
+# Настройка переменных окружения
+ENV HOME=/app
 ENV XDG_RUNTIME_DIR=/tmp/runtime-appuser
 
-# Настройка переменных окружения (можно делать и до USER, но так логичнее)
-ENV HOME=/app
 ENV TORCH_HOME=/workspace/.cache/torch
 ENV HF_HOME=/workspace/.cache/huggingface
 ENV LOGS_DIR=/workspace/logs
 ENV PYTHONPATH=/app
 
+# Создаем директорию для runtime заранее (на случай если entrypoint не отработает)
+RUN mkdir -p /tmp/runtime-appuser && chmod 700 /tmp/runtime-appuser && chown appuser:appuser /tmp/runtime-appuser
+
 # --- ШАГ 8: ЗАПУСК ---
-EXPOSE 8000 8001
+EXPOSE 8000 8001 22
 ENTRYPOINT ["/app/entrypoint.sh"]
 # Основной сервер запускаем на 8000, так как 8001 занят инференсом
 CMD ["uvicorn", "server.server:app", "--host", "0.0.0.0", "--port", "8001"]

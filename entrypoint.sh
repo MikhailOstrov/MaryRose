@@ -1,94 +1,128 @@
 #!/bin/bash
 set -e
 
-echo "=== [Entrypoint] Проверка системных ресурсов ==="
-df -h
-echo "=============================================="
+# Функция для логирования
+log() {
+    echo "[Entrypoint] $1"
+}
 
-echo "=== [Entrypoint] Запуск от пользователя: $(whoami) ==="
+log "Старт контейнера от пользователя: $(whoami)"
 
-# --- 0. Настройка /workspace ---
-echo "[Entrypoint] Проверка и настройка /workspace..."
+# --- 1. Настройка прав доступа (работаем как root) ---
+log "Настройка прав доступа..."
+
+# --- РАННИЙ ЗАПУСК SSH (ДЛЯ VAST.AI) ---
+# Запускаем SSH сразу же, чтобы иметь доступ в случае проблем с остальным скриптом
+log "Ранний запуск SSH сервера..."
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+# Если Vast.ai прокинул ключи через ENV, можно их добавить (обычно он делает это сам через volume или docker copy)
+if [ ! -d "/var/run/sshd" ]; then
+    mkdir -p /var/run/sshd
+fi
+/usr/sbin/sshd
+log "SSH сервер запущен."
+
+# Генерируем machine-id, если нет (нужен для D-Bus и PulseAudio)
+if [ ! -f /etc/machine-id ]; then
+    log "Генерация /etc/machine-id..."
+    dbus-uuidgen > /etc/machine-id
+fi
+
+# Убедимся, что рабочие директории принадлежат appuser
+# Это критично, если папки смонтированы как volumes
+chown -R appuser:appuser /app /workspace
+
+# Создаем и настраиваем XDG_RUNTIME_DIR для звука
+export XDG_RUNTIME_DIR=/tmp/runtime-appuser
+mkdir -p -m 0700 "$XDG_RUNTIME_DIR"
+chown appuser:appuser "$XDG_RUNTIME_DIR"
+log "XDG_RUNTIME_DIR настроен: $XDG_RUNTIME_DIR"
+
+# Настройка кэшей
 mkdir -p /workspace/.cache/torch /workspace/.cache/nemo /workspace/.cache/huggingface /workspace/models /workspace/logs
+chown -R appuser:appuser /workspace/.cache /workspace/models /workspace/logs
+
+# Экспортируем переменные, чтобы gosu их подхватил
+export HOME=/app
 export TORCH_HOME=/workspace/.cache/torch
 export HF_HOME=/workspace/.cache/huggingface
 export LOGS_DIR=/workspace/logs
-echo "✅ [Entrypoint] /workspace настроен."
 
+# --- 2. Запуск D-Bus (нужен для PulseAudio) ---
+log "Запуск D-Bus..."
+mkdir -p /var/run/dbus
+# Очищаем старый pid файл если есть
+rm -f /var/run/dbus/pid
+dbus-daemon --system --fork
+sleep 1
 
+# --- 2.5 Запуск SSH сервера ---
+# log "Запуск SSH сервера..."
+# /usr/sbin/sshd
 
-# --- 1. Настройка пользовательского окружения ---
-export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-"/tmp/runtime-$(whoami)"}
-mkdir -p -m 0700 "$XDG_RUNTIME_DIR"
+# --- 3. Запуск PulseAudio (от имени appuser) ---
+log "Запуск PulseAudio от пользователя appuser..."
 
-# !!! УДАЛЕНО: Глобальный запуск Xvfb и установка DISPLAY больше не нужны !!!
-# Xvfb :99 -screen 0 1280x720x16 -nolisten tcp &
-# sleep 2
-# export DISPLAY=:99
+# Чистим старые сокеты PA если есть
+rm -rf /tmp/runtime-appuser/pulse
 
-# Запускаем PulseAudio в пользовательском режиме (это остается)
-echo "[Entrypoint] Запуск PulseAudio в пользовательском режиме..."
-pulseaudio --start --log-target=stderr --exit-idle-time=-1
-sleep 2 # Пауза для инициализации
+# Запускаем PA через gosu
+# --start: запускает как демона
+# --exit-idle-time=-1: не выключаться при простое
+gosu appuser pulseaudio --start --log-target=stderr --exit-idle-time=-1 --verbose
 
-# --- 2. Проверка служб ---
-echo "[Entrypoint] Проверка служб..."
-if ! pactl info >/dev/null 2>&1; then
-    echo "❌ [Entrypoint] CRITICAL: PulseAudio не запустился."
-    exit 1
+sleep 2 # Даем время на инициализацию
+
+# Проверка
+if gosu appuser pactl info >/dev/null 2>&1; then
+    log "✅ PulseAudio успешно запущен."
+else
+    log "❌ ОШИБКА: PulseAudio не отвечает."
+    # Пробуем вывести логи (если PA писал в stderr, они уже в логах докера, но можно глянуть syslog если есть)
 fi
-echo "✅ [Entrypoint] PulseAudio готов."
 
-
-
-# --- 4. Предзагрузка моделей (остается без изменений) ---
-# ... (ваш код предзагрузки) ...
-
-# --- 5. Финальная диагностика ---
-echo "=== [Entrypoint] Проверка системы ==="
-echo "Chrome version: $(google-chrome --version 2>/dev/null || echo 'Chrome не найден')"
-# ... (остальной ваш код диагностики) ...
-
-# --- 5.5. Запуск Inference Service ---
-echo "[Entrypoint] Запуск Inference Service..."
-# Создаем лог-файл
-mkdir -p /workspace/logs
+# --- 4. Запуск Inference Service (от имени appuser) ---
+log "Запуск Inference Service..."
 touch /workspace/logs/inference_service.log
+chown appuser:appuser /workspace/logs/inference_service.log
 
-# Запускаем uvicorn в фоне. 
-# Важно: запускаем из корня проекта (/app), где лежит MaryRose
+# Запускаем в фоне через gosu
 cd /app
-uvicorn server.inference_service:app --host 0.0.0.0 --port 8000 --log-level info > /workspace/logs/inference_service.log 2>&1 &
+gosu appuser uvicorn server.inference_service:app --host 0.0.0.0 --port 8000 --log-level info > /workspace/logs/inference_service.log 2>&1 &
 INFERENCE_PID=$!
 
-echo "[Entrypoint] Ожидание запуска Inference Service (порт 8000)..."
-# Цикл ожидания порта (через curl /health)
-# Модель грузится долго, дадим 5 минут (150 * 2s = 300s)
+log "Ожидание запуска Inference Service (порт 8000)..."
 MAX_RETRIES=150 
 for ((i=1;i<=MAX_RETRIES;i++)); do
-    # Проверяем не просто порт, а статус модели (она вернет 200 только когда загрузится)
+    # Проверка health endpoint
     if curl -s http://127.0.0.1:8000/health | grep -q "ok"; then
-        echo "✅ [Entrypoint] Inference Service готов и модель загружена (попытка $i)!"
+        log "✅ Inference Service готов (попытка $i)!"
         break
     fi
     
     # Проверка, жив ли процесс
     if ! kill -0 $INFERENCE_PID 2>/dev/null; then
-        echo "❌ [Entrypoint] Inference Service упал! Смотри логи /workspace/logs/inference_service.log"
+        log "❌ Inference Service упал! Логи:"
         cat /workspace/logs/inference_service.log
         exit 1
     fi
     
-    echo "⏳ [Entrypoint] Ожидание загрузки модели... ($i/$MAX_RETRIES)"
+    if [ $((i % 5)) -eq 0 ]; then
+        log "⏳ Ожидание... ($i/$MAX_RETRIES)"
+    fi
     sleep 2
 done
 
 if (( i > MAX_RETRIES )); then
-    echo "❌ [Entrypoint] Таймаут ожидания Inference Service."
+    log "❌ Таймаут ожидания Inference Service."
     kill $INFERENCE_PID
     exit 1
 fi
 
-# --- 6. Запуск основного приложения ---
-echo "=== [Entrypoint] Запуск основного приложения... ==="
-exec "$@"
+# --- 5. Запуск основного приложения ---
+log "=== Запуск основного приложения (appuser) ==="
+log "Команда: $@"
+
+# Передаем управление appuser для выполнения CMD из Dockerfile
+exec gosu appuser "$@"

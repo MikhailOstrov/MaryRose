@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 import torch
+import onnx_asr
+from dotenv import load_dotenv
 
 # Настройка путей для RunPod (модели сохраняются в персистентный /workspace)
 os.environ['HOME'] = '/app'
@@ -22,10 +24,6 @@ workspace_dirs = [
 for dir_path in workspace_dirs:
     Path(dir_path).mkdir(parents=True, exist_ok=True)
     print(f"Создана директория: {dir_path}")
-
-import torch
-import onnx_asr
-from dotenv import load_dotenv
 
 
 load_dotenv() 

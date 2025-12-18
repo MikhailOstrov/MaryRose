@@ -67,8 +67,7 @@ RUN python3.11 -m pip install --no-cache-dir -r requirements.txt && \
 python3.11 -m pip uninstall -y onnxruntime && \
 \
 # Шаг 3: Устанавливаем правильную GPU-версию. 
-# Откат на 1.18.0 для лучшей совместимости с CUDA 12.x и устранения Memcpy проблем
-python3.11 -m pip install --no-cache-dir --upgrade --force-reinstall onnxruntime-gpu==1.18.0
+python3.11 -m pip install --no-cache-dir --upgrade --force-reinstall onnxruntime-gpu==1.20.0
 # --- ШАГ ПРОВЕРКИ ONNXRUNTIME-GPU (исправленная версия) ---
 
 

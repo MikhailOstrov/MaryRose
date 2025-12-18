@@ -10,9 +10,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response, UploadFile, File
 
 from config.load_models import load_asr_model, load_te_model
+import sys
 
-# Настройка логирования
-logging.basicConfig(level=logging.INFO)
+# Настройка логирования: принудительно пишем в stdout
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[logging.StreamHandler(sys.stdout)],
+    force=True
+)
 logger = logging.getLogger("inference_service")
 
 # Глобальные переменные
@@ -116,10 +122,13 @@ def run_inference_sync(audio_float32: np.ndarray) -> str:
             text = apply_punctuation(text)
 
         duration = time.time() - start_time
-        logger.info(f"Inference time (stream): {duration:.3f}s. Text: {text[:50]}...")
+        msg = f"Inference time (stream): {duration:.3f}s. Text: {text[:50]}..."
+        logger.info(msg)
+        print(msg) # Дублируем в stdout для гарантии видимости
         return text
     except Exception as e:
-        logger.error(f"Ошибка при инференсе: {e}")
+        logger.error(f"Ошибка при инференсе: {e}", exc_info=True)
+        print(f"ERROR INFERENCE: {e}")
         return ""
 
 def run_file_inference_sync(file_obj) -> str:

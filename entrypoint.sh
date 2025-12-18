@@ -64,13 +64,7 @@ sleep 1
 # --- 3. Запуск PulseAudio (от имени appuser) ---
 log "Запуск PulseAudio от пользователя appuser..."
 
-# 1. Полная зачистка и ПОДГОТОВКА HOMEDIR
-# PulseAudio берет домашнюю директорию из /etc/passwd, даже если HOME переопределен.
-# Создаем /home/appuser, чтобы он не падал.
-mkdir -p /home/appuser/.config/pulse
-chown -R appuser:appuser /home/appuser
-
-# Чистим runtime
+# 1. Полная зачистка
 rm -rf /tmp/runtime-appuser/pulse
 rm -rf /app/.config/pulse
 mkdir -p /app/.config/pulse
@@ -78,38 +72,39 @@ chown -R appuser:appuser /app/.config
 chown -R appuser:appuser /tmp/runtime-appuser
 
 # 2. Создаем минимальный скрипт запуска PA (default.pa)
-# Кладем конфиг и в /app, и в /home/appuser на всякий случай
-CONF_CONTENT="load-module module-native-protocol-unix socket=/tmp/runtime-appuser/pulse/native auth-anonymous=1
+# Мы явно говорим: НЕ ГРУЗИ ALSA, НЕ ГРУЗИ UDEV. Только null-sink и сокет.
+cat > /app/.config/pulse/default.pa <<EOF
+load-module module-native-protocol-unix socket=/tmp/runtime-appuser/pulse/native auth-anonymous=1
 load-module module-null-sink sink_name=Virtual_Speaker sink_properties=device.description=Virtual_Speaker
-load-module module-always-sink"
-
-echo "$CONF_CONTENT" > /app/.config/pulse/default.pa
-echo "$CONF_CONTENT" > /home/appuser/.config/pulse/default.pa
-chown -R appuser:appuser /app/.config /home/appuser/.config
+load-module module-always-sink
+EOF
+chown appuser:appuser /app/.config/pulse/default.pa
 
 # 3. Настраиваем client.conf
-CLIENT_CONF="default-server = unix:/tmp/runtime-appuser/pulse/native
-autospawn = no"
-echo "$CLIENT_CONF" > /app/.config/pulse/client.conf
-echo "$CLIENT_CONF" > /home/appuser/.config/pulse/client.conf
+cat > /app/.config/pulse/client.conf <<EOF
+default-server = unix:/tmp/runtime-appuser/pulse/native
+autospawn = no
+EOF
+chown appuser:appuser /app/.config/pulse/client.conf
 
 # 4. Настраиваем daemon.conf
-DAEMON_CONF="exit-idle-time = -1
+cat > /app/.config/pulse/daemon.conf <<EOF
+exit-idle-time = -1
 enable-shm = no
 allow-module-loading = yes
 flat-volumes = no
-use-pid-file = no"
-echo "$DAEMON_CONF" > /app/.config/pulse/daemon.conf
-echo "$DAEMON_CONF" > /home/appuser/.config/pulse/daemon.conf
+use-pid-file = no
+EOF
+chown appuser:appuser /app/.config/pulse/daemon.conf
 
 log "Конфигурация PulseAudio создана (minimal, no hardware)."
 
 # 5. Запуск
-# Используем конфиг из /home/appuser, раз он так хочет туда лезть
+# Важно: используем -nF, чтобы читать только наш конфиг и не демонизироваться (сначала)
 log "Попытка запуска pulseaudio..."
 
 # Запускаем в фоне, но пишем stdout/stderr в файл для анализа
-gosu appuser dbus-run-session -- pulseaudio --verbose --log-target=file:/workspace/logs/pulseaudio.log --file=/home/appuser/.config/pulse/default.pa --exit-idle-time=-1 &
+gosu appuser dbus-run-session -- pulseaudio --verbose --log-target=file:/workspace/logs/pulseaudio.log --file=/app/.config/pulse/default.pa --exit-idle-time=-1 &
 PA_PID=$!
 
 sleep 5

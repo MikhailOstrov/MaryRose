@@ -64,50 +64,46 @@ sleep 1
 # --- 3. Запуск PulseAudio (от имени appuser) ---
 log "Запуск PulseAudio от пользователя appuser..."
 
-# Чистим старые сокеты и конфиги
+# Чистим старые сокеты PA если есть
 rm -rf /tmp/runtime-appuser/pulse
-rm -rf /app/.config/pulse
-mkdir -p /app/.config/pulse
-chown -R appuser:appuser /app/.config
 
-# ХАК: Настраиваем client.conf и daemon.conf
-cat > /app/.config/pulse/client.conf <<EOF
-default-server = unix:/tmp/runtime-appuser/pulse/native
-autospawn = no
-EOF
+# ХАК: Отключаем shm (shared memory), так как в контейнерах с этим часто проблемы
+if [ ! -f /etc/pulse/client.conf ]; then
+    mkdir -p /etc/pulse
+    echo "enable-shm = no" >> /etc/pulse/client.conf
+    echo "autospawn = no" >> /etc/pulse/client.conf
+    log "Конфигурация PulseAudio обновлена (shm=no, autospawn=no)"
+fi
+# Также правим daemon.conf если есть права
+if [ -f /etc/pulse/daemon.conf ]; then
+     echo "exit-idle-time = -1" >> /etc/pulse/daemon.conf
+     echo "enable-shm = no" >> /etc/pulse/daemon.conf
+fi
 
-cat > /app/.config/pulse/daemon.conf <<EOF
-exit-idle-time = -1
-enable-shm = no
-allow-module-loading = yes
-flat-volumes = no
-EOF
-chown -R appuser:appuser /app/.config/pulse
 
-log "Конфигурация PulseAudio обновлена (force null-sink, no-shm)."
+# Запускаем PA через gosu
+# Используем dbus-launch, чтобы создать сессионную шину, если её нет
+# --start может падать, поэтому пробуем запустить явно
+log "Попытка запуска pulseaudio --start..."
 
-# Запускаем PA через gosu с ЯВНОЙ загрузкой модулей
-# Мы не надеемся на авто-обнаружение железа. Мы создаем виртуальный Null Sink.
-log "Попытка запуска pulseaudio с модулем null-sink..."
+if gosu appuser pulseaudio --start --log-target=stderr --verbose; then
+    log "✅ PulseAudio успешно запущен (через --start)."
+else
+    log "⚠️ 'pulseaudio --start' не сработал. Пробуем прямой запуск в фоне..."
+    # Пробуем запустить демона напрямую без --start (иногда надежнее)
+    gosu appuser pulseaudio --daemonize=yes --system=false --disallow-exit --log-target=stderr --verbose
+fi
 
-# --start здесь часто вреден, запускаем как обычный процесс в фоне
-# Используем dbus-run-session, чтобы у PA была своя шина D-Bus
-gosu appuser dbus-run-session -- bash -c "pulseaudio --daemonize=yes --verbose --log-target=stderr --disallow-exit --exit-idle-time=-1 --system=false \
-    --load='module-null-sink sink_name=Virtual_Speaker sink_properties=device.description=Virtual_Speaker' \
-    --load='module-native-protocol-unix socket=/tmp/runtime-appuser/pulse/native auth-anonymous=1'"
-
-sleep 2
+sleep 2 # Даем время на инициализацию
 
 # Проверка
 if gosu appuser pactl info >/dev/null 2>&1; then
-    log "✅ PulseAudio работает (Virtual Speaker создан)."
-    # Проверим, есть ли sink
-    gosu appuser pactl list sinks short
+    log "✅ PulseAudio работает (pactl info ok)."
 else
-    log "❌ ОШИБКА: PulseAudio не отвечает. Логи выше."
-    log "⚠️ Продолжаем загрузку без звука..."
+    log "❌ ОШИБКА: PulseAudio не отвечает. Логи запуска выше."
+    # НЕ ВЫХОДИМ, чтобы SSH остался жив и можно было дебажить
+    log "⚠️ Продолжаем загрузку без звука, чтобы сохранить доступ по SSH..."
 fi
-
 
 
 # --- 4. Запуск Inference Service (от имени appuser) ---

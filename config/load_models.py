@@ -26,6 +26,7 @@ for dir_path in workspace_dirs:
 import torch
 import onnx_asr
 import onnxruntime as ort
+import shutil
 from dotenv import load_dotenv
 
 
@@ -40,17 +41,57 @@ def create_new_vad_model():
     print("✅ Новый экземпляр VAD создан.")
     return model
 
+def optimize_model_if_needed(model_path):
+    """Оптимизирует ONNX модель для устранения проблем с Memcpy на GPU"""
+    marker = model_path + ".optimized"
+    if os.path.exists(marker):
+        return
+
+    print(f"🔄 Оптимизация модели {model_path} для устранения Memcpy узлов...")
+    try:
+        opt_path = model_path + ".temp"
+        so = ort.SessionOptions()
+        so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        so.optimized_model_filepath = opt_path
+        
+        # Запускаем сессию для триггера оптимизации (на CUDA, чтобы знать возможности GPU)
+        # Если CUDA недоступна, сработает фоллбек, но оптимизация все равно пройдет
+        _ = ort.InferenceSession(model_path, so, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
+        
+        # Заменяем оригинал
+        if os.path.exists(opt_path):
+            shutil.move(opt_path, model_path)
+            # Создаем маркер
+            with open(marker, 'w') as f: f.write("done")
+            print("✅ Модель успешно оптимизирована и заменена.")
+        
+    except Exception as e:
+        print(f"⚠️ Ошибка оптимизации (игнорируем, попробуем запустить так): {e}")
+
 # Проверка и загрузка ASR модели
 def load_asr_model():
     try:
         available_providers = ort.get_available_providers()
         print(f"🔍 ONNX Runtime Available Providers: {available_providers}")
         
-        if 'CUDAExecutionProvider' not in available_providers:
-            print("⚠️ WARNING: CUDAExecutionProvider не найден! Инференс будет идти на CPU.")
-
         local_model_dir = "/app/onnx"
-        providers = ['CUDAExecutionProvider'] 
+        model_file = os.path.join(local_model_dir, "gigaam-v2-ctc.onnx")
+
+        # 1. Если модели нет, даем onnx_asr её скачать (загрузка на CPU чтобы не занимать VRAM)
+        if not os.path.exists(model_file):
+            print("📥 Скачивание модели (первичная загрузка)...")
+            try:
+                # Грузим на CPU только ради скачивания
+                _ = onnx_asr.load_model("gigaam-v2-ctc", local_model_dir, providers=['CPUExecutionProvider'])
+            except Exception as e:
+                print(f"Ошибка при скачивании: {e}")
+
+        # 2. Оптимизируем модель, если она есть и еще не оптимизирована
+        if os.path.exists(model_file):
+            optimize_model_if_needed(model_file)
+
+        # 3. Грузим боевую версию (пробуем TensorRT, затем CUDA)
+        providers = ['TensorrtExecutionProvider', 'CUDAExecutionProvider'] 
         asr_model = onnx_asr.load_model("gigaam-v2-ctc", local_model_dir, providers=providers)
         
         # Проверяем, на каком устройстве реально загрузилась модель

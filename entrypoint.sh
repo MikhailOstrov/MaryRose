@@ -67,44 +67,20 @@ log "Запуск PulseAudio от пользователя appuser..."
 # Чистим старые сокеты PA если есть
 rm -rf /tmp/runtime-appuser/pulse
 
-# ХАК: Отключаем shm (shared memory), так как в контейнерах с этим часто проблемы
-if [ ! -f /etc/pulse/client.conf ]; then
-    mkdir -p /etc/pulse
-    echo "enable-shm = no" >> /etc/pulse/client.conf
-    echo "autospawn = no" >> /etc/pulse/client.conf
-    log "Конфигурация PulseAudio обновлена (shm=no, autospawn=no)"
-fi
-# Также правим daemon.conf если есть права
-if [ -f /etc/pulse/daemon.conf ]; then
-     echo "exit-idle-time = -1" >> /etc/pulse/daemon.conf
-     echo "enable-shm = no" >> /etc/pulse/daemon.conf
-fi
-
-
 # Запускаем PA через gosu
-# Используем dbus-launch, чтобы создать сессионную шину, если её нет
-# --start может падать, поэтому пробуем запустить явно
-log "Попытка запуска pulseaudio --start..."
-
-if gosu appuser pulseaudio --start --log-target=stderr --verbose; then
-    log "✅ PulseAudio успешно запущен (через --start)."
-else
-    log "⚠️ 'pulseaudio --start' не сработал. Пробуем прямой запуск в фоне..."
-    # Пробуем запустить демона напрямую без --start (иногда надежнее)
-    gosu appuser pulseaudio --daemonize=yes --system=false --disallow-exit --log-target=stderr --verbose
-fi
+# --start: запускает как демона
+# --exit-idle-time=-1: не выключаться при простое
+gosu appuser pulseaudio --start --log-target=stderr --exit-idle-time=-1 --verbose
 
 sleep 2 # Даем время на инициализацию
 
 # Проверка
 if gosu appuser pactl info >/dev/null 2>&1; then
-    log "✅ PulseAudio работает (pactl info ok)."
+    log "✅ PulseAudio успешно запущен."
 else
-    log "❌ ОШИБКА: PulseAudio не отвечает. Логи запуска выше."
-    # НЕ ВЫХОДИМ, чтобы SSH остался жив и можно было дебажить
-    log "⚠️ Продолжаем загрузку без звука, чтобы сохранить доступ по SSH..."
+    log "❌ ОШИБКА: PulseAudio не отвечает."
+    # Пробуем вывести логи (если PA писал в stderr, они уже в логах докера, но можно глянуть syslog если есть)
 fi
-
 
 # --- 4. Запуск Inference Service (от имени appuser) ---
 log "Запуск Inference Service..."

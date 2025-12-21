@@ -29,7 +29,6 @@ import onnxruntime as ort
 import shutil
 from dotenv import load_dotenv
 
-
 load_dotenv() 
 
 # Создает и возвращает НОВЫЙ, ИЗОЛИРОВАННЫЙ экземпляр VAD-модели Silero. Использует кэш, чтобы не скачивать модель каждый раз..
@@ -75,24 +74,8 @@ def load_asr_model():
         print(f"🔍 ONNX Runtime Available Providers: {available_providers}")
         
         local_model_dir = "/app/onnx"
-        model_file = os.path.join(local_model_dir, "gigaam-v2-ctc.onnx")
-
-        # 1. Если модели нет, даем onnx_asr её скачать (загрузка на CPU чтобы не занимать VRAM)
-        if not os.path.exists(model_file):
-            print("📥 Скачивание модели (первичная загрузка)...")
-            try:
-                # Грузим на CPU только ради скачивания
-                _ = onnx_asr.load_model("gigaam-v2-ctc", local_model_dir, providers=['CPUExecutionProvider'])
-            except Exception as e:
-                print(f"Ошибка при скачивании: {e}")
-
-        # 2. Оптимизируем модель, если она есть и еще не оптимизирована
-        if os.path.exists(model_file):
-            optimize_model_if_needed(model_file)
-
-        # 3. Грузим боевую версию (пробуем TensorRT, затем CUDA)
-        providers = ['TensorrtExecutionProvider', 'CUDAExecutionProvider'] 
-        asr_model = onnx_asr.load_model("gigaam-v2-ctc", local_model_dir, providers=providers)
+        providers = ['CUDAExecutionProvider'] 
+        asr_model = onnx_asr.load_model("gigaam-v3-e2e-ctc", local_model_dir, providers=providers)
         
         # Проверяем, на каком устройстве реально загрузилась модель
         active_providers = None
@@ -133,14 +116,4 @@ def load_asr_model():
         asr_model = None
     return asr_model
 
-def load_te_model():
-    model, example_texts, languages, punct, apply_te = torch.hub.load(repo_or_dir='snakers4/silero-models', model='silero_te')
-    return apply_te
-
-
-
-# Загрузка моделей перенесена в соответствующие сервисы
-# asr_model и te_model больше не загружаются глобально при импорте
-
-__all__ = ['load_asr_model', 'create_new_vad_model', 'load_te_model']
-# Экспортируем загруженные модели
+__all__ = ['load_asr_model', 'create_new_vad_model']

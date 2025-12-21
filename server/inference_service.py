@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Response, UploadFile, File
 
-from config.load_models import load_asr_model, load_te_model
+from config.load_models import load_asr_model
 import sys
 
 # Настройка логирования: принудительно пишем в stdout
@@ -40,14 +40,6 @@ async def lifespan(app: FastAPI):
         logger.info(f"ASR модель успешно загружена: {type(asr_model)}")
     except Exception as e:
         logger.error(f"Критическая ошибка при загрузке ASR модели: {e}")
-        # raise e # Можно не ронять сервис, если упала только одна модель, но лучше упасть
-
-    logger.info("Загрузка TE модели (Silero)...")
-    try:
-        te_model = load_te_model()
-        logger.info("TE модель успешно загружена.")
-    except Exception as e:
-        logger.error(f"Ошибка при загрузке TE модели (пунктуация будет недоступна): {e}")
 
     yield
     
@@ -61,23 +53,10 @@ app = FastAPI(lifespan=lifespan, title="MaryRose Inference Service")
 @app.get("/health")
 async def health_check(response: Response):
     if asr_model is not None:
-        return {"status": "ok", "model_loaded": True, "te_loaded": te_model is not None}
+        return {"status": "ok", "model_loaded": True}
     
     response.status_code = 503
     return {"status": "error", "model_loaded": False}
-
-def apply_punctuation(text: str) -> str:
-    """Применяет TE модель к тексту, если она загружена."""
-    if not text or not te_model:
-        return text
-    
-    try:
-        # Silero TE принимает текст и lan='ru'
-        # Возвращает строку с пунктуацией
-        return te_model(text, lan='ru')
-    except Exception as e:
-        logger.error(f"Ошибка при расстановке пунктуации: {e}")
-        return text
 
 def run_inference_sync(audio_float32: np.ndarray) -> str:
     """
@@ -116,10 +95,6 @@ def run_inference_sync(audio_float32: np.ndarray) -> str:
                 text = " ".join(map(str, text))
         
         text = str(text).strip()
-        
-        # === Применение TE (Пунктуация) ===
-        if text:
-            text = apply_punctuation(text)
 
         duration = time.time() - start_time
         msg = f"Inference time (stream): {duration:.3f}s. Text: {text[:50]}..."
@@ -159,10 +134,6 @@ def run_file_inference_sync(file_obj) -> str:
                 text = " ".join(map(str, text))
                 
         text = str(text).strip()
-        
-        # === Применение TE (Пунктуация) ===
-        if text:
-            text = apply_punctuation(text)
         
         duration = time.time() - start_time
         logger.info(f"Inference time (file): {duration:.3f}s. Text: {text[:50]}...")

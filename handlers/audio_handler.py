@@ -17,7 +17,7 @@ from handlers.llm_handler import llm_response, get_summary_response, get_title_r
 from utils.kb_requests import save_info_in_kb, get_info_from_kb
 from config.load_models import create_new_vad_model
 from config.config import (STREAM_SAMPLE_RATE, STREAM_TRIGGER_WORD, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, MEET_AUDIO_CHUNKS_DIR,
-                        STREAM_STOP_WORD_3, MEET_FRAME_DURATION_MS, SUMMARY_OUTPUT_DIR)
+                        STREAM_STOP_WORD_3, MEET_FRAME_DURATION_MS, SUMMARY_OUTPUT_DIR, TRIGGER_WORDS, STOP_WORDS)
 from utils.backend_request import send_results_to_backend
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ class AudioHandler:
         self.vad = create_new_vad_model()
         # self.te_model = te_model
         # self.asr_model = asr_model
-        #self.speak_via_meet=speak_via_meet
+        #self.speak_via_meet = speak_via_meet
         # self.asr_model = asr_model # Модель больше не нужна локально, используем WS
         self.email = email
         self.start_time = time.time()
@@ -101,34 +101,49 @@ class AudioHandler:
 
     def _handle_transcription_logic(self, transcription, pipeline_start_time):
         """Обрабатывает полученный текст (триггеры, ответы LLM)."""
-        if transcription.lower().lstrip().startswith(STREAM_TRIGGER_WORD):
-            clean_transcription = ''.join(char for char in transcription.lower() if char.isalnum() or char.isspace())
+        transcription_lower = transcription.lower()
 
-            if STREAM_STOP_WORD_1 in clean_transcription or STREAM_STOP_WORD_2 in clean_transcription or STREAM_STOP_WORD_3 in clean_transcription:
-                logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")
-                self.send_chat_message("Услышала Вас, завершаю работу!")
-                self.stop()
-            else:
+        # Проверка на команды остановки
+        # Исходная логика: триггер должен быть в начале (startswith), а стоп-слово где-то в тексте
+        if any(transcription_lower.startswith(trigger) for trigger in TRIGGER_WORDS) and any(word in transcription_lower for word in STOP_WORDS):
+             logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")
+             #self.speak_via_meet("Услышала Вас, завершаю работу!")
+             self.send_chat_message("Услышала Вас, завершаю работу!")
+             self.stop()
+             return
+
+        # Проверка на обращение к Мэри (триггер где угодно)
+        elif any(trigger in transcription_lower for trigger in TRIGGER_WORDS):
+            choice = mary_check(transcription)
+            logger.info(f"Решение (mary_check): {choice}")
+            
+            if choice == 1:
+                #self.speak_via_meet("Секунду...")
                 self.send_chat_message("Услышала Вас, действую...")
                 try:
                     key, response = llm_response(transcription)
                     logger.info(f"Ответ от LLM: {key, response}")
-                    if response:
-                        print("Отправляю ответ в чат...")
+                    
                     if key == 0:
                         asyncio.run(save_info_in_kb(response, self.email))
+                        #self.speak_via_meet("Ваша информация сохранена.")
                         self.send_chat_message("Ваша информация сохранена.")
                     elif key == 1:
                         info_from_kb = asyncio.run(get_info_from_kb(response, self.email))
-                        if info_from_kb == None:
+                        if info_from_kb is None:
+                            #self.speak_via_meet("Не нашла информации в вашей базе знаний.")
                             self.send_chat_message("Не нашла информации в вашей базе знаний.")
                         else:
+                            #self.speak_via_meet("Вывожу в чат найденную информацию...")
                             self.send_chat_message(info_from_kb)
                     elif key == 3:
+                        #self.speak_via_meet(response)
                         self.send_chat_message(response)
 
                 except Exception as chat_err:
                     logger.error(f"[{self.meeting_id}] Ошибка при отправке ответа в чат: {chat_err}")
+            else:
+                 logger.info(f"[{self.meeting_id}] mary_check=0, игнорируем (не обращение).")
 
     def _process_speech_buffer(self, speech_buffer, start_ts, end_ts, min_duration=0.5):
         """Собирает аудио из буфера, отправляет на транскрибацию и обрабатывает результат."""
@@ -257,66 +272,6 @@ class AudioHandler:
                                 is_speaking = False
                                 silence_accum_ms = 0
                                 pipeline_start_time = None
-
-                                        # speech_end_walltime = speech_start_walltime + chunk_duration
-
-                                        # is_speaking = False
-                                        # silence_accum_ms = 0
-
-                                        # with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_wav:
-                                        #     temp_path = temp_wav.name
-                                        #     sf.write(temp_path, full_audio_np, STREAM_SAMPLE_RATE, subtype='PCM_16')
-
-                                        # # Распознаём
-                                        # try:
-                                        #     transcription = self.asr_model.recognize(temp_path)
-                                        #     logger.info(f"Текст распознан: {transcription}")
-                                        #     os.unlink(temp_path)
-                                        # except Exception as e:
-                                        #     logger.error(f"[{self.meeting_id}] Ошибка распознавания: {e}")
-
-                                        # transcription_te  = te_model(transcription, lan='ru')
-                                        # dialog = f"[{self.format_time_hms(speech_start_walltime)} - {self.format_time_hms(speech_end_walltime)}] {transcription_te.strip()}"
-                                        
-                                        # self.all_segments.append(dialog)
-                                        # print(dialog)
-
-                                        # self.global_offset += chunk_duration
-                                        # if any(transcription.startswith(trigger) for trigger in TRIGGER_WORDS) and any(word in transcription for word in STOP_WORDS):
-                                        #     #self.speak_via_meet("Услышала Вас, завершаю работу!")
-                                        #     self.stop()
-                                        #     continue 
-
-                                        # elif any(trigger in transcription for trigger in TRIGGER_WORDS):
-                                        #     choice = mary_check(transcription_te)
-                                        #     logger.info(f"Решение: {choice}")
-                                        #     if choice == 1:
-                                        #         #self.speak_via_meet("Секунду...")
-                                        #         try:
-                                        #             key, response = llm_response(transcription_te)
-                                        #             logger.info(f"Ответ от LLM: {key, response}")
-                                        #             if key == 0:
-                                        #                 asyncio.run(save_info_in_kb(response, self.email))
-                                        #                 #self.speak_via_meet("Ваша информация сохранена.")
-                                        #             elif key == 1:
-                                        #                 info_from_kb = asyncio.run(get_info_from_kb(response, self.email))
-                                        #                 if info_from_kb is None:
-                                        #                     #self.speak_via_meet("Не нашла информации в вашей базе знаний.")
-                                        #                     self.send_chat_message("Не нашла информации в вашей базе знаний.")
-                                        #                 else:
-                                        #                     #self.speak_via_meet("Вывожу в чат найденную информацию...")
-                                        #                     self.send_chat_message(info_from_kb)
-                                        #             elif key == 3:
-                                        #                 #self.speak_via_meet(response)
-                                        #                 self.send_chat_message(response)
-
-                                        #         except Exception as chat_err:
-                                        #             logger.error(f"[{self.meeting_id}] Ошибка при отправке ответа в чат: {chat_err}")
-                                        #     else:
-                                        #         pass
-
-                                        # else:
-                                        #     pipeline_start_time = None
             except queue.Empty:
                 if is_speaking and speech_buffer_for_asr:
                     logger.info(f"[{self.meeting_id}] Тайм-аут, обрабатываем оставшуюся речь.")

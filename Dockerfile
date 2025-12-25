@@ -67,7 +67,7 @@ RUN python3.11 -m pip install --no-cache-dir -r requirements.txt && \
 python3.11 -m pip uninstall -y onnxruntime && \
 \
 # Шаг 3: Устанавливаем правильную GPU-версию. 
-python3.11 -m pip install --no-cache-dir --upgrade --force-reinstall onnxruntime-gpu==1.20.0
+python3.11 -m pip install --no-cache-dir --upgrade --force-reinstall onnxruntime-gpu==1.23.2
 # --- ШАГ ПРОВЕРКИ ONNXRUNTIME-GPU (исправленная версия) ---
 
 

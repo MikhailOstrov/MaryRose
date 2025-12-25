@@ -7,8 +7,8 @@ pydantic==2.5.2
 aiohttp==3.9.1 # Для асинхронных HTTP запросов
 
 # onnx-asr[gpu,hub]
-onnxruntime-gpu==1.20.0
-onnx-asr==0.7.0
+onnxruntime-gpu==1.23.2
+onnx-asr==0.9.1
 
 # Аудио обработка
 webrtcvad==2.0.10

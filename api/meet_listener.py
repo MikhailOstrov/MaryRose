@@ -434,9 +434,6 @@ class MeetListenerBot:
             join_button.click()
             self._save_screenshot("03_after_ask_to_join")
             
-            # Небольшая задержка после нажатия кнопки для стабилизации
-            time.sleep(1)
-            
             logger.info(f"[{self.meeting_id}] Запрос отправлен. Ожидаю одобрения хоста (до 120с)...")
             max_wait_time, check_interval, elapsed_time = 120, 2, 0
             
@@ -449,7 +446,11 @@ class MeetListenerBot:
                 # Другие надежные элементы интерфейса
                 '//div[@data-self-name]', # Элемент с именем самого бота
                 '//div[contains(@class, "control") and (contains(@class, "bar") or contains(@class, "panel"))]', # Панель управления
-                '//button[@aria-label*="hand" or @aria-label*="рука" or @data-tooltip*="hand"]' # Кнопка "поднять руку"
+                '//button[@aria-label*="hand" or @aria-label*="рука" or @data-tooltip*="hand"]', # Кнопка "поднять руку"
+                # НОВЫЕ ИНДИКАТОРЫ
+                '//button[@jsname="CQylAd"]', # Кнопка завершения звонка по jsname
+                '//video[@src]', # Видео элемент (появляется только в активной встрече)
+                '//button[@aria-label*="Chat" or @aria-label*="Чат" or @data-tooltip*="chat"]' # Кнопка чата
             ]
             # ПОЛНЫЙ СПИСОК ИНДИКАТОРОВ ОШИБКИ
             error_indicators = [
@@ -460,20 +461,35 @@ class MeetListenerBot:
             ]
 
             while elapsed_time < max_wait_time:
-                # Проверяем индикаторы успеха с явным ожиданием видимости
-                for i, xpath in enumerate(success_indicators):
-                    try:
-                        # Используем WebDriverWait для явного ожидания видимости элемента
-                        element = WebDriverWait(self.driver, check_interval).until(
-                            EC.visibility_of_element_located((By.XPATH, xpath))
-                        )
-                        # Если элемент найден и видим - успех!
-                        self._save_screenshot("04_joined_successfully")
-                        logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1}: {xpath})")
+                # ПРОВЕРКА URL - САМЫЙ НАДЕЖНЫЙ СПОСОБ
+                try:
+                    current_url = self.driver.current_url
+                    # Проверяем, что URL указывает на активную встречу (не страницу ожидания)
+                    if ("meet.google.com" in current_url and 
+                        "lookup" not in current_url and 
+                        "landing" not in current_url and
+                        "/" in current_url.split("meet.google.com")[-1] and
+                        len(current_url.split("meet.google.com")[-1].split("/")) > 1):
+                        
+                        # URL указывает на встречу - проверяем дополнительные индикаторы для уверенности
+                        logger.info(f"[{self.meeting_id}] URL указывает на встречу: {current_url}")
+                        url_indicators_found = False
+                        
+                        # Быстрая проверка пары индикаторов
+                        for i, xpath in enumerate(success_indicators[:3]):  # Проверяем первые 3 индикатора
+                            try:
+                                if self.driver.find_element(By.XPATH, xpath).is_displayed():
+                                    url_indicators_found = True
+                                    break
+                            except:
+                                continue
+                        
+                        # Если URL правильный - считаем успехом (даже если индикаторы ещё не загрузились)
+                        self._save_screenshot("04_joined_successfully_url")
+                        logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (URL проверка)")
                         self.joined_successfully = True
                         try:
                             self.toggle_mic_hotkey()
-                            #self.speak_via_meet("Здравствуйте! Сейчас в чате появится инструкция. Прочтите её, пожалуйста!")
                             self.send_chat_message("""Инструкция по командам:
                                                        Обратитесь к Мэри по имени, чтобы она вас услышала.
                                                        Вы можете как добавить информацию ("Мэри, запиши...") так и найти информация
@@ -484,31 +500,39 @@ class MeetListenerBot:
                             logger.warning(f"[{self.meeting_id}] Не удалось выполнить действия после входа: {e_toggle}")
                         
                         return True
-                    except Exception as e:
-                        # Логируем только если это не TimeoutException (это нормально, элемент ещё не появился)
-                        from selenium.common.exceptions import TimeoutException
-                        if not isinstance(e, TimeoutException):
-                            logger.debug(f"[{self.meeting_id}] Индикатор #{i+1} не найден: {type(e).__name__}: {e}")
-                        continue
+                except Exception as e_url:
+                    logger.debug(f"[{self.meeting_id}] Ошибка проверки URL: {e_url}")
                 
-                # Проверяем индикаторы ошибок
+                # Проверка индикаторов (если URL не сработал)
+                for i, xpath in enumerate(success_indicators):
+                    try:
+                        if self.driver.find_element(By.XPATH, xpath).is_displayed():
+                            self._save_screenshot("04_joined_successfully")
+                            logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
+                            self.joined_successfully = True
+                            try:
+                                self.toggle_mic_hotkey()
+                                #self.speak_via_meet("Здравствуйте! Сейчас в чате появится инструкция. Прочтите её, пожалуйста!")
+                                self.send_chat_message("""Инструкция по командам:
+                                                       Обратитесь к Мэри по имени, чтобы она вас услышала.
+                                                       Вы можете как добавить информацию ("Мэри, запиши...") так и найти информация
+                                                       из вашей базы знаний ("Мэри, найди..." или "Слушай, Мэри, напомни/поищи...")
+                                                       По завершению вашего созвона можете сказать "Мэри, заверши встречу", "Мэри, стоп",
+                                                       либо просто выйдите из созвона, бот в скором времени выйдет сам.""")
+                            except Exception as e_toggle:
+                                logger.warning(f"[{self.meeting_id}] Не удалось выполнить действия после входа: {e_toggle}")
+                            
+                            return True
+                    except: continue
+                
                 for error_xpath in error_indicators:
                     try:
-                        # Используем короткий таймаут для проверки ошибок
-                        error_element = WebDriverWait(self.driver, 0.5).until(
-                            EC.presence_of_element_located((By.XPATH, error_xpath))
-                        )
+                        error_element = self.driver.find_element(By.XPATH, error_xpath)
                         if error_element.is_displayed():
-                            error_text = error_element.text or "текст ошибки не найден"
-                            logger.error(f"[{self.meeting_id}] ❌ Присоединение отклонено: {error_text}")
+                            logger.error(f"[{self.meeting_id}] ❌ Присоединение отклонено: {error_element.text}")
                             self._save_screenshot("98_join_denied")
                             return False
-                    except Exception as e:
-                        # Игнорируем, если элемент не найден (это нормально)
-                        from selenium.common.exceptions import TimeoutException
-                        if not isinstance(e, TimeoutException):
-                            logger.debug(f"[{self.meeting_id}] Проверка ошибки не удалась: {type(e).__name__}")
-                        continue
+                    except: continue
 
                 time.sleep(check_interval)
                 elapsed_time += check_interval

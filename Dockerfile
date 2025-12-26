@@ -1,5 +1,5 @@
 # --- ШАГ 1: БАЗОВЫЙ ОБРАЗ ---
-FROM nvidia/cuda:12.3.2-cudnn9-devel-ubuntu22.04
+FROM nvidia/cuda:12.5.1-cudnn-runtime-ubuntu22.04
 
 # --- ШАГ 2: УСТАНОВКА СИСТЕМНЫХ ЗАВИСИМОСТЕЙ ---
 # Добавлены только зависимости для Chrome/Audio, БЕЗ ИЗМЕНЕНИЯ установки Python.
@@ -7,6 +7,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # Основные утилиты, необходимые для проекта
     software-properties-common build-essential wget curl git ca-certificates jq unzip dos2unix gosu \
+    # Дополнительные утилиты
+    coreutils less nano openssh-server \
     # ЗАВИСИМОСТИ CHROME/AUDIO ИЗ JOIN_MEET (полный список для надежности)
     gnupg procps xvfb pulseaudio dbus-x11 x11-utils pulseaudio-utils \
     fonts-liberation libnss3 libgdk-pixbuf-2.0-0 libgtk-3-0 libxss1 libgbm1 \
@@ -15,6 +17,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libappindicator3-1 libxshmfence1 libglu1-mesa \
     # Аудио-библиотеки (включая DEV пакеты из join_meet)
     libsndfile1 libportaudio2 portaudio19-dev libasound2-dev \
+    # Медиа-обработка
+    ffmpeg \
     # ОРИГИНАЛЬНАЯ УСТАНОВКА PYTHON 3.11 (НЕ ТРОНУТА)
     && add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update \
@@ -51,10 +55,6 @@ RUN python3.11 -m pip install --no-cache-dir \
     torch==2.3.1+cu121 torchaudio==2.3.1+cu121 torchvision==0.18.1+cu121 \
 --index-url https://download.pytorch.org/whl/cu121
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ffmpeg \
-    && rm -rf /var/lib/apt/lists/*
-
 # --- ШАГ 5: УСТАНОВКА ОСТАЛЬНЫХ PYTHON-ЗАВИСИМОСТЕЙ (НЕ ТРОНУТО) ---
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1
 WORKDIR /app
@@ -69,14 +69,6 @@ python3.11 -m pip uninstall -y onnxruntime && \
 # Шаг 3: Устанавливаем правильную GPU-версию. 
 python3.11 -m pip install --no-cache-dir --upgrade --force-reinstall onnxruntime-gpu==1.23.2
 # --- ШАГ ПРОВЕРКИ ONNXRUNTIME-GPU (исправленная версия) ---
-
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    coreutils less nano openssh-server gosu \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
-
-
 
 
 # --- ШАГ 6: КОПИРОВАНИЕ КОДА И НАСТРОЙКА ПРАВ ---
@@ -99,6 +91,7 @@ USER appuser
 
 # Настройка переменных окружения, которые понадобятся appuser
 ENV HOME=/home/appuser 
+ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/lib/x86_64-linux-gnu:$LD_LIBRARY_PATH
 ENV XDG_RUNTIME_DIR=/tmp/runtime-appuser
 
 # Настройка переменных окружения (можно делать и до USER, но так логичнее)

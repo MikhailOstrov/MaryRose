@@ -40,33 +40,6 @@ def create_new_vad_model():
     print("✅ Новый экземпляр VAD создан.")
     return model
 
-def optimize_model_if_needed(model_path):
-    """Оптимизирует ONNX модель для устранения проблем с Memcpy на GPU"""
-    marker = model_path + ".optimized"
-    if os.path.exists(marker):
-        return
-
-    print(f"🔄 Оптимизация модели {model_path} для устранения Memcpy узлов...")
-    try:
-        opt_path = model_path + ".temp"
-        so = ort.SessionOptions()
-        so.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
-        so.optimized_model_filepath = opt_path
-        
-        # Запускаем сессию для триггера оптимизации (на CUDA, чтобы знать возможности GPU)
-        # Если CUDA недоступна, сработает фоллбек, но оптимизация все равно пройдет
-        _ = ort.InferenceSession(model_path, so, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'])
-        
-        # Заменяем оригинал
-        if os.path.exists(opt_path):
-            shutil.move(opt_path, model_path)
-            # Создаем маркер
-            with open(marker, 'w') as f: f.write("done")
-            print("✅ Модель успешно оптимизирована и заменена.")
-        
-    except Exception as e:
-        print(f"⚠️ Ошибка оптимизации (игнорируем, попробуем запустить так): {e}")
-
 # Проверка и загрузка ASR модели
 def load_asr_model():
     try:
@@ -75,7 +48,10 @@ def load_asr_model():
         
         local_model_dir = "/app/onnx"
         providers = ['CUDAExecutionProvider'] 
-        asr_model = onnx_asr.load_model("gigaam-v3-e2e-ctc", local_model_dir, providers=providers)
+        sess_options = ort.SessionOptions()
+        sess_options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        sess_options.log_severity_level = 1
+        asr_model = onnx_asr.load_model("gigaam-v3-e2e-ctc", local_model_dir, providers=providers, sess_options=sess_options)
         
         # Проверяем, на каком устройстве реально загрузилась модель
         active_providers = None

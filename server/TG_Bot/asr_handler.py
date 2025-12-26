@@ -1,4 +1,4 @@
-'''import asyncio
+import asyncio
 import io
 import aiohttp
 import logging
@@ -37,4 +37,3 @@ async def transcribe_audio_async(audio_bytes: bytes) -> str:
         except Exception as e:
             logger.error(f"Failed to connect to Inference Service: {e}")
             return ""
-'''

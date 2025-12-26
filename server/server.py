@@ -1,4 +1,4 @@
-'''import logging
+import logging
 import os
 from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.responses import FileResponse
@@ -60,4 +60,3 @@ async def health_check_extended():
 # --- Команда для запуска сервера из терминала ---
 # uvicorn server:app --host 0.0.0.0 --port 8001
 
-'''

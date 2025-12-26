@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, File, Depends, Form, HTTPException
+'''from fastapi import APIRouter, UploadFile, File, Depends, Form, HTTPException
 import logging
 import soundfile as sf
 import librosa
@@ -58,3 +58,4 @@ async def receive_audio(chat_id: int = Form(...), audio: UploadFile = File(...))
     except Exception as e:
         logging.exception(f"[chat_id={chat_id}] Ошибка при обработке аудио: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+'''

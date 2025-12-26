@@ -112,8 +112,13 @@ class AudioHandler:
              self.stop()
              return
 
-        # Проверка на обращение к Мэри (триггер где угодно)
-        elif any(trigger in transcription_lower for trigger in TRIGGER_WORDS):
+        # Проверка на обращение к Мэри (триггер где угодно, но как отдельное слово)
+        # Используем регулярное выражение для поиска целых слов, чтобы избежать ложных срабатываний
+        # Например, "мери" не должно находиться в "меридиан"
+        trigger_pattern = r'\b(' + '|'.join(re.escape(trigger) for trigger in TRIGGER_WORDS) + r')\b'
+        has_trigger = bool(re.search(trigger_pattern, transcription_lower))
+        
+        if has_trigger:
             choice = mary_check(transcription)
             logger.info(f"Решение (mary_check): {choice}")
             
@@ -144,6 +149,9 @@ class AudioHandler:
                     logger.error(f"[{self.meeting_id}] Ошибка при отправке ответа в чат: {chat_err}")
             else:
                  logger.info(f"[{self.meeting_id}] mary_check=0, игнорируем (не обращение).")
+        else:
+            # Нет триггерных слов - логируем для отладки
+            logger.debug(f"[{self.meeting_id}] Триггерных слов не найдено в транскрипции: '{transcription}'")
 
     def _process_speech_buffer(self, speech_buffer, start_ts, end_ts, min_duration=0.5):
         """Собирает аудио из буфера, отправляет на транскрибацию и обрабатывает результат."""

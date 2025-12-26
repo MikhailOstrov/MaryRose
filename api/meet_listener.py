@@ -450,7 +450,16 @@ class MeetListenerBot:
                 # НОВЫЕ ИНДИКАТОРЫ
                 '//button[@jsname="CQylAd"]', # Кнопка завершения звонка по jsname
                 '//video[@src]', # Видео элемент (появляется только в активной встрече)
-                '//button[@aria-label*="Chat" or @aria-label*="Чат" or @data-tooltip*="chat"]' # Кнопка чата
+                '//button[@aria-label*="Chat" or @aria-label*="Чат" or @data-tooltip*="chat"]', # Кнопка чата
+                # ДОПОЛНИТЕЛЬНЫЕ НОВЫЕ ИНДИКАТОРЫ
+                '//button[@jsname="PIVayb"]', # Альтернативный jsname для кнопки завершения
+                '//button[@aria-label*="microphone" or @aria-label*="микрофон"][@aria-label*="mute" or @aria-label*="unmute"]', # Кнопка микрофона
+                '//button[@aria-label*="camera" or @aria-label*="камера"][@aria-label*="turn"]', # Кнопка камеры
+                '//button[.//i[text()="call_end"]]', # Иконка завершения звонка
+                '//button[.//i[text()="videocam"]]', # Иконка камеры
+                '//button[.//i[text()="mic"]]', # Иконка микрофона
+                '//div[@role="toolbar"]//button[@aria-label]', # Кнопки в панели инструментов
+                '//div[@role="group"]//button[@aria-label]', # Кнопки в группе управления
             ]
             # ПОЛНЫЙ СПИСОК ИНДИКАТОРОВ ОШИБКИ
             error_indicators = [
@@ -461,49 +470,7 @@ class MeetListenerBot:
             ]
 
             while elapsed_time < max_wait_time:
-                # ПРОВЕРКА URL - САМЫЙ НАДЕЖНЫЙ СПОСОБ
-                try:
-                    current_url = self.driver.current_url
-                    # Проверяем, что URL указывает на активную встречу (не страницу ожидания)
-                    if ("meet.google.com" in current_url and 
-                        "lookup" not in current_url and 
-                        "landing" not in current_url and
-                        "/" in current_url.split("meet.google.com")[-1] and
-                        len(current_url.split("meet.google.com")[-1].split("/")) > 1):
-                        
-                        # URL указывает на встречу - проверяем дополнительные индикаторы для уверенности
-                        logger.info(f"[{self.meeting_id}] URL указывает на встречу: {current_url}")
-                        url_indicators_found = False
-                        
-                        # Быстрая проверка пары индикаторов
-                        for i, xpath in enumerate(success_indicators[:3]):  # Проверяем первые 3 индикатора
-                            try:
-                                if self.driver.find_element(By.XPATH, xpath).is_displayed():
-                                    url_indicators_found = True
-                                    break
-                            except:
-                                continue
-                        
-                        # Если URL правильный - считаем успехом (даже если индикаторы ещё не загрузились)
-                        self._save_screenshot("04_joined_successfully_url")
-                        logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (URL проверка)")
-                        self.joined_successfully = True
-                        try:
-                            self.toggle_mic_hotkey()
-                            self.send_chat_message("""Инструкция по командам:
-                                                       Обратитесь к Мэри по имени, чтобы она вас услышала.
-                                                       Вы можете как добавить информацию ("Мэри, запиши...") так и найти информация
-                                                       из вашей базы знаний ("Мэри, найди..." или "Слушай, Мэри, напомни/поищи...")
-                                                       По завершению вашего созвона можете сказать "Мэри, заверши встречу", "Мэри, стоп",
-                                                       либо просто выйдите из созвона, бот в скором времени выйдет сам.""")
-                        except Exception as e_toggle:
-                            logger.warning(f"[{self.meeting_id}] Не удалось выполнить действия после входа: {e_toggle}")
-                        
-                        return True
-                except Exception as e_url:
-                    logger.debug(f"[{self.meeting_id}] Ошибка проверки URL: {e_url}")
-                
-                # Проверка индикаторов (если URL не сработал)
+                # Проверяем индикаторы интерфейса
                 for i, xpath in enumerate(success_indicators):
                     try:
                         if self.driver.find_element(By.XPATH, xpath).is_displayed():

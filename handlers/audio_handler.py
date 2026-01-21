@@ -16,8 +16,7 @@ from websockets.exceptions import ConnectionClosed, InvalidStatusCode
 from handlers.llm_handler import llm_response, get_summary_response, get_title_response, mary_check
 from utils.kb_requests import save_info_in_kb, get_info_from_kb
 from config.load_models import create_new_vad_model
-from config.config import (STREAM_SAMPLE_RATE, STREAM_TRIGGER_WORD, STREAM_STOP_WORD_1, STREAM_STOP_WORD_2, MEET_AUDIO_CHUNKS_DIR,
-                        STREAM_STOP_WORD_3, MEET_FRAME_DURATION_MS, SUMMARY_OUTPUT_DIR, TRIGGER_WORDS, STOP_WORDS)
+from config.config import (STREAM_SAMPLE_RATE, MEET_AUDIO_CHUNKS_DIR, SUMMARY_OUTPUT_DIR, TRIGGER_WORDS, STOP_WORDS)
 from utils.backend_request import send_results_to_backend
 
 logger = logging.getLogger(__name__)
@@ -46,6 +45,8 @@ class AudioHandler:
         
         self.ws_url = "ws://localhost:8000/transcribe"
         self.ws_connection = None
+        self.TRIGGER_WORDS_SET = frozenset(TRIGGER_WORDS)
+        self.STOP_WORDS_SET = frozenset(STOP_WORDS)
 
     # Преобразование временных меток
     def format_time_hms(self, seconds: float) -> str:
@@ -102,21 +103,17 @@ class AudioHandler:
     def _handle_transcription_logic(self, transcription, pipeline_start_time):
         """Обрабатывает полученный текст (триггеры, ответы LLM)."""
         transcription_lower = transcription.lower()
+        
+        first_word = transcription_lower.partition(" ")[0]
 
-        # Проверка на команды остановки
-        # Исходная логика: триггер должен быть в начале (startswith), а стоп-слово где-то в тексте
-        if any(transcription_lower.startswith(trigger) for trigger in TRIGGER_WORDS) and any(word in transcription_lower for word in STOP_WORDS):
+        if first_word in self.TRIGGER_WORDS_SET and any(sw in transcription_lower for sw in self.STOP_WORDS_SET):
              logger.info(f"[{self.meeting_id}] Провожу постобработку и завершаю работу")
              #self.speak_via_meet("Услышала Вас, завершаю работу!")
              self.send_chat_message("Услышала Вас, завершаю работу!")
              self.stop()
              return
-
-        # Проверка на обращение к Мэри (триггер где угодно, но как отдельное слово)
-        # Используем регулярное выражение для поиска целых слов, чтобы избежать ложных срабатываний
-        # Например, "мери" не должно находиться в "меридиан"
-        trigger_pattern = r'\b(' + '|'.join(re.escape(trigger) for trigger in TRIGGER_WORDS) + r')\b'
-        has_trigger = bool(re.search(trigger_pattern, transcription_lower))
+        
+        has_trigger = any(word in transcription_lower for word in self.TRIGGER_WORDS_SET)
         
         if has_trigger:
             choice = mary_check(transcription)

@@ -6,9 +6,8 @@ websockets==12.0
 pydantic==2.5.2
 aiohttp==3.9.1 # Для асинхронных HTTP запросов
 
-# onnx-asr[gpu,hub]
-onnxruntime-gpu==1.23.2
-onnx-asr==0.9.1
+# Для Whisper
+faster_whisper
 
 # Аудио обработка
 webrtcvad==2.0.10
@@ -18,8 +17,6 @@ librosa
 numpy==1.26.4
 omegaconf>=2.3.0
 
-# Машинное обучение
-scikit-learn==1.6.1
 transformers
 huggingface_hub
 

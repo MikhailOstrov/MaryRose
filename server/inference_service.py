@@ -34,7 +34,7 @@ async def lifespan(app: FastAPI):
     global asr_model, te_model
     logger.info("Инициализация Inference Service...")
     
-    logger.info("Загрузка ASR модели (GigaAM-v2-CTC ONNX)...")
+    logger.info("Загрузка ASR модели...")
     try:
         asr_model = load_asr_model()
         logger.info(f"ASR модель успешно загружена: {type(asr_model)}")
@@ -71,30 +71,20 @@ def run_inference_sync(audio_float32: np.ndarray) -> str:
         # Универсальный вызов метода распознавания
         text = ""
         try:
-            if hasattr(asr_model, "recognize"):
-                # Пробуем передать beam_size=1 для Greedy Decoding (меньше нагрузка на CPU)
-                try:
-                    text = asr_model.recognize(audio_float32, beam_size=1)
-                except TypeError:
-                    # Если аргумент не поддерживается, вызываем без него
-                    text = asr_model.recognize(audio_float32)
-            elif hasattr(asr_model, "transcribe"):
-                 text = asr_model.transcribe(audio_float32)
-            else:
-                 # Fallback: вызов как callable
-                 text = asr_model(audio_float32)
+            segments, info = asr_model.transcribe(
+                audio_float32,
+                beam_size=1,
+                temperature=0.0,
+                best_of=1,
+                vad_filter=False,
+                condition_on_previous_text=False,
+                word_timestamps=False,
+                without_timestamps=True)
+            for segment in segments:
+                text = segment.text.strip()
         except Exception as e:
             logger.error(f"Ошибка при вызове модели: {e}")
             return ""
-
-        # Обработка результата (если вернулся список сегментов)
-        if isinstance(text, list):
-            if text and hasattr(text[0], 'text'):
-                text = " ".join([t.text for t in text])
-            else:
-                text = " ".join(map(str, text))
-        
-        text = str(text).strip()
 
         duration = time.time() - start_time
         msg = f"Inference time (stream): {duration:.3f}s. Text: {text[:50]}..."
@@ -108,38 +98,51 @@ def run_inference_sync(audio_float32: np.ndarray) -> str:
 
 def run_file_inference_sync(file_obj) -> str:
     """
-    Синхронная функция инференса для файлов.
+    Синхронная функция инференса для аудиофайлов с использованием Whisper.
+    Возвращает объединённый текст транскрипции.
     """
     if asr_model is None:
+        logger.error("ASR model is not loaded")
         return ""
-    
+
     start_time = time.time()
     try:
+        # Читаем аудио
         audio_data, sr = sf.read(file_obj)
-        
-        if sr != 16000:
-            logger.warning(f"Внимание: Sample rate {sr}, ожидается 16000.")
-            
-        if hasattr(asr_model, "recognize"):
-             text = asr_model.recognize(audio_data)
-        elif hasattr(asr_model, "transcribe"):
-             text = asr_model.transcribe(audio_data)
-        else:
-             text = asr_model(audio_data)
 
-        if isinstance(text, list):
-            if text and hasattr(text[0], 'text'):
-                text = " ".join([t.text for t in text])
-            else:
-                text = " ".join(map(str, text))
-                
-        text = str(text).strip()
+        # Whisper ожидает mono float32 на 16 kHz
+        if len(audio_data.shape) > 1:
+            audio_data = np.mean(audio_data, axis=1)  # stereo → mono
+
+        audio_data = audio_data.astype(np.float32)
+
+        if sr != 16000:
+            logger.warning(f"Sample rate {sr} → resampling to 16000 Hz required")
+
+        segments, info = asr_model.transcribe(
+            audio_data,
+            beam_size=1,
+            temperature=0.0,
+            best_of=1)
         
+        if hasattr(segments, '__iter__'): 
+            text_parts = [segment.text.strip() for segment in segments if segment.text.strip()]
+            text = " ".join(text_parts)
+        else:
+            text = str(segments).strip()
+
+        text = text.strip()
+
         duration = time.time() - start_time
-        logger.info(f"Inference time (file): {duration:.3f}s. Text: {text[:50]}...")
+        logger.info(
+            f"Inference time (file): {duration:.2f}s | "
+            f"Text preview: {text[:70]!r}..."
+        )
+
         return text
+
     except Exception as e:
-        logger.error(f"File inference error: {e}")
+        logger.exception("File inference failed")
         return ""
 
 @app.post("/transcribe_file")

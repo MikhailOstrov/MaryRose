@@ -103,6 +103,38 @@ class MeetListenerBot:
                 self.stop()
         else:
             logger.info(f"[{self.meeting_id}] Мониторинг оставшегося времени остановлен.")
+
+            
+    def _get_participant_count(self) -> int | None:
+        """
+        Пытается получить количество участников несколькими способами.
+        Возвращает int, если успешно, иначе None.
+        """
+        # --- Способ 1: Поиск по aria-label у кнопки (старый метод) ---
+        try:
+            locator_xpath = "//button[.//i[text()='people'] and @aria-label]"
+            element = self.driver.find_element(By.XPATH, locator_xpath)
+            aria_label = element.get_attribute('aria-label') or ""
+            numbers = ''.join(filter(str.isdigit, aria_label))
+            if numbers:
+                logger.debug(f"[{self.meeting_id}] Способ 1 (aria-label) нашел: {numbers}")
+                return int(numbers)
+        except Exception:
+            logger.debug(f"[{self.meeting_id}] Способ 1 (aria-label) не сработал.")
+
+        # --- Способ 2: Поиск по видимому тексту "Участники" / "Participants" (новый, более надежный) ---
+        try:
+            # Ищем элемент, который является прямым соседом элемента с текстом "Участники" или "Participants".
+            locator_xpath = '//span[text()="Участники" or text()="People"]/following-sibling::div//div[string-length(normalize-space(text())) > 0]'
+            element = self.driver.find_element(By.XPATH, locator_xpath)
+            count_text = element.text
+            if count_text and count_text.isdigit():
+                logger.debug(f"[{self.meeting_id}] Способ 2 (текст) нашел: {count_text}")
+                return int(count_text)
+        except Exception:
+            logger.debug(f"[{self.meeting_id}] Способ 2 (текст) не сработал.")
+
+        return None
     # Отслеживание кол-ва участников
     def _monitor_participants(self):
         """Отслеживает количество участников. Если бот остается один, он завершает работу."""
@@ -137,36 +169,7 @@ class MeetListenerBot:
                 self.stop()
                 return
 
-    def _get_participant_count(self) -> int | None:
-        """
-        Пытается получить количество участников несколькими способами.
-        Возвращает int, если успешно, иначе None.
-        """
-        # --- Способ 1: Поиск по aria-label у кнопки (старый метод) ---
-        try:
-            locator_xpath = "//button[.//i[text()='people'] and @aria-label]"
-            element = self.driver.find_element(By.XPATH, locator_xpath)
-            aria_label = element.get_attribute('aria-label') or ""
-            numbers = ''.join(filter(str.isdigit, aria_label))
-            if numbers:
-                logger.debug(f"[{self.meeting_id}] Способ 1 (aria-label) нашел: {numbers}")
-                return int(numbers)
-        except Exception:
-            logger.debug(f"[{self.meeting_id}] Способ 1 (aria-label) не сработал.")
-
-        # --- Способ 2: Поиск по видимому тексту "Участники" / "Participants" (новый, более надежный) ---
-        try:
-            # Ищем элемент, который является прямым соседом элемента с текстом "Участники" или "Participants".
-            locator_xpath = "//div[text()='Участники' or text()='Participants']/following-sibling::div"
-            element = self.driver.find_element(By.XPATH, locator_xpath)
-            count_text = element.text
-            if count_text and count_text.isdigit():
-                logger.debug(f"[{self.meeting_id}] Способ 2 (текст) нашел: {count_text}")
-                return int(count_text)
-        except Exception:
-            logger.debug(f"[{self.meeting_id}] Способ 2 (текст) не сработал.")
-
-        return None
+    
     
     # Инициализация драйвера для подключения
     def _initialize_driver(self):

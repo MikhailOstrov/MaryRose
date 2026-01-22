@@ -9,7 +9,7 @@ import soundfile as sf
 import tempfile
 import re
 import asyncio
-import collections
+from collections import deque
 from websockets.sync.client import connect
 from websockets.exceptions import ConnectionClosed, InvalidStatusCode
 
@@ -27,17 +27,14 @@ class AudioHandler:
         self.audio_queue = audio_queue
         self.is_running = is_running
         self.vad = create_new_vad_model()
-        # self.te_model = te_model
-        # self.asr_model = asr_model
         #self.speak_via_meet = speak_via_meet
-        # self.asr_model = asr_model # Модель больше не нужна локально, используем WS
         self.email = email
         self.start_time = time.time()
 
         self.global_offset = 0.0
         self.all_segments = []
 
-        self.summary_output_dir = SUMMARY_OUTPUT_DIR # Директория сохранения summary
+        self.summary_output_dir = SUMMARY_OUTPUT_DIR
         self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.meeting_id 
 
         self.send_chat_message = send_chat_message
@@ -184,116 +181,137 @@ class AudioHandler:
     def _process_audio_stream(self):
         threading.current_thread().name = f'VADProcessor-{self.meeting_id}'
         logger.info(f"[{self.meeting_id}] VAD процессор запущен (Silero).")
-        
+
         # Инициализируем соединение при старте потока
         self._connect_websocket()
 
-        vad_buffer = None
         VAD_CHUNK_SIZE = 512
-        speech_buffer_for_asr = []
+        STREAM_SR = 16000
+        CHUNK_DURATION_MS = (VAD_CHUNK_SIZE / STREAM_SR) * 1000
+
+        VAD_THRESHOLD = 0.3
+        SILENCE_DURATION_MS = 600
+        MIN_SPEECH_DURATION_S = 0.5
+        MAX_SPEECH_DURATION_S = 15.0
+
+        vad_buffer = deque(maxlen=VAD_CHUNK_SIZE * 8)
+
+        speech_buffer_for_asr = [] 
+        recent_probs = deque(maxlen=3)
+
         is_speaking = False
-        recent_probs = collections.deque(maxlen=3)                    # для сглаживания
-
-        # Настройки
-        vad_threshold = 0.3                   # вероятность речи
-        silence_duration_ms = 600             # сколько тишины нужно для конца речи
-        min_speech_duration = 0.5             # минимальная длина речи
- 
-        chuck_duration = (VAD_CHUNK_SIZE / STREAM_SAMPLE_RATE) * 1000 # ------------------------------------ ПРОВЕРИТЬ НУЖНО ЛИ ЭТО
-        MAX_SPEECH_DURATION_S = 15.0          # Максимальная длина речи перед принудительной отправкой
-        sr = STREAM_SAMPLE_RATE
-
-        silence_accum_ms = 0
+        silence_accum_ms = 0.0
         speech_start_walltime = None
-
-        # Таймер для всего пайплайна обработки речи
-        pipeline_start_time = None
 
         while self.is_running.is_set():
             try:
-                audio_frame_bytes = self.audio_queue.get(timeout=1)
+                audio_frame_bytes = self.audio_queue.get(timeout=1.0)
                 if not audio_frame_bytes:
                     continue
 
                 audio_np = np.frombuffer(audio_frame_bytes, dtype=np.int16)
-                audio_float = audio_np.astype(np.float32) * (1.0 / 32768.0)
-                new_audio_tensor = torch.from_numpy(audio_float)
+                audio_float = audio_np.astype(np.float32) / 32768.0
 
-                if vad_buffer is None:
-                    vad_buffer = new_audio_tensor
-                else:
-                    vad_buffer = torch.cat([vad_buffer, new_audio_tensor])
+                vad_buffer.extend(audio_float)
 
-                while vad_buffer is not None and vad_buffer.shape[0] >= VAD_CHUNK_SIZE:
-                    chunk_to_process = vad_buffer[:VAD_CHUNK_SIZE]
-                    vad_buffer = vad_buffer[VAD_CHUNK_SIZE:]
+                while len(vad_buffer) >= VAD_CHUNK_SIZE:
+                    chunk_list = list(vad_buffer)[:VAD_CHUNK_SIZE]
+                    chunk_to_process_np = np.array(chunk_list, dtype=np.float32)
 
-                    speech_prob = self.vad(chunk_to_process, STREAM_SAMPLE_RATE).item()
+                    for _ in range(VAD_CHUNK_SIZE):
+                        vad_buffer.popleft()
+
+                    chunk_tensor = torch.from_numpy(chunk_to_process_np)
+
+                    speech_prob = self.vad(chunk_tensor, STREAM_SR).item()
 
                     recent_probs.append(speech_prob)
-                    smooth_prob = sum(recent_probs) / len(recent_probs)
+                    if len(recent_probs) > 0:
+                        smooth_prob = sum(recent_probs) / len(recent_probs)
+                    else:
+                        smooth_prob = 0.0
 
                     now = time.time()
                     meeting_elapsed_sec = now - self.start_time
 
-                    if smooth_prob > vad_threshold:
+                    if smooth_prob > VAD_THRESHOLD:
                         if not is_speaking:
                             logger.info(f"[{self.meeting_id}] Начало речи")
                             is_speaking = True
                             speech_start_walltime = meeting_elapsed_sec
-                            pipeline_start_time = time.time()
 
-                        speech_buffer_for_asr.append(chunk_to_process.numpy())
-                        silence_accum_ms = 0
-                        
-                        # --- ПРОВЕРКА НА МАКСИМАЛЬНУЮ ДЛИТЕЛЬНОСТЬ ---
-                        current_duration_s = (len(speech_buffer_for_asr) * VAD_CHUNK_SIZE) / sr
-                        if current_duration_s >= MAX_SPEECH_DURATION_S:
-                            logger.info(f"[{self.meeting_id}] ✂️ Принудительная отсечка речи по тайм-ауту ({MAX_SPEECH_DURATION_S}с)")
-                            
-                            # Рассчитываем конец текущего куска
-                            speech_end_walltime = speech_start_walltime + current_duration_s
-                            
-                            # Обрабатываем накопленный буфер
-                            self._process_speech_buffer(speech_buffer_for_asr, speech_start_walltime, speech_end_walltime, min_speech_duration)
-                            
-                            # Очищаем буфер и обновляем начало следующего куска
+                        speech_buffer_for_asr.append(chunk_to_process_np)
+                        silence_accum_ms = 0.0
+
+                        current_speech_duration_s = len(speech_buffer_for_asr) * (VAD_CHUNK_SIZE / STREAM_SR)
+                        if current_speech_duration_s >= MAX_SPEECH_DURATION_S:
+                            logger.info(
+                                f"[{self.meeting_id}] Принудительная отсечка речи по тайм-ауту "
+                                f"({MAX_SPEECH_DURATION_S}с)"
+                            )
+
+                            speech_end_walltime = speech_start_walltime + current_speech_duration_s
+                            self._process_speech_buffer(
+                                speech_buffer_for_asr,
+                                speech_start_walltime,
+                                speech_end_walltime,
+                                MIN_SPEECH_DURATION_S
+                            )
+
                             speech_buffer_for_asr.clear()
-                            speech_start_walltime = speech_end_walltime # Следующий кусок начинается сразу
-                            # is_speaking остается True, так как мы все еще в блоке "речь идет"
+                            speech_start_walltime = speech_end_walltime
 
                     else:
                         if is_speaking:
-                            silence_accum_ms += chuck_duration
-                            if silence_accum_ms >= silence_duration_ms:
+                            silence_accum_ms += CHUNK_DURATION_MS
 
+                            if silence_accum_ms >= SILENCE_DURATION_MS:
                                 if speech_buffer_for_asr:
-                                    chunk_duration = (len(speech_buffer_for_asr) * VAD_CHUNK_SIZE) / sr
-                                    speech_end_walltime = speech_start_walltime + chunk_duration
-                                    
-                                    self._process_speech_buffer(speech_buffer_for_asr, speech_start_walltime, speech_end_walltime, min_speech_duration)
+                                    actual_duration_s = len(speech_buffer_for_asr) * (VAD_CHUNK_SIZE / STREAM_SR)
+                                    speech_end_walltime = speech_start_walltime + actual_duration_s
+
+                                    self._process_speech_buffer(
+                                        speech_buffer_for_asr,
+                                        speech_start_walltime,
+                                        speech_end_walltime,
+                                        MIN_SPEECH_DURATION_S
+                                    )
                                     speech_buffer_for_asr.clear()
 
+                                logger.info(f"[{self.meeting_id}] Конец речи (тишина {silence_accum_ms:.0f} мс)")
                                 is_speaking = False
-                                silence_accum_ms = 0
-                                pipeline_start_time = None
+                                silence_accum_ms = 0.0
+                                speech_start_walltime = None
+
             except queue.Empty:
+                # Если очередь пуста, но есть накопленная речь → принудительно завершаем
                 if is_speaking and speech_buffer_for_asr:
-                    logger.info(f"[{self.meeting_id}] Тайм-аут, обрабатываем оставшуюся речь.")
-                    chunk_duration = (len(speech_buffer_for_asr) * VAD_CHUNK_SIZE) / sr
-                    speech_end_walltime = speech_start_walltime + chunk_duration
-                    self._process_speech_buffer(speech_buffer_for_asr, speech_start_walltime, speech_end_walltime, min_speech_duration)
+                    logger.info(f"[{self.meeting_id}] Тайм-аут очереди — обрабатываем остаток речи")
+                    actual_duration_s = len(speech_buffer_for_asr) * (VAD_CHUNK_SIZE / STREAM_SR)
+                    speech_end_walltime = speech_start_walltime + actual_duration_s
+
+                    self._process_speech_buffer(
+                        speech_buffer_for_asr,
+                        speech_start_walltime,
+                        speech_end_walltime,
+                        MIN_SPEECH_DURATION_S
+                    )
                     speech_buffer_for_asr.clear()
                     is_speaking = False
+                    silence_accum_ms = 0.0
+                    speech_start_walltime = None
+
                 continue
+
             except Exception as e:
                 logger.error(f"[{self.meeting_id}] Ошибка в цикле VAD: {e}", exc_info=True)
-        
-        # Закрываем сокет
+
+        # Cleanup
+        logger.info(f"[{self.meeting_id}] VAD процессор завершает работу")
         if self.ws_connection:
             try:
                 self.ws_connection.close()
-            except:
+            except Exception:
                 pass
 
     # Постобработка: суммаризация -- генерация заголовка -- отправка результатов на внешний сервер

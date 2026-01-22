@@ -44,9 +44,7 @@ def create_new_vad_model():
 def load_asr_model():
     try:
         local_model_dir = "/app/whisper"
-        asr_model = WhisperModel(local_model_dir)
-        asr_model.to(device)
-        print(device)
+        asr_model = WhisperModel(local_model_dir, device = "cuda")
     except Exception as e:
         print(f"Произошла ошибка с загрузкой модели. {e}")
         asr_model = None

@@ -6,6 +6,7 @@ on:
   push:
     branches:
       - run-runpod
+  workflow_dispatch:
 
 env:
   RUNPOD_TEMPLATE_ID_PROD: "9ctlpzknh8"

@@ -29,6 +29,8 @@ from dotenv import load_dotenv
 
 load_dotenv() 
 
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
 # Создает и возвращает НОВЫЙ, ИЗОЛИРОВАННЫЙ экземпляр VAD-модели Silero. Использует кэш, чтобы не скачивать модель каждый раз..
 def create_new_vad_model():
     print("Создание нового экземпляра VAD-модели из кэша...")
@@ -42,8 +44,9 @@ def create_new_vad_model():
 def load_asr_model():
     try:
         local_model_dir = "/app/whisper"
-        asr_model = WhisperModel(local_model_dir, device="cuda")
-        
+        asr_model = WhisperModel(local_model_dir)
+        asr_model.to(device)
+        print(device)
     except Exception as e:
         print(f"Произошла ошибка с загрузкой модели. {e}")
         asr_model = None

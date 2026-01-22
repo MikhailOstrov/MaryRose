@@ -31,7 +31,6 @@ def ensure_dirs_exist():
     for path in [USER_DATA_DIR, MEETINGS_DIR, CHROME_PROFILE_DIR, MEET_AUDIO_CHUNKS_DIR]:
         path.mkdir(parents=True, exist_ok=True)
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 hf_token = os.getenv("HUGGING_FACE_HUB_TOKEN")
 
 # Клиент от OpenAI моделей

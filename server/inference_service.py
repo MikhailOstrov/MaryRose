@@ -76,6 +76,7 @@ def run_inference_sync(audio_float32: np.ndarray) -> str:
                 beam_size=1,
                 temperature=0.0,
                 best_of=1,
+                language="ru",
                 vad_filter=False,
                 condition_on_previous_text=False,
                 word_timestamps=False,

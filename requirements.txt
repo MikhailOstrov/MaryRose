@@ -45,3 +45,4 @@ packaging
 Cython
 simpleaudio
 openai>=1.99.6
+zipp>=3.19.1 # not directly required, pinned by Snyk to avoid a vulnerability

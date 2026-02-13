@@ -328,24 +328,24 @@ class AudioHandler:
             # Очистка диалога от временных меток
             cleaned_dialogue = re.sub(r"\[\d{2}:\d{2}:\d{2}\s*-\s*\d{2}:\d{2}:\d{2}\]\s*", "", full).strip()
 
-            summary_text = ""
-            title_text = ""
+            # summary_text = ""
+            # title_text = ""
             
-            if cleaned_dialogue:
-                # Суммаризация
-                logger.info(f"[{self.meeting_id}] Создание резюме...")
-                summary_text = get_summary_response(cleaned_dialogue)
-                print(f"Это вывод summary: \n{summary_text}")
+            # if cleaned_dialogue:
+            #     # Суммаризация
+            #     logger.info(f"[{self.meeting_id}] Создание резюме...")
+            #     summary_text = get_summary_response(cleaned_dialogue)
+            #     print(f"Это вывод summary: \n{summary_text}")
                 
-                # Генерация заголовка
-                logger.info(f"[{self.meeting_id}] Создание заголовка...")
-                title_text = get_title_response(cleaned_dialogue)
-                print(f"Это вывод заголовка: \n{title_text}")
+            #     # Генерация заголовка
+            #     logger.info(f"[{self.meeting_id}] Создание заголовка...")
+            #     title_text = get_title_response(cleaned_dialogue)
+            #     print(f"Это вывод заголовка: \n{title_text}")
 
-                # Отправка результатов на внешний сервер
-                send_results_to_backend(self.meeting_id, full, summary_text, title_text, int(meeting_elapsed_sec))
-            else:
-                logger.warning(f"[{self.meeting_id}] Диалог пуст, пропускаю создание резюме и заголовка.")
+            #     # Отправка результатов на внешний сервер
+                # send_results_to_backend(self.meeting_id, full, summary_text, title_text, int(meeting_elapsed_sec))
+            # else:
+            #     logger.warning(f"[{self.meeting_id}] Диалог пуст, пропускаю создание резюме и заголовка.")
             
 
         except Exception as e:

@@ -8,16 +8,12 @@ from typing import Optional
 def send_results_to_backend(
     meeting_id: int,
     full_text: str,
-    summary: str,
-    title: str,
     meeting_elapsed_sec: Optional[int] = None
 ):
     """Отправляет результаты обработки митинга (текст, саммари, заголовок) на основной бэкенд."""
     
     logger.info(f"[{meeting_id}] Отправляю результаты на backend...")
     logger.info(f"[{meeting_id}] Full text: {full_text}")
-    logger.info(f"[{meeting_id}] Summary: {summary}")
-    logger.info(f"[{meeting_id}] Title: {title}")
     logger.info(f"[{meeting_id}] Meeting elapsed sec: {meeting_elapsed_sec}")
     try:
         meeting_id_int = int(meeting_id) if isinstance(meeting_id, str) else meeting_id
@@ -25,8 +21,6 @@ def send_results_to_backend(
         payload = {
             "meeting_id": meeting_id_int,
             "full_text": full_text,
-            "summary": summary,
-            "title": title,
         }
         if meeting_elapsed_sec is not None:
             payload["duration_seconds"] = meeting_elapsed_sec

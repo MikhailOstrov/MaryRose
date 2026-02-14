@@ -42,6 +42,7 @@ class MeetListenerBot:
         self.is_running.set()
         self.output_dir = MEET_AUDIO_CHUNKS_DIR / self.meeting_id 
         self.joined_successfully = False 
+        self.participant_names: set[str] = set()
 
         self.frame_size = int(STREAM_SAMPLE_RATE * MEET_FRAME_DURATION_MS / 1000) # Для VAD-модели (длительность чанка)
         
@@ -169,8 +170,83 @@ class MeetListenerBot:
                 self.stop()
                 return
 
-    
-    
+    def _handle_blocking_dialogs(self):
+        """Проверяет и закрывает блокирующие диалоги (например, 'Others may see your video differently')."""
+        logger.info(f"[{self.meeting_id}] Проверка блокирующих диалогов...")
+        try:
+            confirm_btn_selectors = [
+                '//div[@role="dialog"]//button[@data-mdc-dialog-action="ok"]',
+                '//div[@role="dialog"]//button[.//span[text()="Got it"]]',
+                '//div[@role="dialog"]//button[.//span[text()="Понятно"]]',
+                '//div[@role="dialog"]//button[.//span[text()="OK"]]',
+            ]
+            for selector in confirm_btn_selectors:
+                try:
+                    btn = WebDriverWait(self.driver, 2).until(
+                        EC.element_to_be_clickable((By.XPATH, selector))
+                    )
+                    logger.info(f"[{self.meeting_id}] Найдено блокирующее окно. Нажимаю кнопку.")
+                    self.driver.execute_script("arguments[0].click();", btn)
+                    time.sleep(0.5)
+                    return
+                except Exception:
+                    continue
+            logger.info(f"[{self.meeting_id}] Блокирующих окон не обнаружено.")
+        except Exception as e:
+            logger.debug(f"[{self.meeting_id}] Ошибка при обработке диалогов: {e}")
+
+    def _monitor_participant_names(self):
+        """Каждые 20 секунд открывает панель участников, получает имена, закрывает панель."""
+        threading.current_thread().name = f'ParticipantNamesMonitor-{self.meeting_id}'
+        logger.info(f"[{self.meeting_id}] Мониторинг имён участников запущен.")
+        people_btn_xpath = "//button[.//i[text()='people'] and @aria-label]"
+
+        def _is_not_number(s: str) -> bool:
+            return not s.replace(".", "").replace("-", "").isdigit()
+
+        while self.is_running.is_set():
+            try:
+                try:
+                    self.driver.switch_to.window(self.driver.current_window_handle)
+                    self.driver.execute_script("window.focus();")
+                except Exception:
+                    pass
+                try:
+                    btn = self.driver.find_element(By.XPATH, people_btn_xpath)
+                    btn.click()
+                    time.sleep(0.8)
+                except Exception:
+                    pass
+
+                elements = self.driver.find_elements(By.CSS_SELECTOR, "div[data-participant-id] span.notranslate")
+                names = [
+                    el.text.strip()
+                    for el in elements
+                    if el.text and len(el.text.strip()) > 1 and _is_not_number(el.text.strip())
+                ]
+
+                try:
+                    btn = self.driver.find_element(By.XPATH, people_btn_xpath)
+                    btn.click()
+                except Exception:
+                    pass
+
+                if names:
+                    before = len(self.participant_names)
+                    self.participant_names.update(n for n in names if n)
+                    added = len(self.participant_names) - before
+                    if added > 0:
+                        logger.info(f"[{self.meeting_id}] Участники: {sorted(self.participant_names)} (+{added})")
+            except Exception as e:
+                logger.debug(f"[{self.meeting_id}] Ошибка получения имён: {e}")
+
+            for _ in range(4):
+                if not self.is_running.is_set():
+                    return
+                time.sleep(1)
+
+        logger.info(f"[{self.meeting_id}] Мониторинг имён участников остановлен.")
+
     # Инициализация драйвера для подключения
     def _initialize_driver(self):
         """Инициализирует Chrome WebDriver с использованием фиксированной версии драйвера из системы."""
@@ -442,27 +518,11 @@ class MeetListenerBot:
             
             # ОБНОВЛЕННЫЙ И НАДЕЖНЫЙ СПИСОК ИНДИКАТОРОВ УСПЕХА
             success_indicators = [
-                # Кнопка завершения звонка - самый надежный индикатор
-                '//button[@data-tooltip*="end call" or @aria-label*="end call" or @aria-label*="завершить"]',
-                # Кнопка списка участников, которая появляется только внутри встречи
                 "//button[.//i[text()='people'] and @aria-label]",
-                # Другие надежные элементы интерфейса
-                '//div[@data-self-name]', # Элемент с именем самого бота
-                '//div[contains(@class, "control") and (contains(@class, "bar") or contains(@class, "panel"))]', # Панель управления
-                '//button[@aria-label*="hand" or @aria-label*="рука" or @data-tooltip*="hand"]', # Кнопка "поднять руку"
-                # НОВЫЕ ИНДИКАТОРЫ
-                '//button[@jsname="CQylAd"]', # Кнопка завершения звонка по jsname
-                '//video[@src]', # Видео элемент (появляется только в активной встрече)
-                '//button[@aria-label*="Chat" or @aria-label*="Чат" or @data-tooltip*="chat"]', # Кнопка чата
-                # ДОПОЛНИТЕЛЬНЫЕ НОВЫЕ ИНДИКАТОРЫ
-                '//button[@jsname="PIVayb"]', # Альтернативный jsname для кнопки завершения
-                '//button[@aria-label*="microphone" or @aria-label*="микрофон"][@aria-label*="mute" or @aria-label*="unmute"]', # Кнопка микрофона
-                '//button[@aria-label*="camera" or @aria-label*="камера"][@aria-label*="turn"]', # Кнопка камеры
-                '//button[.//i[text()="call_end"]]', # Иконка завершения звонка
-                '//button[.//i[text()="videocam"]]', # Иконка камеры
-                '//button[.//i[text()="mic"]]', # Иконка микрофона
-                '//div[@role="toolbar"]//button[@aria-label]', # Кнопки в панели инструментов
-                '//div[@role="group"]//button[@aria-label]', # Кнопки в группе управления
+                '//div[contains(@class, "control") and (contains(@class, "bar") or contains(@class, "panel"))]',
+                '//button[@aria-label*="hand" or @aria-label*="рука" or @data-tooltip*="hand"]',
+                '//button[contains(@aria-label, "caption") or contains(@aria-label, "субтитр")]',
+                '//button[@aria-label="Start a chat with all participants"]'
             ]
             # ПОЛНЫЙ СПИСОК ИНДИКАТОРОВ ОШИБКИ
             error_indicators = [
@@ -478,11 +538,11 @@ class MeetListenerBot:
                     try:
                         if self.driver.find_element(By.XPATH, xpath).is_displayed():
                             self._save_screenshot("04_joined_successfully")
-                            logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! (индикатор #{i+1})")
+                            logger.info(f"[{self.meeting_id}] ✅ Успешно присоединился к встрече! Селектор: {xpath}")
                             self.joined_successfully = True
                             try:
                                 self.toggle_mic_hotkey()
-                                #self.speak_via_meet("Здравствуйте! Сейчас в чате появится инструкция. Прочтите её, пожалуйста!")
+                                self.toggle_captions()
                                 self.send_chat_message("""Инструкция по командам:
                                                        Обратитесь к Мэри по имени, чтобы она вас услышала.
                                                        Вы можете как добавить информацию ("Мэри, запиши...") так и найти информация
@@ -609,23 +669,25 @@ class MeetListenerBot:
             
             if self.joined_successfully:
                 logger.info(f"[{self.meeting_id}] Успешно вошел в конференцию, запускаю основные процессы.")
-
-                
+                self._handle_blocking_dialogs()
 
                 processor_thread = threading.Thread(target=self.audio_handler._process_audio_stream,name=f'VADProcessor-{self.meeting_id}')
                 monitor_thread = threading.Thread(target=self._monitor_participants, name=f'ParticipantMonitor-{self.meeting_id}')
                 capture_thread = threading.Thread(target=self._audio_capture_thread, name=f'AudioCapture-{self.meeting_id}')
                 remaining_seconds_thread = threading.Thread(target=self._monitor_remaining_seconds, name=f'RemainingSecondsMonitor-{self.meeting_id}')
+                names_thread = threading.Thread(target=self._monitor_participant_names, name=f'ParticipantNamesMonitor-{self.meeting_id}')
 
                 processor_thread.start()
                 monitor_thread.start()
                 capture_thread.start()
                 remaining_seconds_thread.start()
+                names_thread.start()
 
                 capture_thread.join()
                 processor_thread.join()
                 monitor_thread.join()
                 remaining_seconds_thread.join()
+                names_thread.join()
                 
                 logger.info(f"[{self.meeting_id}] Основные рабочие потоки завершены.")
             else:
@@ -655,49 +717,34 @@ class MeetListenerBot:
             # Обновленный и более надежный список селекторов для кнопки "Покинуть встречу",
             # основанный на предоставленных примерах HTML.
             leave_button_selectors = [
-                # 1. По атрибуту jsname - самый стабильный вариант.
-                '//button[@jsname="CQylAd"]',
-                
-                # 2. По иконке 'call_end' внутри кнопки.
+                '//button[@aria-label="Leave call"]',
                 '//button[.//i[text()="call_end"]]',
-
-                # 3. По частичному совпадению текста в aria-label (гибкий к изменениям).
                 '//button[contains(@aria-label, "Leave") or contains(@aria-label, "Покинуть")]',
-
-                # 4. По тексту всплывающей подсказки (tooltip), как вы и указали.
-                #    Этот метод ищет текст "Leave a video meeting" или "Покинуть видеовстречу"
-                #    внутри элемента-подсказки и выбирает кнопку, которая находится рядом.
                 '//div[@role="tooltip" and (contains(., "Leave a video meeting") or contains(., "Покинуть видеовстречу"))]/preceding-sibling::button',
-                
-                # 5. Резервный вариант по другим атрибутам.
-                '//button[@jscontroller="PIVayb"]',
-                '//button[contains(@class, "VYBDae-Bz112c-LgbsSe")]'
             ]
             
             button_found = False
             for selector in leave_button_selectors:
                 try:
 
-                    leave_button = WebDriverWait(self.driver, 3).until(
+                    leave_button = WebDriverWait(self.driver, 1).until(
                         EC.element_to_be_clickable((By.XPATH, selector))
                     )
                     
                     self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", leave_button)
                     time.sleep(0.5)
+                    self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", leave_button)
+                    time.sleep(0.2)
                     leave_button.click()
-                    
                     logger.info(f"[{self.meeting_id}] ✅ Кнопка 'Покинуть встречу' успешно нажата (селектор: {selector})")
                     button_found = True
                     break
-                    
                 except Exception as e:
                     logger.debug(f"[{self.meeting_id}] Селектор '{selector}' не сработал: {e}")
                     continue
-            
             if not button_found:
-                logger.warning(f"[{self.meeting_id}] ⚠️ Не удалось найти кнопку 'Покинуть встречу' ни одним из селекторов.")
-            
-            time.sleep(2)
+                logger.warning(f"[{self.meeting_id}] ⚠️ Не удалось найти кнопку 'Покинуть встречу'.")
+            time.sleep(1)
             
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Ошибка при попытке покинуть встречу: {e}")
@@ -714,6 +761,13 @@ class MeetListenerBot:
 
         if self.joined_successfully:
             self._leave_meeting()
+
+        if self.participant_names:
+            names_list = sorted(self.participant_names)
+            logger.info(f"[{self.meeting_id}] --- Участники встречи ({len(names_list)}) ---")
+            for name in names_list:
+                logger.info(f"[{self.meeting_id}]   • {name}")
+            logger.info(f"[{self.meeting_id}] ---------------------------------")
         
         if self.joined_successfully:
             logger.info(f"[{self.meeting_id}] Инициализация потока постобработки...")
@@ -760,38 +814,61 @@ class MeetListenerBot:
                     EC.presence_of_element_located((By.XPATH, '//textarea[contains(@aria-label, "Send a message")]'))
                 )
                 logger.info(f"[{self.meeting_id}] Панель чата уже открыта.")
-            except:
+            except Exception:
                 logger.info(f"[{self.meeting_id}] Панель чата закрыта, открываю...")
-                chat_button_xpath = '//button[contains(@aria-label, "Chat with everyone") or contains(@aria-label, "Чат со всеми")]'
+                chat_button_xpath = '//button[@aria-label="Start a chat with all participants" or contains(@aria-label, "Chat with everyone") or contains(@aria-label, "Чат со всеми")]'
                 chat_button = WebDriverWait(self.driver, 4).until(
                     EC.element_to_be_clickable((By.XPATH, chat_button_xpath))
                 )
-                
-                # ИСПОЛЬЗУЕМ JAVASCRIPT CLICK
                 self.driver.execute_script("arguments[0].click();", chat_button)
+                time.sleep(2)
 
-            # --- Шаг 2: Найти поле ввода, ввести текст и отправить ---
             textarea_xpath = '//textarea[contains(@aria-label, "Send a message") or contains(@aria-label, "Отправить сообщение")]'
             message_input = WebDriverWait(self.driver, 4).until(
                 EC.element_to_be_clickable((By.XPATH, textarea_xpath))
             )
 
             message_input.clear()
-            message_input.send_keys(message)
-            time.sleep(0.2)
-
-            send_button_xpath = '//button[contains(@aria-label, "Send a message") or contains(@aria-label, "Отправить сообщение")][.//i[text()="send"]]'
-            send_button = WebDriverWait(self.driver, 4).until(
-                EC.element_to_be_clickable((By.XPATH, send_button_xpath))
-            )
-            
-            # ИСПОЛЬЗУЕМ JAVASCRIPT CLICK
-            self.driver.execute_script("arguments[0].click();", send_button)
+            lines = message.split('\n')
+            for i, line in enumerate(lines):
+                message_input.send_keys(line)
+                if i < len(lines) - 1:
+                    ActionChains(self.driver).key_down(Keys.SHIFT).send_keys(Keys.ENTER).key_up(Keys.SHIFT).perform()
+            time.sleep(0.3)
+            message_input.send_keys(Keys.RETURN)
             logger.info(f"[{self.meeting_id}] ✅ Сообщение в чат успешно отправлено.")
 
         except Exception as e:
             logger.error(f"[{self.meeting_id}] ❌ Не удалось отправить сообщение в чат: {e}", exc_info=True)
             self._save_screenshot("99_chat_send_error")
+
+    def toggle_captions(self):
+        """Переключает субтитры в Meet. Сначала горячая клавиша c, затем клик по кнопке."""
+        try:
+            try:
+                self.driver.execute_script("window.focus();")
+            except Exception:
+                pass
+            try:
+                body = self.driver.find_element(By.TAG_NAME, 'body')
+                body.click()
+            except Exception:
+                pass
+            ActionChains(self.driver).send_keys('c').perform()
+            logger.info(f"[{self.meeting_id}] Отправлена горячая клавиша c (toggle captions)")
+            return
+        except Exception as e:
+            logger.debug(f"[{self.meeting_id}] Горячая клавиша c не сработала: {e}")
+        captions_xpath = '//button[.//i[contains(text(), "closed_caption")]]'
+        try:
+            btn = WebDriverWait(self.driver, 3).until(
+                EC.element_to_be_clickable((By.XPATH, captions_xpath))
+            )
+            self.driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn)
+            btn.click()
+            logger.info(f"[{self.meeting_id}] Кнопка субтитров нажата")
+        except Exception as e:
+            logger.warning(f"[{self.meeting_id}] Не удалось переключить субтитры: {e}")
 
     def toggle_mic_hotkey(self):
         """Простая эмуляция Ctrl+D для переключения микрофона в Meet.

@@ -760,6 +760,7 @@ class MeetListenerBot:
         self.is_running.clear()
 
         if self.joined_successfully:
+            self._handle_blocking_dialogs()
             self._leave_meeting()
 
         if self.participant_names:
